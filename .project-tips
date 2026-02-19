@@ -1,0 +1,9 @@
+# odoo-dev | python/uv
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▸ Setup:    uv venv && venv+ && uv pip install -e ".[dev]"
+▸ Run:      odoodev --help
+▸ Test:     pytest
+▸ Lint:     ruff check . && ruff format --check .
+▸ Format:   ruff check --fix . && ruff format .
+▸ Types:    mypy odoodev
+▸ Build:    uv build
