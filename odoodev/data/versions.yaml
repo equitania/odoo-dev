@@ -1,0 +1,80 @@
+# odoodev Version Registry
+# Central configuration for all supported Odoo versions.
+# Override per-user: ~/.config/odoodev/versions-override.yaml
+
+versions:
+  "16":
+    python: "3.12"
+    postgres: "16.11-alpine"
+    ports:
+      db: 16432
+      odoo: 16069
+      gevent: 16072
+      mailpit: 16025
+      smtp: 11025
+    paths:
+      base: "~/gitbase/v16"
+      server_subdir: "v16-server"
+      dev_subdir: "v16-dev"
+      native_subdir: "dev16_native"
+      conf_subdir: "conf"
+    git:
+      server_url: "git@gitlab.ownerp.io:v16-odoo/v16-server.git"
+      branch: "develop"
+
+  "17":
+    python: "3.12"
+    postgres: "16.11-alpine"
+    ports:
+      db: 17432
+      odoo: 17069
+      gevent: 17072
+      mailpit: 17025
+      smtp: 11725
+    paths:
+      base: "~/gitbase/v17"
+      server_subdir: "v17-server"
+      dev_subdir: "v17-dev"
+      native_subdir: "dev17_native"
+      conf_subdir: "conf"
+    git:
+      server_url: "git@gitlab.ownerp.io:v17/v17-server.git"
+      branch: "develop"
+
+  "18":
+    python: "3.12"
+    postgres: "16.11-alpine"
+    ports:
+      db: 15432
+      odoo: 18069
+      gevent: 18072
+      mailpit: 18025
+      smtp: 1025
+    paths:
+      base: "~/gitbase/v18"
+      server_subdir: "v18-server"
+      dev_subdir: "v18-dev"
+      native_subdir: "dev18_native"
+      conf_subdir: "conf"
+    git:
+      server_url: "git@gitlab.ownerp.io:v18/v18-server.git"
+      branch: "develop"
+
+  "19":
+    python: "3.13"
+    postgres: "17.4-alpine"
+    ports:
+      db: 19432
+      odoo: 19069
+      gevent: 19072
+      mailpit: 19025
+      smtp: 1925
+    paths:
+      base: "~/gitbase/v19"
+      server_subdir: "v19-server"
+      dev_subdir: "v19-dev"
+      native_subdir: "dev19_native"
+      conf_subdir: "conf"
+    git:
+      server_url: "git@gitlab.ownerp.io:v19/v19-server.git"
+      branch: "develop"
