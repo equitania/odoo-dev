@@ -12,7 +12,7 @@
 
 ### Projektübersicht
 
-**odoodev** ist ein einheitliches CLI-Tool für die Verwaltung nativer Odoo-Entwicklungsumgebungen über mehrere Versionen hinweg (v16–v19). Es bietet vollständiges Lifecycle-Management für Odoo-Entwicklung, einschließlich Umgebungseinrichtung, Repository-Verwaltung, Datenbankoperationen und Docker-Service-Orchestrierung.
+**odoodev** ist ein einheitliches CLI-Tool für die Verwaltung nativer Odoo-Entwicklungsumgebungen über mehrere Versionen hinweg (v16–v19). Es ersetzt eine Vielzahl manueller Skripte, Shell-Funktionen und Konfigurationsdateien durch ein konsistentes Werkzeug mit vollständigem Lifecycle-Management.
 
 **Hauptfunktionen:**
 - Multi-Version Support (v16, v17, v18, v19)
@@ -24,12 +24,51 @@
 - Shell-Integration (Fish, Bash, Zsh)
 - Odoo-Konfigurationsgenerierung mit Template-System
 
-### Voraussetzungen
+### Voraussetzungen und Dateien
 
-- Python ≥ 3.10
-- [UV](https://docs.astral.sh/uv/) Package Manager
-- Docker & Docker Compose V2
-- Git mit SSH-Zugang
+#### Systemvoraussetzungen im Detail
+
+| Tool | Prüfung | Pflicht | Anmerkung |
+|------|---------|---------|-----------|
+| UV | `uv --version` | Ja | Python-Paketmanager — ersetzt pip |
+| Docker | `docker info` | Ja | Für PostgreSQL- und Mailpit-Container |
+| Docker Compose V2 | `docker compose version` | Ja | Service-Orchestrierung |
+| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/opt/homebrew/bin`, Linux: `/usr/local/bin` |
+| PostgreSQL-Tools | `pg_dump`, `psql` | Für DB-Operationen | macOS: `/opt/homebrew/opt/libpq/bin` |
+| Git | SSH-Zugang | Ja | Für Repository-Klonen |
+| Python-Pakete | babel, psycopg2, lxml, PIL, werkzeug, dateutil | Ja | In .venv via requirements.txt |
+
+Installation der Systemvoraussetzungen:
+```bash
+# macOS
+brew install uv wkhtmltopdf
+brew install libpq && brew link libpq --force
+
+# Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo apt-get install -y wkhtmltopdf postgresql-client
+```
+
+#### Vom Benutzer bereitzustellende Dateien
+
+| Datei | Pfad | Zweck |
+|-------|------|-------|
+| `repos.yaml` | `vXX-dev/scripts/repos.yaml` | Definiert alle zu klonenden Repositories |
+| `requirements.txt` | `vXX-dev/devXX_native/requirements.txt` | Python-Abhängigkeiten für Odoo |
+| `odoo_template.conf` | `vXX-dev/conf/odooXX_template.conf` | Template für Odoo-Konfigurationsgenerierung |
+| SSH-Keys | `~/.ssh/id_rsa` (oder via repos.yaml konfigurierbar) | Zugang zu privaten Git-Repositories |
+
+Diese Dateien sind **projektspezifisch** und werden nicht von odoodev generiert. Sie müssen im jeweiligen Versions-Repository vorhanden sein.
+
+#### Von odoodev generierte Dateien
+
+| Datei | Befehl | Zweck |
+|-------|--------|-------|
+| `.env` | `odoodev env setup` | Umgebungsvariablen (Ports, Credentials, Pfade) |
+| `docker-compose.yml` | `odoodev init` | Docker-Services (PostgreSQL, Mailpit) |
+| `.venv/` | `odoodev venv setup` | Python Virtual Environment via UV |
+| `odoo_YYMMDD.conf` | `odoodev repos` | Odoo-Konfiguration mit addons_path |
+| `odoodev-activate.fish/.sh` | `odoodev shell-setup` | Shell-Integration |
 
 ### Installation
 
@@ -44,6 +83,73 @@ uv venv && source .venv/bin/activate.fish  # Fish
 
 # Paket installieren (mit Entwicklungsabhängigkeiten)
 uv pip install -e ".[dev]"
+```
+
+### Verzeichnisstruktur im Detail
+
+Vollständige Darstellung aller Verzeichnisse und Dateien mit Markierung, was odoodev generiert vs. was vorhanden sein muss:
+
+```
+~/gitbase/vXX/
+├── vXX-server/                      # [REPOS] Git-Clone des Odoo-Servers
+│   ├── odoo-bin                     # Odoo-Executable (von odoodev start erwartet)
+│   ├── odoo/addons/                 # Core-Addons
+│   └── addons/                      # Standard-Addons
+├── vXX-dev/
+│   ├── devXX_native/                # [INIT] Erstellt von odoodev
+│   │   ├── .env                     # [GENERATED] odoodev env setup
+│   │   ├── docker-compose.yml       # [GENERATED] odoodev init
+│   │   ├── .venv/                   # [GENERATED] odoodev venv setup
+│   │   └── requirements.txt         # [MANUELL] Muss vorhanden sein!
+│   ├── conf/
+│   │   └── odooXX_template.conf     # [MANUELL] Template fuer Config-Generierung
+│   └── scripts/
+│       └── repos.yaml               # [MANUELL] Repository-Definitionen
+├── myconfs/                         # [GENERATED] odoodev repos
+│   └── odoo_YYMMDD.conf            # Generierte Odoo-Konfiguration
+├── vXX-addons/                      # [REPOS] Geklont von odoodev repos
+├── vXX-oca/                         # [REPOS] Geklont von odoodev repos
+└── ...weitere Addon-Repos...        # [REPOS] Gemaess repos.yaml
+```
+
+**Legende:**
+- `[GENERATED]` — Wird von odoodev automatisch erzeugt
+- `[REPOS]` — Wird von `odoodev repos` per git clone erstellt
+- `[INIT]` — Verzeichnis wird von `odoodev init` angelegt
+- `[MANUELL]` — Muss vom Benutzer bereitgestellt werden
+
+### Datenfluss
+
+Der komplette Workflow von der Initialisierung bis zum Server-Start:
+
+```
+odoodev init
+    ├── Verzeichnisse anlegen (devXX_native/)
+    ├── .env generieren (aus Jinja2-Template + versions.yaml)
+    ├── docker-compose.yml generieren (PostgreSQL + Mailpit)
+    ├── .venv erstellen (UV + requirements.txt)
+    └── repos ausfuehren (optional, --skip-repos ueberspringt)
+            │
+            ├── repos.yaml laden
+            ├── SSH-Zugang pruefen
+            ├── git clone/pull fuer alle Repositories
+            └── odoo_YYMMDD.conf generieren
+                    │
+                    ├── Template lesen (odooXX_template.conf)
+                    ├── addons_path aus Repo-Pfaden zusammenbauen
+                    │   (gruppiert nach: Odoo, OCA, Enterprise,
+                    │    Syscoon, 3rd-party, Equitania, Customer, Other)
+                    └── Config in myconfs/ speichern
+
+odoodev start
+    ├── .env laden (DB_PORT, PGUSER, ODOO_PORT...)
+    ├── Voraussetzungen pruefen:
+    │   ├── .venv vorhanden?
+    │   ├── odoo-bin vorhanden?
+    │   ├── odoo_*.conf vorhanden?
+    │   └── PostgreSQL-Port erreichbar?
+    ├── requirements.txt Freshness pruefen (SHA256)
+    └── odoo-bin starten (mit odoo_YYMMDD.conf)
 ```
 
 ### Verwendung
@@ -158,14 +264,142 @@ odoodev docker status 18
 odoodev docker logs 18 -f
 ```
 
+### repos.yaml Format
+
+Die Datei `repos.yaml` steuert, welche Repositories geklont und wie sie in der Odoo-Konfiguration organisiert werden. Erwartet unter `vXX-dev/scripts/repos.yaml`:
+
+```yaml
+version: "18"
+branch: "develop"
+ssh_key: "~/.ssh/id_rsa"
+
+paths:
+  base: ~/gitbase/v18
+  template: ~/gitbase/v18/v18-dev/conf/odoo18_template.conf
+  config_dir: ~/gitbase/v18/myconfs
+
+base_addons:
+  - $HOME/gitbase/v18/v18-server/odoo/addons
+  - $HOME/gitbase/v18/v18-server/addons
+
+addons:
+  - key: eq_module
+    path: v18-addons
+    git_url: git@gitlab.ownerp.io:v18/v18-addons.git
+    section: Equitania       # Odoo|OCA|Enterprise|Syscoon|3rd-party|Equitania|Customer|Other
+    commented: false          # false=aktiv, true=auskommentiert in odoo.conf
+    suffix: ""                # Unterverzeichnis fuer Module (z.B. /modules)
+
+customers:
+  - key: v18-customer
+    path: v18-customer
+    git_url: git@gitlab.ownerp.io:customer/v18-customer.git
+    section: Customer
+    commented: true           # Auskommentiert in odoo.conf bis aktiviert
+```
+
+**Felder-Referenz:**
+
+| Feld | Pflicht | Beschreibung |
+|------|---------|--------------|
+| `version` | Ja | Odoo-Version (z.B. "18") |
+| `branch` | Ja | Git-Branch fuer alle Repositories |
+| `ssh_key` | Nein | Pfad zum SSH-Key (Standard: System-Default) |
+| `paths.base` | Ja | Basis-Verzeichnis der Odoo-Version |
+| `paths.template` | Ja | Pfad zum odoo_template.conf |
+| `paths.config_dir` | Ja | Zielverzeichnis fuer generierte Configs |
+| `base_addons` | Ja | Odoo Core- und Standard-Addon-Pfade |
+| `addons[].key` | Ja | Eindeutiger Identifier fuer das Repository |
+| `addons[].path` | Ja | Zielverzeichnis (relativ zu paths.base) |
+| `addons[].git_url` | Ja | Git-Repository-URL |
+| `addons[].section` | Nein | Gruppierung in odoo.conf (Standard: "Other") |
+| `addons[].commented` | Nein | true = als Kommentar in odoo.conf (Standard: false) |
+| `addons[].suffix` | Nein | Unterverzeichnis-Suffix fuer addons_path |
+
+**Sektionen im addons_path** (Reihenfolge in generierter odoo.conf):
+1. Odoo (Core)
+2. OCA
+3. Enterprise
+4. Syscoon
+5. 3rd-party
+6. Equitania
+7. Customer
+8. Other
+
+**Repository-Abschnitte in repos.yaml:** `addons`, `additional`, `special`, `customers` — alle werden identisch verarbeitet.
+
 ### Unterstützte Versionen
 
-| Version | Python | PostgreSQL | DB Port | Odoo Port |
-|---------|--------|------------|---------|-----------|
-| v16 | 3.12 | 16.11 | 16432 | 16069 |
-| v17 | 3.12 | 16.11 | 17432 | 17069 |
-| v18 | 3.12 | 16.11 | 18432 | 18069 |
-| v19 | 3.13 | 17.4 | 19432 | 19069 |
+| Version | Python | PostgreSQL | DB Port | Odoo Port | Gevent | Mailpit | SMTP |
+|---------|--------|------------|---------|-----------|--------|---------|------|
+| v16 | 3.12 | 16.11 | 16432 | 16069 | 16072 | 16025 | 11025 |
+| v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 | 11725 |
+| v18 | 3.12 | 16.11 | 18432 | 18069 | 18072 | 18025 | 1025 |
+| v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 | 1925 |
+
+Port-Schema: `{version}{service}` — z.B. v18: DB=18432, Odoo=18069, Gevent=18072
+
+### Obsolete Komponenten
+
+odoodev ersetzt folgende Artefakte aus den bestehenden vXX-dev Repositories:
+
+| Obsolete Datei/Komponente | Ersetzt durch | Anmerkung |
+|---------------------------|---------------|-----------|
+| `start-native.sh` | `odoodev start` | Alle Startmodi abgedeckt (dev, shell, test, prepare) |
+| `.env.template` | `odoodev env setup` | Template ist im Tool integriert (Jinja2) |
+| `docker-compose.yml` (manuell) | `odoodev init` | Generiert aus internem Template |
+| Fish-Funktionen (`odoo-env`, `odoo-start`, `odoo-stop`) | `odoodev` CLI | Alle Befehle konsolidiert |
+| Fish-Aliase (`dev16`, `dev18`) | `odoodev-activate` | Shell-Integration via `odoodev shell-setup` |
+| Manuelle `git clone` pro Repo | `odoodev repos` | Gesteuert ueber repos.yaml |
+| Manuelle Config-Generierung | `odoodev repos --config-only` | Automatisch aus repos.yaml + Template |
+| `docker-compose-arm64.yml` | `odoodev init` | Plattform wird automatisch erkannt |
+
+**Weiterhin benötigt** (nicht ersetzt):
+
+| Datei | Grund |
+|-------|-------|
+| `repos.yaml` | Projektspezifisch — definiert welche Repos geklont werden |
+| `requirements.txt` | Versionsspezifisch — Odoo-Dependencies + Custom-Pakete |
+| `odooXX_template.conf` | Versionsspezifisch — Basis fuer Konfigurationsgenerierung |
+| SSH-Keys | Zugang zu privaten Git-Repositories |
+
+### Konfigurationsüberschreibung
+
+Benutzer können versionsspezifische Einstellungen ueberschreiben, ohne `versions.yaml` im Paket zu ändern:
+
+**Datei:** `~/.config/odoodev/versions-override.yaml`
+
+```yaml
+versions:
+  "18":
+    ports:
+      db: 15432          # Eigener PostgreSQL-Port
+      odoo: 8069         # Standard-Odoo-Port statt 18069
+    paths:
+      base: "~/projects/odoo18"   # Anderer Basispfad
+    git:
+      branch: "main"     # Anderer Default-Branch
+```
+
+Die Override-Datei wird beim Laden der Versionsregistry automatisch zusammengeführt. Nur angegebene Felder werden ueberschrieben — alle anderen behalten ihre Standardwerte.
+
+### Filestore-Verwaltung
+
+Bei der Datenbank-Wiederherstellung verwaltet odoodev auch den Odoo-Filestore:
+
+**Filestore-Pfad:** `~/odoo-share/filestore/{db_name}/`
+
+Dieser Pfad ist fest im Tool hinterlegt und wird bei `odoodev db restore` automatisch verwendet:
+
+1. Backup wird extrahiert (ZIP, 7z, tar, gz, SQL)
+2. SQL-Dump wird in neue Datenbank eingespielt
+3. Filestore wird nach `~/odoo-share/filestore/{db_name}/` kopiert
+4. **Post-Restore Deaktivierungen:**
+   - Cron-Jobs (`ir_cron.active = false`)
+   - Mail-Server (`ir_mail_server.active = false`)
+   - Fetchmail-Server (`fetchmail_server.active = false`)
+   - Nextcloud-Integration (Config-Parameter geleert)
+   - Office365-Integration (Config-Parameter geleert)
 
 ### Architektur
 
@@ -241,7 +475,7 @@ Dieses Projekt ist unter der [AGPL-3.0-or-later](LICENSE) Lizenz lizenziert.
 
 ### Project Overview
 
-**odoodev** is a unified CLI tool for native Odoo development environment management across versions (v16–v19). It provides complete lifecycle management for Odoo development, including environment setup, repository management, database operations, and Docker service orchestration.
+**odoodev** is a unified CLI tool for native Odoo development environment management across versions (v16–v19). It replaces a variety of manual scripts, shell functions, and configuration files with a consistent tool providing complete lifecycle management.
 
 **Key Features:**
 - Multi-version support (v16, v17, v18, v19)
@@ -253,12 +487,51 @@ Dieses Projekt ist unter der [AGPL-3.0-or-later](LICENSE) Lizenz lizenziert.
 - Shell integration (Fish, Bash, Zsh)
 - Odoo configuration generation with template system
 
-### Prerequisites
+### Prerequisites and Required Files
 
-- Python ≥ 3.10
-- [UV](https://docs.astral.sh/uv/) package manager
-- Docker & Docker Compose V2
-- Git with SSH access
+#### System Prerequisites in Detail
+
+| Tool | Check | Required | Note |
+|------|-------|----------|------|
+| UV | `uv --version` | Yes | Python package manager — replaces pip |
+| Docker | `docker info` | Yes | For PostgreSQL and Mailpit containers |
+| Docker Compose V2 | `docker compose version` | Yes | Service orchestration |
+| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/opt/homebrew/bin`, Linux: `/usr/local/bin` |
+| PostgreSQL tools | `pg_dump`, `psql` | For DB operations | macOS: `/opt/homebrew/opt/libpq/bin` |
+| Git | SSH access | Yes | For repository cloning |
+| Python packages | babel, psycopg2, lxml, PIL, werkzeug, dateutil | Yes | In .venv via requirements.txt |
+
+Installing system prerequisites:
+```bash
+# macOS
+brew install uv wkhtmltopdf
+brew install libpq && brew link libpq --force
+
+# Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo apt-get install -y wkhtmltopdf postgresql-client
+```
+
+#### User-Provided Files
+
+| File | Path | Purpose |
+|------|------|---------|
+| `repos.yaml` | `vXX-dev/scripts/repos.yaml` | Defines all repositories to clone |
+| `requirements.txt` | `vXX-dev/devXX_native/requirements.txt` | Python dependencies for Odoo |
+| `odoo_template.conf` | `vXX-dev/conf/odooXX_template.conf` | Template for Odoo configuration generation |
+| SSH keys | `~/.ssh/id_rsa` (or configurable via repos.yaml) | Access to private Git repositories |
+
+These files are **project-specific** and are not generated by odoodev. They must exist in the respective version repository.
+
+#### Files Generated by odoodev
+
+| File | Command | Purpose |
+|------|---------|---------|
+| `.env` | `odoodev env setup` | Environment variables (ports, credentials, paths) |
+| `docker-compose.yml` | `odoodev init` | Docker services (PostgreSQL, Mailpit) |
+| `.venv/` | `odoodev venv setup` | Python virtual environment via UV |
+| `odoo_YYMMDD.conf` | `odoodev repos` | Odoo configuration with addons_path |
+| `odoodev-activate.fish/.sh` | `odoodev shell-setup` | Shell integration |
 
 ### Installation
 
@@ -273,6 +546,73 @@ uv venv && source .venv/bin/activate.fish  # Fish
 
 # Install package (with development dependencies)
 uv pip install -e ".[dev]"
+```
+
+### Directory Structure in Detail
+
+Complete view of all directories and files, showing what odoodev generates vs. what must be provided:
+
+```
+~/gitbase/vXX/
+├── vXX-server/                      # [REPOS] Git clone of Odoo server
+│   ├── odoo-bin                     # Odoo executable (expected by odoodev start)
+│   ├── odoo/addons/                 # Core addons
+│   └── addons/                      # Standard addons
+├── vXX-dev/
+│   ├── devXX_native/                # [INIT] Created by odoodev
+│   │   ├── .env                     # [GENERATED] odoodev env setup
+│   │   ├── docker-compose.yml       # [GENERATED] odoodev init
+│   │   ├── .venv/                   # [GENERATED] odoodev venv setup
+│   │   └── requirements.txt         # [MANUAL] Must be provided!
+│   ├── conf/
+│   │   └── odooXX_template.conf     # [MANUAL] Template for config generation
+│   └── scripts/
+│       └── repos.yaml               # [MANUAL] Repository definitions
+├── myconfs/                         # [GENERATED] odoodev repos
+│   └── odoo_YYMMDD.conf            # Generated Odoo configuration
+├── vXX-addons/                      # [REPOS] Cloned by odoodev repos
+├── vXX-oca/                         # [REPOS] Cloned by odoodev repos
+└── ...additional addon repos...     # [REPOS] According to repos.yaml
+```
+
+**Legend:**
+- `[GENERATED]` — Automatically created by odoodev
+- `[REPOS]` — Created by `odoodev repos` via git clone
+- `[INIT]` — Directory created by `odoodev init`
+- `[MANUAL]` — Must be provided by the user
+
+### Data Flow
+
+The complete workflow from initialization to server start:
+
+```
+odoodev init
+    ├── Create directories (devXX_native/)
+    ├── Generate .env (from Jinja2 template + versions.yaml)
+    ├── Generate docker-compose.yml (PostgreSQL + Mailpit)
+    ├── Create .venv (UV + requirements.txt)
+    └── Run repos (optional, --skip-repos skips this)
+            │
+            ├── Load repos.yaml
+            ├── Verify SSH access
+            ├── git clone/pull for all repositories
+            └── Generate odoo_YYMMDD.conf
+                    │
+                    ├── Read template (odooXX_template.conf)
+                    ├── Build addons_path from repo paths
+                    │   (grouped by: Odoo, OCA, Enterprise,
+                    │    Syscoon, 3rd-party, Equitania, Customer, Other)
+                    └── Save config to myconfs/
+
+odoodev start
+    ├── Load .env (DB_PORT, PGUSER, ODOO_PORT...)
+    ├── Check prerequisites:
+    │   ├── .venv exists?
+    │   ├── odoo-bin exists?
+    │   ├── odoo_*.conf exists?
+    │   └── PostgreSQL port reachable?
+    ├── Check requirements.txt freshness (SHA256)
+    └── Start odoo-bin (with odoo_YYMMDD.conf)
 ```
 
 ### Usage
@@ -387,14 +727,142 @@ odoodev docker status 18
 odoodev docker logs 18 -f
 ```
 
+### repos.yaml Format
+
+The file `repos.yaml` controls which repositories are cloned and how they are organized in the Odoo configuration. Expected at `vXX-dev/scripts/repos.yaml`:
+
+```yaml
+version: "18"
+branch: "develop"
+ssh_key: "~/.ssh/id_rsa"
+
+paths:
+  base: ~/gitbase/v18
+  template: ~/gitbase/v18/v18-dev/conf/odoo18_template.conf
+  config_dir: ~/gitbase/v18/myconfs
+
+base_addons:
+  - $HOME/gitbase/v18/v18-server/odoo/addons
+  - $HOME/gitbase/v18/v18-server/addons
+
+addons:
+  - key: eq_module
+    path: v18-addons
+    git_url: git@gitlab.ownerp.io:v18/v18-addons.git
+    section: Equitania       # Odoo|OCA|Enterprise|Syscoon|3rd-party|Equitania|Customer|Other
+    commented: false          # false=active, true=commented out in odoo.conf
+    suffix: ""                # Subdirectory for modules (e.g. /modules)
+
+customers:
+  - key: v18-customer
+    path: v18-customer
+    git_url: git@gitlab.ownerp.io:customer/v18-customer.git
+    section: Customer
+    commented: true           # Commented out in odoo.conf until activated
+```
+
+**Field Reference:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `version` | Yes | Odoo version (e.g. "18") |
+| `branch` | Yes | Git branch for all repositories |
+| `ssh_key` | No | Path to SSH key (default: system default) |
+| `paths.base` | Yes | Base directory of the Odoo version |
+| `paths.template` | Yes | Path to odoo_template.conf |
+| `paths.config_dir` | Yes | Target directory for generated configs |
+| `base_addons` | Yes | Odoo core and standard addon paths |
+| `addons[].key` | Yes | Unique identifier for the repository |
+| `addons[].path` | Yes | Target directory (relative to paths.base) |
+| `addons[].git_url` | Yes | Git repository URL |
+| `addons[].section` | No | Grouping in odoo.conf (default: "Other") |
+| `addons[].commented` | No | true = as comment in odoo.conf (default: false) |
+| `addons[].suffix` | No | Subdirectory suffix for addons_path |
+
+**Sections in addons_path** (order in generated odoo.conf):
+1. Odoo (Core)
+2. OCA
+3. Enterprise
+4. Syscoon
+5. 3rd-party
+6. Equitania
+7. Customer
+8. Other
+
+**Repository sections in repos.yaml:** `addons`, `additional`, `special`, `customers` — all processed identically.
+
 ### Supported Versions
 
-| Version | Python | PostgreSQL | DB Port | Odoo Port |
-|---------|--------|------------|---------|-----------|
-| v16 | 3.12 | 16.11 | 16432 | 16069 |
-| v17 | 3.12 | 16.11 | 17432 | 17069 |
-| v18 | 3.12 | 16.11 | 18432 | 18069 |
-| v19 | 3.13 | 17.4 | 19432 | 19069 |
+| Version | Python | PostgreSQL | DB Port | Odoo Port | Gevent | Mailpit | SMTP |
+|---------|--------|------------|---------|-----------|--------|---------|------|
+| v16 | 3.12 | 16.11 | 16432 | 16069 | 16072 | 16025 | 11025 |
+| v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 | 11725 |
+| v18 | 3.12 | 16.11 | 18432 | 18069 | 18072 | 18025 | 1025 |
+| v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 | 1925 |
+
+Port schema: `{version}{service}` — e.g. v18: DB=18432, Odoo=18069, Gevent=18072
+
+### Obsolete Components
+
+odoodev replaces the following artifacts from existing vXX-dev repositories:
+
+| Obsolete File/Component | Replaced by | Note |
+|--------------------------|-------------|------|
+| `start-native.sh` | `odoodev start` | All start modes covered (dev, shell, test, prepare) |
+| `.env.template` | `odoodev env setup` | Template is built into the tool (Jinja2) |
+| `docker-compose.yml` (manual) | `odoodev init` | Generated from internal template |
+| Fish functions (`odoo-env`, `odoo-start`, `odoo-stop`) | `odoodev` CLI | All commands consolidated |
+| Fish aliases (`dev16`, `dev18`) | `odoodev-activate` | Shell integration via `odoodev shell-setup` |
+| Manual `git clone` per repo | `odoodev repos` | Controlled via repos.yaml |
+| Manual config generation | `odoodev repos --config-only` | Automatic from repos.yaml + template |
+| `docker-compose-arm64.yml` | `odoodev init` | Platform is automatically detected |
+
+**Still required** (not replaced):
+
+| File | Reason |
+|------|--------|
+| `repos.yaml` | Project-specific — defines which repos to clone |
+| `requirements.txt` | Version-specific — Odoo dependencies + custom packages |
+| `odooXX_template.conf` | Version-specific — base for configuration generation |
+| SSH keys | Access to private Git repositories |
+
+### Configuration Override
+
+Users can override version-specific settings without modifying `versions.yaml` in the package:
+
+**File:** `~/.config/odoodev/versions-override.yaml`
+
+```yaml
+versions:
+  "18":
+    ports:
+      db: 15432          # Custom PostgreSQL port
+      odoo: 8069         # Standard Odoo port instead of 18069
+    paths:
+      base: "~/projects/odoo18"   # Different base path
+    git:
+      branch: "main"     # Different default branch
+```
+
+The override file is automatically merged when loading the version registry. Only specified fields are overridden — all others retain their default values.
+
+### Filestore Management
+
+During database restoration, odoodev also manages the Odoo filestore:
+
+**Filestore path:** `~/odoo-share/filestore/{db_name}/`
+
+This path is hardcoded in the tool and automatically used by `odoodev db restore`:
+
+1. Backup is extracted (ZIP, 7z, tar, gz, SQL)
+2. SQL dump is imported into new database
+3. Filestore is copied to `~/odoo-share/filestore/{db_name}/`
+4. **Post-restore deactivations:**
+   - Cron jobs (`ir_cron.active = false`)
+   - Mail servers (`ir_mail_server.active = false`)
+   - Fetchmail servers (`fetchmail_server.active = false`)
+   - Nextcloud integration (config parameters cleared)
+   - Office365 integration (config parameters cleared)
 
 ### Architecture
 

@@ -66,6 +66,38 @@ uv build
 | `config` | versions (table of all versions), show (platform info) |
 | `shell-setup` | Install shell wrapper function |
 
+### Required files (user-provided)
+
+| File | Path | Purpose |
+|------|------|---------|
+| `repos.yaml` | `vXX-dev/scripts/repos.yaml` | Repository definitions for git clone |
+| `requirements.txt` | `vXX-dev/devXX_native/requirements.txt` | Python dependencies for Odoo |
+| `odooXX_template.conf` | `vXX-dev/conf/odooXX_template.conf` | Template for Odoo config generation |
+
+### Data flow
+
+```
+odoodev init → dirs + .env + docker-compose.yml + .venv + repos
+                                                          ↓
+                                                repos.yaml → git clone
+                                                          ↓
+                                             odoo_YYMMDD.conf generated
+                                                          ↓
+odoodev start → load .env → check prereqs → start odoo-bin
+               (DB_PORT,    (.venv, odoo-bin,  (with odoo_YYMMDD.conf)
+                PGUSER...)   odoo_*.conf, DB)
+```
+
+### Start prerequisites
+
+What `odoodev start` checks before launching Odoo:
+1. `.env` file exists in native_dir
+2. `.venv/` directory exists
+3. `odoo-bin` exists in server_dir
+4. `odoo_*.conf` exists in myconfs_dir (uses latest by date suffix)
+5. PostgreSQL port is reachable (offers to start Docker if not)
+6. `requirements.txt` SHA256 hash unchanged (offers update if changed)
+
 ### Path convention
 
 ```
@@ -73,7 +105,9 @@ uv build
 ├── vXX-server/              # Odoo server code
 ├── vXX-dev/
 │   ├── devXX_native/       # Native dev env (venv, .env, docker-compose.yml)
-│   └── conf/               # Config templates
+│   │   └── requirements.txt # User-provided Python dependencies
+│   ├── conf/               # Config templates (user-provided)
+│   └── scripts/            # repos.yaml (user-provided)
 └── myconfs/                # Generated odoo_YYMMDD.conf files
 ```
 
