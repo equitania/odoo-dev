@@ -74,7 +74,7 @@ def _set_environment(env_vars: dict[str, str]) -> dict[str, str]:
 
     # Set PostgreSQL connection vars
     env["PGHOST"] = "localhost"
-    env["PGPORT"] = env_vars.get("DB_PORT", "15432")
+    env["PGPORT"] = env_vars.get("DB_PORT", "18432")
     env["PGUSER"] = env_vars.get("PGUSER", "ownerp")
     env["PGPASSWORD"] = env_vars.get("PGPASSWORD", "CHANGE_AT_FIRST")
     env["HOST"] = "0.0.0.0"

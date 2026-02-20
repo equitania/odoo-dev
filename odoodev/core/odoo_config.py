@@ -81,7 +81,7 @@ def create_odoo_config(
     repo_metadata: dict[str, dict],
     config_mode: str = "native",
     native_db_host: str = "localhost",
-    native_db_port: int | str = 15432,
+    native_db_port: int | str = 18432,
     dev_user: str | None = None,
 ) -> str | None:
     """Generate Odoo configuration from template.

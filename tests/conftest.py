@@ -22,7 +22,7 @@ def versions_yaml(tmp_dir):
             "18": {
                 "python": "3.12",
                 "postgres": "16.11-alpine",
-                "ports": {"db": 15432, "odoo": 18069, "gevent": 18072, "mailpit": 18025, "smtp": 1025},
+                "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025, "smtp": 1025},
                 "paths": {
                     "base": f"{tmp_dir}/gitbase/v18",
                     "server_subdir": "v18-server",

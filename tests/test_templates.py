@@ -22,7 +22,7 @@ class TestEnvTemplate:
             platform="macos",
             dev_user="testuser",
             docker_platform="linux/arm64",
-            db_port=15432,
+            db_port=18432,
             odoo_port=18069,
             gevent_port=18072,
             mailpit_port=18025,
@@ -31,7 +31,7 @@ class TestEnvTemplate:
         )
         assert "ENV_NAME=dev18_native" in result
         assert "ODOO_VERSION=18" in result
-        assert "DB_PORT=15432" in result
+        assert "DB_PORT=18432" in result
         assert "ODOO_PORT=18069" in result
         assert "POSTGRES_VERSION=16.11-alpine" in result
         assert "DEV_USER=testuser" in result
@@ -67,13 +67,13 @@ class TestDockerComposeTemplate:
             user="testuser",
             docker_platform="linux/arm64",
             postgres_version="16.11-alpine",
-            db_port=15432,
+            db_port=18432,
             mailpit_port=18025,
             smtp_port=1025,
         )
         assert "dev-db-18-native" in result
         assert "postgres:" in result
-        assert "15432" in result
+        assert "18432" in result
         assert "pg_isready" in result
 
     def test_compose_version_substitution(self):
@@ -99,12 +99,12 @@ class TestOdooConfigTemplate:
         result = template.render(
             data_dir="/home/user/odoo-share/",
             db_host="localhost",
-            db_port=15432,
+            db_port=18432,
             gevent_port=18072,
             http_port=18069,
         )
         assert "[options]" in result
         assert "db_host = localhost" in result
-        assert "db_port = 15432" in result
+        assert "db_port = 18432" in result
         assert "http_port = 18069" in result
         assert "gevent_port = 18072" in result

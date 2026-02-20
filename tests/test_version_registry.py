@@ -46,7 +46,7 @@ class TestLoadVersions:
         v18 = versions["18"]
         assert v18.python == "3.12"
         assert v18.postgres == "16.11-alpine"
-        assert v18.ports.db == 15432
+        assert v18.ports.db == 18432
         assert v18.ports.odoo == 18069
         assert v18.ports.gevent == 18072
         assert v18.paths.server_subdir == "v18-server"

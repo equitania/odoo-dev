@@ -16,7 +16,7 @@ DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
 DEFAULT_DB_HOST = "localhost"
 
 
-def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 15432) -> dict[str, str]:
+def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 18432) -> dict[str, str]:
     """Get environment variables for PostgreSQL commands."""
     env = os.environ.copy()
     env["PGPASSWORD"] = os.environ.get("PGPASSWORD", DEFAULT_DB_PASSWORD)
@@ -29,7 +29,7 @@ def _run_psql(
     command: str,
     db: str | None = None,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> tuple[bool, str]:
     """Execute a psql command.
@@ -55,7 +55,7 @@ def _run_psql(
 def database_exists(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Check if a database exists."""
@@ -67,7 +67,7 @@ def database_exists(
 
 def list_databases(
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> list[str]:
     """List all databases.
@@ -94,7 +94,7 @@ def list_databases(
 def drop_database(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Drop a database."""
@@ -116,7 +116,7 @@ def drop_database(
 def create_database(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Create a new database."""
@@ -135,7 +135,7 @@ def restore_database(
     db_name: str,
     sql_file: str,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Restore a database from SQL file."""
@@ -310,7 +310,7 @@ def get_filestore_path(odoo_version: str, db_name: str) -> str:
 def deactivate_cronjobs(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Deactivate cron jobs and email servers in a database."""
@@ -330,7 +330,7 @@ def deactivate_cronjobs(
 def deactivate_cloud(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
-    port: int = 15432,
+    port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Deactivate Nextcloud/Office365 integration."""
