@@ -1,0 +1,25 @@
+# Odoo v19 Repository Configuration
+# Customize this file for your project
+version: "19"
+branch: "master"
+
+paths:
+  base: ~/gitbase/v19
+  template: ~/gitbase/v19/v19-dev/conf/odoo19_template.conf
+  config_dir: ~/gitbase/v19/myconfs
+
+base_addons:
+  - $HOME/gitbase/v19/v19-server/odoo/addons
+  - $HOME/gitbase/v19/v19-server/addons
+
+server:
+  path: v19-server
+  git_url: https://github.com/odoo/odoo.git
+
+# --- Add your repositories below ---
+addons: []
+#  - path: v19-custom
+#    git_url: git@github.com:your-org/v19-custom.git
+#    key: custom
+#    section: Other
+#    commented: false

@@ -54,6 +54,15 @@ def init(
 
     native_dir = version_cfg.paths.native_dir
 
+    # Step 1.5: Copy example templates if missing
+    from odoodev.core.example_templates import copy_example_templates
+
+    copied = copy_example_templates(version, version_cfg)
+    if copied:
+        for name, path in copied.items():
+            print_info(f"Example template copied: {name} → {path}")
+        print_info("Customize these files for your project.")
+
     # Step 2: Create .env
     env_file = os.path.join(native_dir, ".env")
     if os.path.exists(env_file):

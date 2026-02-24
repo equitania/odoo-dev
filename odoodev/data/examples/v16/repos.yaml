@@ -1,0 +1,25 @@
+# Odoo v16 Repository Configuration
+# Customize this file for your project
+version: "16"
+branch: "16.0"
+
+paths:
+  base: ~/gitbase/v16
+  template: ~/gitbase/v16/v16-dev/conf/odoo16_template.conf
+  config_dir: ~/gitbase/v16/myconfs
+
+base_addons:
+  - $HOME/gitbase/v16/v16-server/odoo/addons
+  - $HOME/gitbase/v16/v16-server/addons
+
+server:
+  path: v16-server
+  git_url: https://github.com/odoo/odoo.git
+
+# --- Add your repositories below ---
+addons: []
+#  - path: v16-custom
+#    git_url: git@github.com:your-org/v16-custom.git
+#    key: custom
+#    section: Other
+#    commented: false
