@@ -58,6 +58,15 @@ def cli(ctx: click.Context) -> None:
     """
     ctx.ensure_object(dict)
 
+    # First-run hint when no config exists
+    if ctx.invoked_subcommand != "setup":
+        from odoodev.core.global_config import config_exists
+
+        if not config_exists():
+            from odoodev.output import print_info
+
+            print_info("No configuration found. Tip: run 'odoodev setup' (using defaults)")
+
 
 # Register command groups
 from odoodev.commands.config import config  # noqa: E402
@@ -66,6 +75,7 @@ from odoodev.commands.docker import docker  # noqa: E402
 from odoodev.commands.env import env  # noqa: E402
 from odoodev.commands.init_cmd import init  # noqa: E402
 from odoodev.commands.repos import repos  # noqa: E402
+from odoodev.commands.setup_cmd import setup  # noqa: E402
 from odoodev.commands.shell_setup import shell_setup  # noqa: E402
 from odoodev.commands.start import start  # noqa: E402
 from odoodev.commands.venv import venv  # noqa: E402
@@ -78,4 +88,5 @@ cli.add_command(env)
 cli.add_command(venv)
 cli.add_command(docker)
 cli.add_command(config)
+cli.add_command(setup)
 cli.add_command(shell_setup)

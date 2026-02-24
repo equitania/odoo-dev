@@ -113,6 +113,68 @@ def _parse_version(version: str, data: dict) -> VersionConfig:
     )
 
 
+def _apply_global_base_dir(
+    versions: dict[str, VersionConfig],
+    overridden_versions: set[str] | None = None,
+) -> dict[str, VersionConfig]:
+    """Rebase version paths if global config has a custom base_dir.
+
+    Only rebases versions whose base path still matches the default ~/gitbase pattern.
+    Versions with explicit overrides (from versions-override.yaml) are left untouched.
+
+    Args:
+        versions: Dict of version configs to potentially rebase.
+        overridden_versions: Set of version strings that had explicit path overrides.
+
+    Returns:
+        Dict with rebased version configs where applicable.
+    """
+    from odoodev.core.global_config import DEFAULT_BASE_DIR, load_global_config
+
+    global_cfg = load_global_config()
+    if global_cfg.base_dir == DEFAULT_BASE_DIR:
+        return versions
+
+    overridden = overridden_versions or set()
+    default_base = os.path.expanduser(DEFAULT_BASE_DIR)
+    new_base = os.path.expanduser(global_cfg.base_dir)
+    result = {}
+
+    for ver, cfg in versions.items():
+        if ver in overridden:
+            result[ver] = cfg
+            continue
+
+        expanded = os.path.expanduser(cfg.paths.base)
+        if expanded.startswith(default_base):
+            # Rebase: ~/gitbase/v18 → ~/new-base/v18
+            relative = expanded[len(default_base) :].lstrip(os.sep)
+            new_path = os.path.join(new_base, relative)
+            # Use ~ notation if under home
+            home = os.path.expanduser("~")
+            if new_path.startswith(home):
+                new_path = "~" + new_path[len(home) :]
+            new_paths = PathConfig(
+                base=new_path,
+                server_subdir=cfg.paths.server_subdir,
+                dev_subdir=cfg.paths.dev_subdir,
+                native_subdir=cfg.paths.native_subdir,
+                conf_subdir=cfg.paths.conf_subdir,
+            )
+            result[ver] = VersionConfig(
+                version=cfg.version,
+                python=cfg.python,
+                postgres=cfg.postgres,
+                ports=cfg.ports,
+                paths=new_paths,
+                git=cfg.git,
+            )
+        else:
+            result[ver] = cfg
+
+    return result
+
+
 def load_versions(override_path: Path | None = None) -> dict[str, VersionConfig]:
     """Load version configurations from bundled YAML and optional user overrides.
 
@@ -131,7 +193,8 @@ def load_versions(override_path: Path | None = None) -> dict[str, VersionConfig]
     for ver, cfg in bundled_data.get("versions", {}).items():
         versions[str(ver)] = _parse_version(str(ver), cfg)
 
-    # Apply user overrides
+    # Apply user overrides and track which versions have explicit path overrides
+    overridden_versions: set[str] = set()
     user_path = override_path or _get_user_override_path()
     if user_path.exists():
         with open(user_path, encoding="utf-8") as f:
@@ -139,12 +202,15 @@ def load_versions(override_path: Path | None = None) -> dict[str, VersionConfig]
         if override_data and "versions" in override_data:
             for ver, cfg in override_data["versions"].items():
                 ver_str = str(ver)
+                if "paths" in cfg:
+                    overridden_versions.add(ver_str)
                 if ver_str in versions:
-                    # Merge: override replaces entire version config
                     versions[ver_str] = _parse_version(ver_str, cfg)
                 else:
-                    # New version from override
                     versions[ver_str] = _parse_version(ver_str, cfg)
+
+    # Apply global base_dir from config.yaml (respects overrides)
+    versions = _apply_global_base_dir(versions, overridden_versions)
 
     return versions
 
@@ -173,17 +239,19 @@ def get_version(version: str, versions: dict[str, VersionConfig] | None = None) 
 def detect_version_from_cwd() -> str | None:
     """Detect Odoo version from current working directory.
 
-    Looks for patterns like ~/gitbase/v18/... in the current path.
+    Looks for patterns like {base_dir}/v18/... in the current path.
+    Uses base_dir from global config (defaults to ~/gitbase).
 
     Returns:
         Version string (e.g., "18") or None if not detected.
     """
+    from odoodev.core.global_config import load_global_config
+
     cwd = os.getcwd()
-    # Check for ~/gitbase/vXX/ pattern
-    home = os.path.expanduser("~")
-    gitbase = os.path.join(home, "gitbase")
-    if cwd.startswith(gitbase):
-        relative = cwd[len(gitbase) :].lstrip(os.sep)
+    global_cfg = load_global_config()
+    base_dir = os.path.expanduser(global_cfg.base_dir)
+    if cwd.startswith(base_dir):
+        relative = cwd[len(base_dir) :].lstrip(os.sep)
         parts = relative.split(os.sep)
         if parts and parts[0].startswith("v"):
             version_str = parts[0][1:]  # Remove 'v' prefix

@@ -10,16 +10,32 @@ import zipfile
 
 logger = logging.getLogger(__name__)
 
-# Default credentials
+# Default credentials — kept as module constants for signature defaults.
+# Actual values come from global config at runtime via _get_default_credentials().
 DEFAULT_DB_USER = "ownerp"
 DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
 DEFAULT_DB_HOST = "localhost"
 
 
+def _get_default_credentials() -> tuple[str, str]:
+    """Get default database credentials from global config.
+
+    Falls back to module-level constants if config loading fails.
+    """
+    try:
+        from odoodev.core.global_config import load_global_config
+
+        cfg = load_global_config()
+        return cfg.database.user, cfg.database.password
+    except Exception:
+        return DEFAULT_DB_USER, DEFAULT_DB_PASSWORD
+
+
 def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 18432) -> dict[str, str]:
     """Get environment variables for PostgreSQL commands."""
+    _, default_password = _get_default_credentials()
     env = os.environ.copy()
-    env["PGPASSWORD"] = os.environ.get("PGPASSWORD", DEFAULT_DB_PASSWORD)
+    env["PGPASSWORD"] = os.environ.get("PGPASSWORD", default_password)
     env["PGHOST"] = host
     env["PGPORT"] = str(port)
     return env
@@ -41,11 +57,16 @@ def _run_psql(
     cmd = f"psql -U {user} -h {host} -p {port}"
     if db:
         cmd += f" -d {db}"
-    cmd += f" -c \"{command}\""
+    cmd += f' -c "{command}"'
 
     try:
         result = subprocess.run(
-            cmd, shell=True, check=True, capture_output=True, text=True, env=env,
+            cmd,
+            shell=True,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
         )
         return True, result.stdout
     except subprocess.CalledProcessError as e:

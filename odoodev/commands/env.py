@@ -24,8 +24,11 @@ def _get_template_env() -> Environment:
 
 def _render_env_template(version_cfg, user: str, platform_os: str, docker_platform: str) -> str:
     """Render .env template with version-specific values."""
+    from odoodev.core.global_config import load_global_config
+
     jinja_env = _get_template_env()
     template = jinja_env.get_template("env.template.j2")
+    global_cfg = load_global_config()
     return template.render(
         version=version_cfg.version,
         env_name=version_cfg.env_name,
@@ -38,6 +41,8 @@ def _render_env_template(version_cfg, user: str, platform_os: str, docker_platfo
         mailpit_port=version_cfg.ports.mailpit,
         smtp_port=version_cfg.ports.smtp,
         postgres_version=version_cfg.postgres,
+        db_user=global_cfg.database.user,
+        db_password=global_cfg.database.password,
     )
 
 

@@ -23,7 +23,9 @@ def config_versions() -> None:
 
 @config.command("show")
 def config_show() -> None:
-    """Show current platform and environment information."""
+    """Show current platform, global config, and environment information."""
+    from odoodev.core.global_config import config_exists, get_config_path, load_global_config
+
     print_header("odoodev Environment", "Platform & configuration details")
 
     info = {
@@ -34,6 +36,17 @@ def config_show() -> None:
         "User": detect_user(),
     }
     print_table("Platform", info)
+
+    # Global configuration
+    global_cfg = load_global_config()
+    config_info = {
+        "Config File": str(get_config_path()),
+        "Status": "Custom" if config_exists() else "Defaults (no config file)",
+        "Base Directory": global_cfg.base_dir,
+        "Active Versions": ", ".join(f"v{v}" for v in global_cfg.active_versions),
+        "DB User": global_cfg.database.user,
+    }
+    print_table("Global Configuration", config_info)
 
     versions = load_versions()
     print_version_table(versions)

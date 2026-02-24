@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.1.0"
+version = "0.2.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -30,6 +30,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "rich>=13.7.0",
     "Jinja2>=3.1.0",
+    "questionary>=2.0.0",
 ]
 
 [project.scripts]
