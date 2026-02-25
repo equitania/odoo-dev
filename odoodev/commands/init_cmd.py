@@ -37,6 +37,12 @@ def init(
     versions = load_versions()
     version_cfg = get_version(version, versions)
 
+    # Check optional system prerequisites
+    from odoodev.core.prerequisites import check_wkhtmltopdf
+
+    print_info("Checking system prerequisites...")
+    check_wkhtmltopdf()
+
     print_info(f"Initializing Odoo v{version} native development environment")
 
     # Step 1: Create directories

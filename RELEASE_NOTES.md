@@ -7,6 +7,7 @@
 - `odoodev/core/process_manager.py` — reusable core module for process discovery via `lsof` and graceful termination (SIGTERM → SIGKILL)
 - `--keep-docker` flag for `stop` — keeps PostgreSQL/Mailpit running while stopping Odoo
 - `--force` flag for `stop` — immediate SIGKILL without graceful shutdown
+- `odoodev init` now checks for `wkhtmltopdf` at startup — shows install hint if missing (non-blocking warning)
 
 ## Version 0.2.0 (24.02.2026)
 
