@@ -9,6 +9,10 @@
 - `--force` flag for `stop` — immediate SIGKILL without graceful shutdown
 - `odoodev init` now checks for `wkhtmltopdf` at startup — shows install hint if missing (non-blocking warning)
 
+### Fixed
+- `wkhtmltopdf` install hint now recommends the 'patched qt' binary from wkhtmltopdf.org instead of `brew install wkhtmltopdf` — Homebrew's version lacks patched Qt and may not render Odoo PDF reports correctly
+- README installation instructions corrected accordingly (both DE and EN sections)
+
 ## Version 0.2.0 (24.02.2026)
 
 ### Added

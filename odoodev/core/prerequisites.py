@@ -77,10 +77,11 @@ def check_wkhtmltopdf() -> str | None:
         return path
 
     print_warning("wkhtmltopdf not found")
+    print_info("Install: Download 'patched qt' version → https://wkhtmltopdf.org/downloads.html")
     if detect_os() == "macos":
-        print_info("Install: brew install wkhtmltopdf  OR  download from https://wkhtmltopdf.org/downloads.html")
+        print_info("Note: 'brew install wkhtmltopdf' lacks patched Qt — Odoo PDF rendering may not work")
     else:
-        print_info("Install: sudo apt-get install -y wkhtmltopdf")
+        print_info("Note: 'apt-get install wkhtmltopdf' lacks patched Qt — Odoo PDF rendering may not work")
     return None
 
 

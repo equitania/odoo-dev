@@ -121,7 +121,7 @@ odoodev shell-setup
 | UV | `uv --version` | Ja | Python-Paketmanager — ersetzt pip |
 | Docker | `docker info` | Ja | Für PostgreSQL- und Mailpit-Container |
 | Docker Compose V2 | `docker compose version` | Ja | Service-Orchestrierung |
-| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/opt/homebrew/bin`, Linux: `/usr/local/bin` |
+| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/usr/local/bin`, `/opt/homebrew/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
 | PostgreSQL-Tools | `pg_dump`, `psql` | Für DB-Operationen | macOS: `/opt/homebrew/opt/libpq/bin` |
 | Git | SSH-Zugang | Ja | Für Repository-Klonen |
 | Python-Pakete | babel, psycopg2, lxml, PIL, werkzeug, dateutil | Ja | In .venv via requirements.txt |
@@ -129,12 +129,16 @@ odoodev shell-setup
 Installation der Systemvoraussetzungen:
 ```bash
 # macOS
-brew install uv wkhtmltopdf
+brew install uv
 brew install libpq && brew link libpq --force
+# wkhtmltopdf: "patched qt"-Version von https://wkhtmltopdf.org/downloads.html herunterladen
+# Hinweis: brew install wkhtmltopdf enthält kein gepatchtes Qt — Odoo-PDF-Rendering funktioniert ggf. nicht korrekt
 
 # Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-sudo apt-get install -y wkhtmltopdf postgresql-client
+sudo apt-get install -y postgresql-client
+# wkhtmltopdf: "patched qt"-Version von https://wkhtmltopdf.org/downloads.html herunterladen
+# Hinweis: apt-get install wkhtmltopdf enthält kein gepatchtes Qt — Odoo-PDF-Rendering funktioniert ggf. nicht korrekt
 ```
 
 #### Vom Benutzer bereitzustellende Dateien
@@ -704,7 +708,7 @@ odoodev shell-setup
 | UV | `uv --version` | Yes | Python package manager — replaces pip |
 | Docker | `docker info` | Yes | For PostgreSQL and Mailpit containers |
 | Docker Compose V2 | `docker compose version` | Yes | Service orchestration |
-| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/opt/homebrew/bin`, Linux: `/usr/local/bin` |
+| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/usr/local/bin`, `/opt/homebrew/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
 | PostgreSQL tools | `pg_dump`, `psql` | For DB operations | macOS: `/opt/homebrew/opt/libpq/bin` |
 | Git | SSH access | Yes | For repository cloning |
 | Python packages | babel, psycopg2, lxml, PIL, werkzeug, dateutil | Yes | In .venv via requirements.txt |
@@ -712,12 +716,16 @@ odoodev shell-setup
 Installing system prerequisites:
 ```bash
 # macOS
-brew install uv wkhtmltopdf
+brew install uv
 brew install libpq && brew link libpq --force
+# wkhtmltopdf: download 'patched qt' version from https://wkhtmltopdf.org/downloads.html
+# Note: brew install wkhtmltopdf lacks patched Qt — Odoo PDF rendering may not work correctly
 
 # Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-sudo apt-get install -y wkhtmltopdf postgresql-client
+sudo apt-get install -y postgresql-client
+# wkhtmltopdf: download 'patched qt' version from https://wkhtmltopdf.org/downloads.html
+# Note: apt-get install wkhtmltopdf lacks patched Qt — Odoo PDF rendering may not work correctly
 ```
 
 #### User-Provided Files
