@@ -54,14 +54,23 @@ def init(
 
     native_dir = version_cfg.paths.native_dir
 
-    # Step 1.5: Copy example templates if missing
-    from odoodev.core.example_templates import copy_example_templates
+    # Step 1.5: Copy example templates if missing, detect outdated ones
+    from odoodev.core.example_templates import copy_example_templates, replace_example_template
 
-    copied = copy_example_templates(version, version_cfg)
+    copied, outdated = copy_example_templates(version, version_cfg)
     if copied:
         for name, path in copied.items():
             print_info(f"Example template copied: {name} → {path}")
         print_info("Customize these files for your project.")
+
+    if outdated:
+        for name, path in outdated.items():
+            print_warning(f"Bundled template differs from existing: {name}")
+            if not non_interactive and confirm(f"Replace {name} with bundled version?"):
+                replace_example_template(version, version_cfg, name)
+                print_success(f"Replaced: {name} → {path}")
+            else:
+                print_info(f"Keeping existing: {path}")
 
     # Step 2: Create .env
     env_file = os.path.join(native_dir, ".env")
@@ -104,6 +113,27 @@ def init(
     venv_dir = os.path.join(native_dir, ".venv")
     if os.path.exists(venv_dir):
         print_info(f"Virtual environment already exists at {venv_dir}")
+        # Check if requirements.txt has changed since last install
+        requirements = os.path.join(native_dir, "requirements.txt")
+        if os.path.exists(requirements):
+            from odoodev.core.venv_manager import check_requirements_changed
+
+            if check_requirements_changed(venv_dir, requirements):
+                print_warning("requirements.txt has changed since last install")
+                if not non_interactive and confirm("Update packages now?"):
+                    import subprocess
+
+                    result = subprocess.run(
+                        ["uv", "pip", "install", "-r", requirements],
+                        env={**os.environ, "VIRTUAL_ENV": venv_dir},
+                    )
+                    if result.returncode == 0:
+                        from odoodev.core.venv_manager import store_requirements_hash
+
+                        store_requirements_hash(venv_dir, requirements)
+                        print_success("Packages updated and hash stored")
+                    else:
+                        print_warning("Package update failed — continue manually")
     else:
         if non_interactive or confirm("Create virtual environment?"):
             print_info("Creating virtual environment...")

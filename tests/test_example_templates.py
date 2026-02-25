@@ -8,7 +8,7 @@ import tempfile
 import pytest
 import yaml
 
-from odoodev.core.example_templates import copy_example_templates, get_example_dir
+from odoodev.core.example_templates import copy_example_templates, get_example_dir, replace_example_template
 from odoodev.core.version_registry import GitConfig, PathConfig, PortConfig, VersionConfig
 
 SUPPORTED_VERSIONS = ["16", "17", "18", "19"]
@@ -57,30 +57,33 @@ class TestCopyExampleTemplates:
         """Copies all 3 files when target is empty."""
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_version_cfg("18", tmp)
-            copied = copy_example_templates("18", cfg)
+            copied, outdated = copy_example_templates("18", cfg)
             assert len(copied) == 3
             assert "repos.yaml" in copied
             assert "requirements.txt" in copied
             assert "odoo18_template.conf" in copied
+            assert len(outdated) == 0
             # Verify files actually exist at targets
             for target_path in copied.values():
                 assert os.path.isfile(target_path)
 
     def test_copy_templates_skips_existing(self) -> None:
-        """Does not overwrite existing files."""
+        """Does not overwrite existing files, detects outdated ones."""
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_version_cfg("18", tmp)
-            # Create repos.yaml manually first
-            scripts_dir = os.path.join(cfg.paths.dev_dir, "scripts")
-            os.makedirs(scripts_dir, exist_ok=True)
-            existing = os.path.join(scripts_dir, "repos.yaml")
+            # Create repos.yaml manually first (now in native_dir)
+            native_dir = cfg.paths.native_dir
+            os.makedirs(native_dir, exist_ok=True)
+            existing = os.path.join(native_dir, "repos.yaml")
             with open(existing, "w") as f:
                 f.write("# custom content\n")
 
-            copied = copy_example_templates("18", cfg)
+            copied, outdated = copy_example_templates("18", cfg)
             # repos.yaml should NOT be in copied (it already existed)
             assert "repos.yaml" not in copied
-            # But other two should be copied
+            # But repos.yaml should be in outdated (content differs)
+            assert "repos.yaml" in outdated
+            # Other two should be copied
             assert "requirements.txt" in copied
             assert "odoo18_template.conf" in copied
             # Verify existing file was not overwritten
@@ -88,24 +91,93 @@ class TestCopyExampleTemplates:
                 assert f.read() == "# custom content\n"
 
     def test_copy_creates_subdirectories(self) -> None:
-        """Creates scripts/ and conf/ directories if missing."""
+        """Creates native_dir/ and conf/ directories if missing."""
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_version_cfg("18", tmp)
-            scripts_dir = os.path.join(cfg.paths.dev_dir, "scripts")
+            native_dir = cfg.paths.native_dir
             conf_dir = cfg.paths.conf_dir
-            assert not os.path.exists(scripts_dir)
+            assert not os.path.exists(native_dir)
             assert not os.path.exists(conf_dir)
 
             copy_example_templates("18", cfg)
-            assert os.path.isdir(scripts_dir)
+            assert os.path.isdir(native_dir)
             assert os.path.isdir(conf_dir)
 
     def test_nonexistent_version_returns_empty(self) -> None:
-        """Returns empty dict for a version without example templates."""
+        """Returns empty tuples for a version without example templates."""
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_version_cfg("99", tmp)
-            copied = copy_example_templates("99", cfg)
+            copied, outdated = copy_example_templates("99", cfg)
             assert copied == {}
+            assert outdated == {}
+
+    def test_identical_file_not_in_outdated(self) -> None:
+        """Identical existing file appears in neither copied nor outdated."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _make_version_cfg("18", tmp)
+            # First copy: populate targets
+            copy_example_templates("18", cfg)
+            # Second call: all files exist and are identical
+            copied, outdated = copy_example_templates("18", cfg)
+            assert len(copied) == 0
+            assert len(outdated) == 0
+
+    def test_outdated_detection_modified_content(self) -> None:
+        """Modified file is detected as outdated."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _make_version_cfg("18", tmp)
+            # First copy: populate targets
+            copy_example_templates("18", cfg)
+            # Modify one file
+            target = os.path.join(cfg.paths.native_dir, "repos.yaml")
+            with open(target, "w") as f:
+                f.write("# modified by user\n")
+
+            copied, outdated = copy_example_templates("18", cfg)
+            assert len(copied) == 0
+            assert "repos.yaml" in outdated
+            # Unmodified files should not be outdated
+            assert "requirements.txt" not in outdated
+            assert "odoo18_template.conf" not in outdated
+
+
+class TestReplaceExampleTemplate:
+    """Tests for replace_example_template()."""
+
+    def test_replace_overwrites_existing(self) -> None:
+        """replace_example_template overwrites the target file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _make_version_cfg("18", tmp)
+            # First copy: populate targets
+            copy_example_templates("18", cfg)
+            target = os.path.join(cfg.paths.native_dir, "repos.yaml")
+            # Modify the file
+            with open(target, "w") as f:
+                f.write("# user modified\n")
+
+            result = replace_example_template("18", cfg, "repos.yaml")
+            assert result == target
+            # Content should now match bundled version
+            bundled = get_example_dir("18") / "repos.yaml"
+            with open(target) as f:
+                actual = f.read()
+            with open(bundled) as f:
+                expected = f.read()
+            assert actual == expected
+
+    def test_replace_nonexistent_template_returns_none(self) -> None:
+        """Returns None for a template that does not exist in bundled data."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _make_version_cfg("18", tmp)
+            result = replace_example_template("18", cfg, "nonexistent.txt")
+            assert result is None
+
+    def test_replace_invalid_version_returns_none(self) -> None:
+        """Returns None for a version without example templates."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _make_version_cfg("99", tmp)
+            result = replace_example_template("99", cfg, "repos.yaml")
+            assert result is None
 
 
 class TestTemplateContent:

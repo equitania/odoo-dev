@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import filecmp
 import os
 import shutil
 from pathlib import Path
@@ -31,43 +32,48 @@ def _get_template_mapping(version: str, version_cfg: VersionConfig) -> dict[str,
     Returns:
         Dict mapping template filename to absolute target path.
     """
-    dev_dir = version_cfg.paths.dev_dir
     native_dir = version_cfg.paths.native_dir
     conf_dir = version_cfg.paths.conf_dir
 
     return {
-        "repos.yaml": os.path.join(dev_dir, "scripts", "repos.yaml"),
+        "repos.yaml": os.path.join(native_dir, "repos.yaml"),
         "requirements.txt": os.path.join(native_dir, "requirements.txt"),
         f"odoo{version}_template.conf": os.path.join(conf_dir, f"odoo{version}_template.conf"),
     }
 
 
-def copy_example_templates(version: str, version_cfg: VersionConfig) -> dict[str, str]:
-    """Copy missing example templates to the correct locations.
+def copy_example_templates(version: str, version_cfg: VersionConfig) -> tuple[dict[str, str], dict[str, str]]:
+    """Copy missing example templates and detect outdated ones.
 
-    Only copies if the target file does NOT exist. Creates missing
-    subdirectories (scripts/, conf/) as needed.
+    Copies templates if the target file does NOT exist. For existing files,
+    compares content with the bundled version to detect outdated templates.
+    Creates missing subdirectories (scripts/, conf/) as needed.
 
     Args:
         version: Version string (e.g., "18")
         version_cfg: VersionConfig for the target version.
 
     Returns:
-        Dict of {filename: destination_path} for files that were copied.
-        Empty dict if all files already exist or no templates available.
+        Tuple of (copied, outdated):
+        - copied: {filename: destination_path} for files that were copied.
+        - outdated: {filename: destination_path} for existing files that
+          differ from the bundled template.
     """
     example_dir = get_example_dir(version)
     if not example_dir.is_dir():
-        return {}
+        return {}, {}
 
     mapping = _get_template_mapping(version, version_cfg)
     copied: dict[str, str] = {}
+    outdated: dict[str, str] = {}
 
     for template_name, target_path in mapping.items():
         source = example_dir / template_name
         if not source.is_file():
             continue
         if os.path.exists(target_path):
+            if not filecmp.cmp(str(source), target_path, shallow=False):
+                outdated[template_name] = target_path
             continue
 
         # Create parent directory if missing
@@ -75,4 +81,25 @@ def copy_example_templates(version: str, version_cfg: VersionConfig) -> dict[str
         shutil.copy2(str(source), target_path)
         copied[template_name] = target_path
 
-    return copied
+    return copied, outdated
+
+
+def replace_example_template(version: str, version_cfg: VersionConfig, template_name: str) -> str | None:
+    """Replace a single existing template with the bundled version.
+
+    Args:
+        version: Version string (e.g., "18")
+        version_cfg: VersionConfig for the target version.
+        template_name: Filename of the template to replace (e.g., "repos.yaml").
+
+    Returns:
+        Target path of the replaced file, or None if source/mapping not found.
+    """
+    example_dir = get_example_dir(version)
+    mapping = _get_template_mapping(version, version_cfg)
+    target_path = mapping.get(template_name)
+    source = example_dir / template_name
+    if not source.is_file() or not target_path:
+        return None
+    shutil.copy2(str(source), target_path)
+    return target_path

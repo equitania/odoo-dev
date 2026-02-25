@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.2.0"
+version = "0.3.1"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -29,7 +29,7 @@ dependencies = [
     "PyYAML>=6.0",
     "python-dotenv>=1.0.0",
     "rich>=13.7.0",
-    "Jinja2>=3.1.0",
+    "Jinja2>=3.1.6",
     "questionary>=2.0.0",
 ]
 
@@ -55,7 +55,18 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "UP"]
+select = ["E", "W", "F", "I", "B", "UP", "S"]
+ignore = [
+    "S603",  # subprocess call with list args — all calls use hardcoded commands
+    "S607",  # partial executable path — CLI tool relies on PATH resolution
+]
+
+[tool.ruff.lint.per-file-ignores]
+"odoodev/commands/env.py" = ["S701"]              # Jinja2 renders config files, not HTML
+"odoodev/commands/start.py" = ["S104", "S606"]    # 0.0.0.0 required for Odoo, execvpe for shell
+"odoodev/core/docker_compose.py" = ["S701"]       # Jinja2 renders config files, not HTML
+"odoodev/core/database.py" = ["S105", "S602"]      # Dev tool default credentials, not secrets; shell=True for psql pipes
+"odoodev/core/global_config.py" = ["S105"]        # Dev tool default password, not a secret
 
 [tool.ruff.lint.isort]
 known-first-party = ["odoodev"]

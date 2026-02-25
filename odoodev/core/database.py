@@ -313,8 +313,11 @@ def copy_filestore(src: str, dest: str) -> bool:
 def get_filestore_path(odoo_version: str, db_name: str) -> str:
     """Get the filestore path for a database.
 
+    Each Odoo version uses its own subdirectory under ~/odoo-share/vXX/
+    to prevent filestore collisions between different Odoo versions.
+
     Args:
-        odoo_version: Odoo version string
+        odoo_version: Odoo version string (e.g., "18")
         db_name: Database name
 
     Returns:
@@ -323,6 +326,7 @@ def get_filestore_path(odoo_version: str, db_name: str) -> str:
     return os.path.join(
         os.path.expanduser("~"),
         "odoo-share",
+        f"v{odoo_version}",
         "filestore",
         db_name,
     )
