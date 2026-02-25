@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.10-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -245,6 +245,7 @@ odoodev start
 | `odoodev setup` | **Interaktiver Setup-Wizard** für die Ersteinrichtung |
 | `odoodev init [VERSION]` | Neue Entwicklungsumgebung initialisieren |
 | `odoodev start [VERSION]` | Odoo-Server starten |
+| `odoodev stop [VERSION]` | Odoo-Server und Docker-Services stoppen |
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren |
 | `odoodev db [SUBCOMMAND] [VERSION]` | Datenbankoperationen |
 | `odoodev env [SUBCOMMAND] [VERSION]` | .env-Dateiverwaltung |
@@ -300,6 +301,21 @@ odoodev start 18 --prepare
 # Zusätzliche Odoo-Argumente übergeben
 odoodev start 18 -- -d mydb -u my_module
 ```
+
+#### Server stoppen
+
+```bash
+# Odoo-Prozess und Docker-Services stoppen
+odoodev stop 18
+
+# Nur Odoo-Prozess stoppen (Docker weiter laufen lassen)
+odoodev stop 18 --keep-docker
+
+# Sofortiger Kill ohne graceful Shutdown
+odoodev stop 18 --force
+```
+
+Der `stop`-Befehl erkennt den laufenden Odoo-Prozess anhand des konfigurierten Ports (via `lsof`) und beendet ihn zunächst mit SIGTERM, dann bei Bedarf mit SIGKILL.
 
 #### Repository-Verwaltung
 
@@ -812,6 +828,7 @@ odoodev start
 | `odoodev setup` | **Interactive setup wizard** for first-time configuration |
 | `odoodev init [VERSION]` | Initialize new development environment |
 | `odoodev start [VERSION]` | Start Odoo server |
+| `odoodev stop [VERSION]` | Stop Odoo server and Docker services |
 | `odoodev repos [VERSION]` | Clone/update repositories |
 | `odoodev db [SUBCOMMAND] [VERSION]` | Database operations |
 | `odoodev env [SUBCOMMAND] [VERSION]` | .env file management |
@@ -867,6 +884,21 @@ odoodev start 18 --prepare
 # Pass additional Odoo arguments
 odoodev start 18 -- -d mydb -u my_module
 ```
+
+#### Stop Server
+
+```bash
+# Stop Odoo process and Docker services
+odoodev stop 18
+
+# Stop only Odoo process (keep Docker running)
+odoodev stop 18 --keep-docker
+
+# Immediate kill without graceful shutdown
+odoodev stop 18 --force
+```
+
+The `stop` command discovers the running Odoo process by configured port (via `lsof`) and terminates it with SIGTERM first, then SIGKILL if needed.
 
 #### Repository Management
 

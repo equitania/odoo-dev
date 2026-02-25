@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     container_name: ${DEV_USER:-${USER}}-dev-db-{{ version }}-native
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ownerp"]
+      test: ["CMD-SHELL", "pg_isready -U ownerp -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
