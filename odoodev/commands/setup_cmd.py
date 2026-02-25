@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import click
 
 from odoodev.core.global_config import (
@@ -32,6 +34,32 @@ def _get_questionary():
         raise SystemExit(1) from None
 
 
+@contextmanager
+def _patch_checkbox_indicators():
+    """Patch questionary checkbox indicators for better terminal visibility.
+
+    Default indicators (● selected / ○ unselected) are nearly indistinguishable
+    on dark terminals. Replaces them with [✔] / [ ] for unmistakable checkbox UX.
+
+    Patches both questionary.constants (source) and questionary.prompts.common
+    (already-imported references) to ensure the override takes effect.
+    """
+    import questionary.constants as _constants
+    import questionary.prompts.common as _common
+
+    orig = (_constants.INDICATOR_SELECTED, _constants.INDICATOR_UNSELECTED)
+
+    _constants.INDICATOR_SELECTED = "[\u2714]"  # [✔] (selected)
+    _constants.INDICATOR_UNSELECTED = "[ ]"  # [ ] (unselected)
+    _common.INDICATOR_SELECTED = "[\u2714]"  # [✔] (selected)
+    _common.INDICATOR_UNSELECTED = "[ ]"  # [ ] (unselected)
+    try:
+        yield
+    finally:
+        _constants.INDICATOR_SELECTED, _constants.INDICATOR_UNSELECTED = orig
+        _common.INDICATOR_SELECTED, _common.INDICATOR_UNSELECTED = orig
+
+
 def _custom_style():
     """Create a custom questionary style matching ownerp branding."""
     questionary = _get_questionary()
@@ -42,7 +70,7 @@ def _custom_style():
             ("answer", "fg:green"),
             ("pointer", "fg:green bold"),
             ("highlighted", "fg:green bold"),
-            ("selected", "fg:green"),
+            ("selected", "fg:green bold"),
             ("instruction", "fg:white"),
         ]
     )
@@ -54,6 +82,10 @@ def _run_interactive_wizard() -> GlobalConfig:
     Returns:
         GlobalConfig with user-selected values.
     """
+    import os
+
+    os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
+
     questionary = _get_questionary()
     style = _custom_style()
 
@@ -80,11 +112,12 @@ def _run_interactive_wizard() -> GlobalConfig:
     default_versions = load_global_config().active_versions if config_exists() else list(DEFAULT_ACTIVE_VERSIONS)
     all_versions = ["16", "17", "18", "19"]
     version_choices = [questionary.Choice(f"v{v}", value=v, checked=v in default_versions) for v in all_versions]
-    active_versions = questionary.checkbox(
-        "Active Odoo versions:",
-        choices=version_choices,
-        style=style,
-    ).ask()
+    with _patch_checkbox_indicators():
+        active_versions = questionary.checkbox(
+            "Active Odoo versions:",
+            choices=version_choices,
+            style=style,
+        ).ask()
 
     if active_versions is None:
         raise SystemExit(0)

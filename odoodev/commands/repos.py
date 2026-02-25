@@ -10,10 +10,12 @@ import yaml
 
 from odoodev.cli import resolve_version
 from odoodev.core.git_ops import (
-    clone_repo_fresh,
+    check_repo_access,
+    clone_repo_with_progress,
     get_module_paths,
     set_ssh_key,
     switch_branch_and_update,
+    update_repo,
     verify_all_repo_access,
 )
 from odoodev.core.odoo_config import create_odoo_config
@@ -24,12 +26,18 @@ logger = logging.getLogger(__name__)
 
 
 def _find_repos_config(version_cfg) -> str | None:
-    """Find repos.yaml or repos-template.yaml for the version."""
+    """Find repos.yaml or repos-template.yaml for the version.
+
+    Searches native_dir first (preferred), then scripts/ for backwards
+    compatibility.
+    """
+    native_dir = version_cfg.paths.native_dir
     scripts_dir = os.path.join(version_cfg.paths.dev_dir, "scripts")
-    for name in ("repos.yaml", "repos-template.yaml"):
-        path = os.path.join(scripts_dir, name)
-        if os.path.exists(path):
-            return path
+    for search_dir in (native_dir, scripts_dir):
+        for name in ("repos.yaml", "repos-template.yaml"):
+            path = os.path.join(search_dir, name)
+            if os.path.exists(path):
+                return path
     return None
 
 
@@ -64,7 +72,6 @@ def _process_repos(
     base_path: str,
     branch: str,
     accessible_paths: set[str],
-    init_mode: bool = False,
 ) -> tuple[dict[str, list[str]], dict[str, dict]]:
     """Process all repositories: clone/update and collect paths.
 
@@ -106,16 +113,9 @@ def _process_repos(
                     all_paths[key] = paths
                 continue
 
-            # Check if accessible
+            # Check if accessible — always update existing or clone new
             if repo_path in accessible_paths or not accessible_paths:
-                if init_mode:
-                    clone_repo_fresh(git_url, full_path, branch)
-                    paths = get_module_paths(full_path, is_oca)
-                elif os.path.isdir(full_path):
-                    paths = switch_branch_and_update(full_path, git_url, branch, base_path, is_oca)
-                else:
-                    # Clone new
-                    paths = switch_branch_and_update(full_path, git_url, branch, base_path, is_oca)
+                paths = switch_branch_and_update(full_path, git_url, branch, base_path, is_oca)
             elif os.path.isdir(full_path):
                 # Not accessible but exists locally — use existing paths
                 paths = get_module_paths(full_path, is_oca)
@@ -184,19 +184,22 @@ def repos(
     # Config-only mode: scan local repos and generate config
     if config_only:
         print_info("Config-only mode — scanning local repositories...")
-        all_paths, repo_metadata = _process_repos(config, base_path, branch, set(), init_mode=False)
+        all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
         _generate_config(config, version_cfg, all_paths, repo_metadata)
         return
 
     # Access verification
     accessible_paths: set[str] = set()
     if not skip_access_check:
-        print_info("Checking repository access...")
         all_repos = _collect_all_repos(config)
-        accessible, inaccessible = verify_all_repo_access(all_repos)
-        accessible_paths = {r.get("path", "") for r in accessible}
-        if inaccessible:
-            print_warning(f"{len(inaccessible)} repositories inaccessible")
+        if all_repos:
+            print_info("Checking repository access...")
+            accessible, inaccessible = verify_all_repo_access(all_repos)
+            accessible_paths = {r.get("path", "") for r in accessible}
+            if inaccessible:
+                print_warning(f"{len(inaccessible)} repositories inaccessible")
+        else:
+            print_info("No custom repositories configured — skipping access check")
     else:
         print_info("Skipping access checks")
 
@@ -205,14 +208,22 @@ def repos(
     server_path = os.path.join(base_path, server_config.get("path", version_cfg.paths.server_subdir))
     server_url = server_config.get("git_url", version_cfg.git.server_url)
 
-    if init_mode or not os.path.isdir(server_path):
-        print_info(f"Cloning Odoo server to {server_path}...")
-        clone_repo_fresh(server_url, server_path, branch)
-    else:
-        print_info("Updating Odoo server...")
-        from odoodev.core.git_ops import update_repo
-
+    if os.path.isdir(server_path):
+        if init_mode:
+            print_info(f"Odoo server already exists at {server_path} — updating...")
+        else:
+            print_info("Updating Odoo server...")
         update_repo(server_path, branch)
+    else:
+        # Pre-check server access before cloning
+        if not skip_access_check:
+            print_info(f"Checking server access: {server_url}")
+            if not check_repo_access(server_url, timeout=15):
+                print_error(f"Cannot access server repository: {server_url}")
+                print_info("Check your network, SSH keys, or git URL in repos.yaml")
+                raise SystemExit(1)
+        print_info(f"Cloning Odoo server to {server_path}...")
+        clone_repo_with_progress(server_url, server_path, branch)
 
     if server_only:
         print_success("Server updated. Done.")
@@ -220,7 +231,7 @@ def repos(
 
     # Process all repositories
     print_info("Processing repositories...")
-    all_paths, repo_metadata = _process_repos(config, base_path, branch, accessible_paths, init_mode)
+    all_paths, repo_metadata = _process_repos(config, base_path, branch, accessible_paths)
 
     # Generate config
     _generate_config(config, version_cfg, all_paths, repo_metadata)
@@ -230,6 +241,8 @@ def repos(
 
 def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: dict) -> None:
     """Generate Odoo config file from template and collected paths."""
+    from odoodev.core.global_config import load_global_config
+
     paths = config.get("paths", {})
     template_path = paths.get("template")
     config_dir = paths.get("config_dir", version_cfg.paths.myconfs_dir)
@@ -237,9 +250,7 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
 
     if not template_path:
         # Fall back to template in conf dir
-        template_path = os.path.join(
-            version_cfg.paths.conf_dir, f"odoo{version_cfg.version}_template.conf"
-        )
+        template_path = os.path.join(version_cfg.paths.conf_dir, f"odoo{version_cfg.version}_template.conf")
 
     template_path = os.path.expanduser(template_path)
 
@@ -253,6 +264,9 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
     db_host = db_config.get("host", "localhost")
     db_port = db_config.get("port", version_cfg.ports.db)
 
+    # Load global config for database credentials
+    global_cfg = load_global_config()
+
     output = create_odoo_config(
         template_path=template_path,
         config_dir=config_dir,
@@ -261,6 +275,9 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
         config_mode="native",
         native_db_host=db_host,
         native_db_port=db_port,
+        db_user=global_cfg.database.user,
+        db_password=global_cfg.database.password,
+        admin_passwd=global_cfg.database.password,
     )
 
     if output:

@@ -66,6 +66,7 @@ ignore = [
 "odoodev/commands/start.py" = ["S104", "S606"]    # 0.0.0.0 required for Odoo, execvpe for shell
 "odoodev/core/docker_compose.py" = ["S701"]       # Jinja2 renders config files, not HTML
 "odoodev/core/database.py" = ["S105", "S602"]      # Dev tool default credentials, not secrets; shell=True for psql pipes
+"odoodev/core/git_ops.py" = ["S602"]               # shell=True for git commands with SSH env
 "odoodev/core/global_config.py" = ["S105"]        # Dev tool default password, not a secret
 
 [tool.ruff.lint.isort]

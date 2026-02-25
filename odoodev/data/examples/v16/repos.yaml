@@ -2,6 +2,7 @@
 # Customize this file for your project
 version: "16"
 branch: "16.0"
+# ssh_key: "~/.ssh/id_rsa"   # Uncomment for SSH authentication
 
 paths:
   base: ~/gitbase/v16

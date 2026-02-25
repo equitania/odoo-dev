@@ -83,6 +83,9 @@ def create_odoo_config(
     native_db_host: str = "localhost",
     native_db_port: int | str = 18432,
     dev_user: str | None = None,
+    db_user: str | None = None,
+    db_password: str | None = None,
+    admin_passwd: str | None = None,
 ) -> str | None:
     """Generate Odoo configuration from template.
 
@@ -95,6 +98,9 @@ def create_odoo_config(
         native_db_host: Database host for native mode
         native_db_port: Database port for native mode
         dev_user: Developer username for ${DEV_USER} replacement
+        db_user: Database user (overrides template default)
+        db_password: Database password (overrides template default)
+        admin_passwd: Odoo admin master password (overrides template default)
 
     Returns:
         Path to generated config file, or None on error.
@@ -133,6 +139,14 @@ def create_odoo_config(
         content = re.sub(r"db_host\s*=\s*dev-db-\d+", f"db_host = {native_db_host}", content)
         content = re.sub(r"db_host\s*=\s*dev-db", f"db_host = {native_db_host}", content)
         content = re.sub(r"db_port\s*=\s*\S+", f"db_port = {native_db_port}", content)
+
+    # Replace database credentials if provided
+    if db_user:
+        content = re.sub(r"db_user\s*=\s*\S+", f"db_user = {db_user}", content)
+    if db_password:
+        content = re.sub(r"db_password\s*=\s*\S+", f"db_password = {db_password}", content)
+    if admin_passwd:
+        content = re.sub(r"admin_passwd\s*=\s*\S+", f"admin_passwd = {admin_passwd}", content)
 
     # Save generated config
     os.makedirs(config_dir, exist_ok=True)

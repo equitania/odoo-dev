@@ -28,10 +28,13 @@ def set_ssh_key(key_path: str) -> None:
 
 
 def get_git_env() -> dict[str, str]:
-    """Get environment variables for git operations with SSH key."""
+    """Get environment variables for git operations with SSH key and timeout."""
     env = os.environ.copy()
+    ssh_opts = "-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
     if _ssh_key_path:
-        env["GIT_SSH_COMMAND"] = f"ssh -i {_ssh_key_path} -o IdentitiesOnly=yes"
+        env["GIT_SSH_COMMAND"] = f"ssh -i {_ssh_key_path} -o IdentitiesOnly=yes {ssh_opts}"
+    else:
+        env["GIT_SSH_COMMAND"] = f"ssh {ssh_opts}"
     return env
 
 
@@ -112,6 +115,38 @@ def verify_all_repo_access(repos: list[dict]) -> tuple[list[dict], list[dict]]:
     return accessible, inaccessible
 
 
+def clone_repo_with_progress(git_url: str, target_dir: str, branch: str) -> bool:
+    """Clone a git repository with visible progress output.
+
+    Unlike clone_repo(), this does NOT capture output so that git's
+    progress indicators are visible to the user. Use for large repos
+    (e.g., Odoo server).
+
+    Args:
+        git_url: Repository URL
+        target_dir: Target directory
+        branch: Branch to checkout
+
+    Returns:
+        True if successful.
+    """
+    parent_dir = os.path.dirname(target_dir)
+    repo_name = os.path.basename(target_dir)
+    os.makedirs(parent_dir, exist_ok=True)
+    try:
+        subprocess.run(
+            f"git clone --progress -b {branch} {git_url} {repo_name}",
+            shell=True,
+            check=True,
+            cwd=parent_dir,
+            env=get_git_env(),
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error("Clone failed: %s", e)
+        return False
+
+
 def clone_repo(git_url: str, target_dir: str, branch: str) -> bool:
     """Clone a git repository.
 
@@ -142,7 +177,7 @@ def clone_repo_fresh(git_url: str, target_dir: str, branch: str) -> bool:
     """
     if os.path.exists(target_dir):
         shutil.rmtree(target_dir)
-    return clone_repo(git_url, target_dir, branch)
+    return clone_repo_with_progress(git_url, target_dir, branch)
 
 
 def update_repo(repo_dir: str, branch: str) -> bool:
