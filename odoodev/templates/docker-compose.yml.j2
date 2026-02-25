@@ -21,7 +21,9 @@ services:
       - POSTGRES_PASSWORD=${PGPASSWORD:-CHANGE_AT_FIRST}
       - POSTGRES_DB=postgres
     volumes:
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf
       - vol-dev-db-{{ version }}-native:/var/lib/postgresql/data/
+    command: postgres -c 'config_file=/etc/postgresql/postgresql.conf'
     shm_size: 1gb
     ports:
       - "${DB_PORT:-{{ db_port }}}:5432"

@@ -1,6 +1,5 @@
 """Tests for environment detection module."""
 
-
 from odoodev.core.environment import (
     command_exists,
     detect_arch,

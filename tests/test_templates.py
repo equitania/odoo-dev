@@ -75,6 +75,8 @@ class TestDockerComposeTemplate:
         assert "postgres:" in result
         assert "18432" in result
         assert "pg_isready" in result
+        assert "postgresql.conf:/etc/postgresql/postgresql.conf" in result
+        assert "config_file=/etc/postgresql/postgresql.conf" in result
 
     def test_compose_version_substitution(self):
         jinja_env = _get_template_env()
@@ -90,6 +92,8 @@ class TestDockerComposeTemplate:
         )
         assert "dev-db-19-native" in result
         assert "19432" in result
+        assert "postgresql.conf:/etc/postgresql/postgresql.conf" in result
+        assert "config_file=/etc/postgresql/postgresql.conf" in result
 
 
 class TestOdooConfigTemplate:

@@ -126,9 +126,7 @@ def _start_odoo(
         print_info("Odoo server stopped.")
 
 
-def _start_interactive_shell(
-    odoo_dir: str, venv_dir: str, config_path: str, env: dict[str, str]
-) -> None:
+def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env: dict[str, str]) -> None:
     """Open an interactive shell with venv activated."""
     shell = detect_shell()
     env["ODOO_CONF"] = config_path
@@ -143,7 +141,7 @@ def _start_interactive_shell(
         os.chmod(tmpdir, 0o700)
         zshrc = os.path.join(tmpdir, ".zshrc")
         with open(zshrc, "w") as f:
-            f.write('[[ -f ~/.zshrc ]] && source ~/.zshrc\n')
+            f.write("[[ -f ~/.zshrc ]] && source ~/.zshrc\n")
             f.write(f'source "{venv_dir}/bin/activate"\n')
             f.write(f'cd "{odoo_dir}"\n')
             f.write(f'export ODOO_CONF="{config_path}"\n')
@@ -153,7 +151,7 @@ def _start_interactive_shell(
         import tempfile
 
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".bashrc", delete=False)
-        tmp.write('[[ -f ~/.bashrc ]] && source ~/.bashrc\n')
+        tmp.write("[[ -f ~/.bashrc ]] && source ~/.bashrc\n")
         tmp.write(f'source "{venv_dir}/bin/activate"\n')
         tmp.write(f'cd "{odoo_dir}"\n')
         tmp.write(f'export ODOO_CONF="{config_path}"\n')

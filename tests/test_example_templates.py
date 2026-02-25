@@ -45,7 +45,7 @@ class TestGetExampleDir:
     def test_all_template_files_exist(self, version: str) -> None:
         """All three template files exist for each version."""
         d = get_example_dir(version)
-        expected = ["repos.yaml", "requirements.txt", f"odoo{version}_template.conf"]
+        expected = ["repos.yaml", "requirements.txt", "postgresql.conf", f"odoo{version}_template.conf"]
         for filename in expected:
             assert (d / filename).is_file(), f"Missing {filename} in v{version} examples"
 
@@ -58,9 +58,10 @@ class TestCopyExampleTemplates:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_version_cfg("18", tmp)
             copied, outdated = copy_example_templates("18", cfg)
-            assert len(copied) == 3
+            assert len(copied) == 4
             assert "repos.yaml" in copied
             assert "requirements.txt" in copied
+            assert "postgresql.conf" in copied
             assert "odoo18_template.conf" in copied
             assert len(outdated) == 0
             # Verify files actually exist at targets
@@ -83,8 +84,9 @@ class TestCopyExampleTemplates:
             assert "repos.yaml" not in copied
             # But repos.yaml should be in outdated (content differs)
             assert "repos.yaml" in outdated
-            # Other two should be copied
+            # Other three should be copied
             assert "requirements.txt" in copied
+            assert "postgresql.conf" in copied
             assert "odoo18_template.conf" in copied
             # Verify existing file was not overwritten
             with open(existing) as f:
@@ -249,3 +251,27 @@ class TestTemplateContent:
         with open(d / "repos.yaml") as f:
             data = yaml.safe_load(f)
         assert data["branch"] == "master"
+
+    @pytest.mark.parametrize("version", SUPPORTED_VERSIONS)
+    def test_postgresql_conf_valid(self, version: str) -> None:
+        """postgresql.conf contains expected optimization parameters."""
+        d = get_example_dir(version)
+        content = (d / "postgresql.conf").read_text()
+        assert "shared_buffers" in content
+        assert "work_mem" in content
+        assert "effective_cache_size" in content
+        assert "wal_compression" in content
+        assert "autovacuum" in content
+
+    def test_v19_postgresql_conf_pg17(self) -> None:
+        """v19 postgresql.conf references PostgreSQL 17."""
+        d = get_example_dir("19")
+        content = (d / "postgresql.conf").read_text()
+        assert "PostgreSQL 17" in content
+
+    @pytest.mark.parametrize("version", ["16", "17", "18"])
+    def test_v16_v18_postgresql_conf_pg16(self, version: str) -> None:
+        """v16-v18 postgresql.conf references PostgreSQL 16."""
+        d = get_example_dir(version)
+        content = (d / "postgresql.conf").read_text()
+        assert "PostgreSQL 16" in content

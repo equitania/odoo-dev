@@ -38,6 +38,7 @@ def _get_template_mapping(version: str, version_cfg: VersionConfig) -> dict[str,
     return {
         "repos.yaml": os.path.join(native_dir, "repos.yaml"),
         "requirements.txt": os.path.join(native_dir, "requirements.txt"),
+        "postgresql.conf": os.path.join(native_dir, "postgresql.conf"),
         f"odoo{version}_template.conf": os.path.join(conf_dir, f"odoo{version}_template.conf"),
     }
 
