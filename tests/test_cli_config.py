@@ -34,6 +34,7 @@ class TestHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "start" in result.output
+        assert "stop" in result.output
         assert "repos" in result.output
         assert "db" in result.output
         assert "init" in result.output

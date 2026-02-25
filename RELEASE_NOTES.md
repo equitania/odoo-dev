@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.3.2 (25.02.2026)
+
+### Added
+- `odoodev stop [VERSION]` command — stops running Odoo process (via port-based process discovery) and Docker services
+- `odoodev/core/process_manager.py` — reusable core module for process discovery via `lsof` and graceful termination (SIGTERM → SIGKILL)
+- `--keep-docker` flag for `stop` — keeps PostgreSQL/Mailpit running while stopping Odoo
+- `--force` flag for `stop` — immediate SIGKILL without graceful shutdown
+
 ## Version 0.2.0 (24.02.2026)
 
 ### Added

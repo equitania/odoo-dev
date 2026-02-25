@@ -78,10 +78,12 @@ from odoodev.commands.repos import repos  # noqa: E402
 from odoodev.commands.setup_cmd import setup  # noqa: E402
 from odoodev.commands.shell_setup import shell_setup  # noqa: E402
 from odoodev.commands.start import start  # noqa: E402
+from odoodev.commands.stop import stop  # noqa: E402
 from odoodev.commands.venv import venv  # noqa: E402
 
 cli.add_command(init)
 cli.add_command(start)
+cli.add_command(stop)
 cli.add_command(repos)
 cli.add_command(db)
 cli.add_command(env)
