@@ -29,6 +29,26 @@
 
 #### 1. Installation
 
+**Option A: Dauerhaft als CLI-Tool installieren (empfohlen)**
+
+```bash
+# Dauerhaft als globales CLI-Tool installieren
+uv tool install odoodev-equitania
+
+# Oder direkt von GitLab/GitHub installieren (neueste Version)
+uv tool install git+https://github.com/equitania/odoo-dev.git
+
+# Update auf neueste Version
+uv tool upgrade odoodev-equitania
+
+# Einmalig ausfuehren ohne Installation
+uvx odoodev-equitania --help
+```
+
+Nach `uv tool install` ist `odoodev` systemweit verfuegbar — kein Virtual Environment noetig.
+
+**Option B: Entwicklungsinstallation (fuer Beitragende)**
+
 ```bash
 # Repository klonen
 git clone https://github.com/equitania/odoo-dev.git
@@ -38,7 +58,7 @@ cd odoo-dev
 uv venv && source .venv/bin/activate.fish  # Fish
 # oder: source .venv/bin/activate           # Bash/Zsh
 
-# Paket installieren
+# Paket im Entwicklungsmodus installieren
 uv pip install -e ".[dev]"
 ```
 
@@ -648,6 +668,26 @@ Dieses Projekt ist unter der [AGPL-3.0-or-later](LICENSE) Lizenz lizenziert.
 
 #### 1. Installation
 
+**Option A: Install as permanent CLI tool (recommended)**
+
+```bash
+# Install as global CLI tool permanently
+uv tool install odoodev-equitania
+
+# Or install directly from GitLab/GitHub (latest version)
+uv tool install git+https://github.com/equitania/odoo-dev.git
+
+# Update to latest version
+uv tool upgrade odoodev-equitania
+
+# Run once without installing
+uvx odoodev-equitania --help
+```
+
+After `uv tool install`, `odoodev` is available system-wide — no virtual environment needed.
+
+**Option B: Development installation (for contributors)**
+
 ```bash
 # Clone repository
 git clone https://github.com/equitania/odoo-dev.git
@@ -657,7 +697,7 @@ cd odoo-dev
 uv venv && source .venv/bin/activate.fish  # Fish
 # or: source .venv/bin/activate             # Bash/Zsh
 
-# Install package
+# Install package in development mode
 uv pip install -e ".[dev]"
 ```
 
