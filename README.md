@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.3.3-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.10-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -31,7 +31,7 @@
 
 ```bash
 # Repository klonen
-git clone https://gitlab.ownerp.io/pypi-projects/odoo-dev.git
+git clone https://github.com/equitania/odoo-dev.git
 cd odoo-dev
 
 # Virtual Environment erstellen und aktivieren
@@ -251,7 +251,8 @@ odoodev start
 | `odoodev start [VERSION]` | Odoo-Server starten |
 | `odoodev stop [VERSION]` | Odoo-Server und Docker-Services stoppen |
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren |
-| `odoodev db [SUBCOMMAND] [VERSION]` | Datenbankoperationen |
+| `odoodev pull [VERSION]` | Schneller `git pull` aller vorhandenen Repos |
+| `odoodev db [SUBCOMMAND] [VERSION]` | Datenbankoperationen (backup, restore, list, drop) |
 | `odoodev env [SUBCOMMAND] [VERSION]` | .env-Dateiverwaltung |
 | `odoodev venv [SUBCOMMAND] [VERSION]` | Virtual Environment verwalten |
 | `odoodev docker [SUBCOMMAND] [VERSION]` | Docker-Services steuern |
@@ -349,11 +350,30 @@ odoodev repos 18 --config-only
 odoodev repos 18 -c /pfad/zu/repos.yaml
 ```
 
+#### Schneller Pull aller Repos
+
+```bash
+# Alle vorhandenen Repos aktualisieren (kein Clone, kein Access-Check)
+odoodev pull 18
+
+# Mit Custom repos.yaml
+odoodev pull 18 -c /pfad/zu/repos.yaml
+```
+
 #### Datenbankoperationen
 
 ```bash
 # Datenbanken auflisten
 odoodev db list 18
+
+# Backup erstellen (interaktiv)
+odoodev db backup 18
+
+# Backup als SQL-Dump
+odoodev db backup 18 -n v18_exam -t sql -o /tmp
+
+# Backup als ZIP mit Filestore
+odoodev db backup 18 -n v18_exam -t zip -o /tmp
 
 # Backup wiederherstellen
 odoodev db restore 18 -n v18_test -z backup.zip
@@ -630,7 +650,7 @@ Dieses Projekt ist unter der [AGPL-3.0-or-later](LICENSE) Lizenz lizenziert.
 
 ```bash
 # Clone repository
-git clone https://gitlab.ownerp.io/pypi-projects/odoo-dev.git
+git clone https://github.com/equitania/odoo-dev.git
 cd odoo-dev
 
 # Create and activate virtual environment
@@ -850,7 +870,8 @@ odoodev start
 | `odoodev start [VERSION]` | Start Odoo server |
 | `odoodev stop [VERSION]` | Stop Odoo server and Docker services |
 | `odoodev repos [VERSION]` | Clone/update repositories |
-| `odoodev db [SUBCOMMAND] [VERSION]` | Database operations |
+| `odoodev pull [VERSION]` | Quick `git pull` across all existing repos |
+| `odoodev db [SUBCOMMAND] [VERSION]` | Database operations (backup, restore, list, drop) |
 | `odoodev env [SUBCOMMAND] [VERSION]` | .env file management |
 | `odoodev venv [SUBCOMMAND] [VERSION]` | Virtual environment management |
 | `odoodev docker [SUBCOMMAND] [VERSION]` | Docker service control |
@@ -948,11 +969,30 @@ odoodev repos 18 --config-only
 odoodev repos 18 -c /path/to/repos.yaml
 ```
 
+#### Quick Pull All Repos
+
+```bash
+# Update all existing repos (no clone, no access check)
+odoodev pull 18
+
+# With custom repos.yaml
+odoodev pull 18 -c /path/to/repos.yaml
+```
+
 #### Database Operations
 
 ```bash
 # List databases
 odoodev db list 18
+
+# Create backup (interactive)
+odoodev db backup 18
+
+# Backup as SQL dump
+odoodev db backup 18 -n v18_exam -t sql -o /tmp
+
+# Backup as ZIP with filestore
+odoodev db backup 18 -n v18_exam -t zip -o /tmp
 
 # Restore backup
 odoodev db restore 18 -n v18_test -z backup.zip

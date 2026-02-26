@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.3.3 (26.02.2026)
+
+### Added
+- `odoodev pull [VERSION]` command — quick `git pull` across all existing repositories without cloning, SSH access checks, or config regeneration
+- `odoodev db backup [VERSION]` subcommand — create database backups as SQL dump (`pg_dump`) or ZIP with filestore (Odoo standard format)
+- Interactive database and backup type selection when options are omitted
+- Core functions `backup_database_sql()` and `create_backup_zip()` in `database.py`
+- Rich summary table for pull results (Updated/Skipped/Failed)
+- Tests for pull command (6 tests) and db backup (7 tests)
+
 ## Version 0.3.2 (26.02.2026)
 
 ### Added

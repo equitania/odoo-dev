@@ -1,17 +1,21 @@
-"""odoodev db - Database operations (restore, list, drop)."""
+"""odoodev db - Database operations (backup, restore, list, drop)."""
 
 from __future__ import annotations
 
 import os
 import shutil
 import tempfile
+from datetime import datetime
 
 import click
 
 from odoodev.cli import resolve_version
 from odoodev.core.database import (
+    backup_database_sql,
     copy_filestore,
+    create_backup_zip,
     create_database,
+    database_exists,
     deactivate_cloud,
     deactivate_cronjobs,
     detect_backup_type,
@@ -54,7 +58,7 @@ def _load_env_vars(version_cfg) -> dict[str, str]:
 
 @click.group()
 def db() -> None:
-    """Database operations (restore, list, drop)."""
+    """Database operations (backup, restore, list, drop)."""
 
 
 @db.command("list")
@@ -196,3 +200,172 @@ def db_restore(
             print_warning(f"Could not remove temp files: {extract_path}")
 
     print_success(f"Database '{name}' restore complete")
+
+
+def _select_database(params: dict) -> str | None:
+    """Interactive database selection.
+
+    Returns:
+        Selected database name, or None if aborted.
+    """
+    databases = list_databases(host=params["host"], port=params["port"], user=params["user"])
+    if not databases:
+        print_error("No databases found (or PostgreSQL not accessible)")
+        return None
+
+    print_info(f"Available databases ({len(databases)}):")
+    for i, db_name in enumerate(databases, 1):
+        console.print(f"  [bold]{i}[/bold]) {db_name}")
+
+    choice = console.input("\nSelect database (number or name): ").strip()
+    if not choice:
+        return None
+
+    # Try as number
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(databases):
+            return databases[idx]
+        print_error(f"Invalid number: {choice}")
+        return None
+    except ValueError:
+        pass
+
+    # Try as name
+    if choice in databases:
+        return choice
+
+    print_error(f"Database not found: {choice}")
+    return None
+
+
+def _select_backup_type(version: str, db_name: str) -> str | None:
+    """Interactive backup type selection.
+
+    Returns:
+        'sql' or 'zip', or None if aborted.
+    """
+    filestore_path = get_filestore_path(version, db_name)
+    has_filestore = os.path.isdir(filestore_path)
+
+    console.print("\nBackup type:")
+    console.print("  [bold]1[/bold]) SQL — pg_dump only")
+    if has_filestore:
+        console.print("  [bold]2[/bold]) ZIP — SQL + filestore (Odoo standard format)")
+    else:
+        console.print("  [dim]  2) ZIP — SQL + filestore (no filestore found)[/dim]")
+
+    choice = console.input("\nSelect type [1]: ").strip()
+    if not choice or choice == "1":
+        return "sql"
+    if choice == "2":
+        if not has_filestore:
+            if not confirm("No filestore found. Create ZIP with SQL only?", default=True):
+                return None
+        return "zip"
+
+    print_error(f"Invalid choice: {choice}")
+    return None
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format file size in human-readable format."""
+    size = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+@db.command("backup")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option("-t", "--type", "backup_type", type=click.Choice(["sql", "zip"]), help="Backup type")
+@click.option("-o", "--output", "output_dir", type=click.Path(), default=".", help="Output directory (default: .)")
+@click.pass_context
+def db_backup(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+    backup_type: str | None,
+    output_dir: str,
+) -> None:
+    """Create a database backup (SQL dump or ZIP with filestore).
+
+    Without options, interactively selects database and backup type.
+    """
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+
+    # Check PostgreSQL accessibility
+    from odoodev.core.prerequisites import check_port
+
+    if not check_port(params["host"], params["port"]):
+        print_error(f"PostgreSQL not accessible on {params['host']}:{params['port']}")
+        print_info("Start Docker services: odoodev docker up")
+        raise SystemExit(1)
+
+    # Select database
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+    else:
+        if not database_exists(name, host=params["host"], port=params["port"], user=params["user"]):
+            print_error(f"Database '{name}' does not exist")
+            raise SystemExit(1)
+
+    # Select backup type
+    if not backup_type:
+        backup_type = _select_backup_type(version, name)
+        if not backup_type:
+            raise SystemExit(1)
+
+    # Prepare output
+    output_dir = os.path.abspath(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    date_suffix = datetime.now().strftime("%y%m%d")
+
+    if backup_type == "sql":
+        output_file = os.path.join(output_dir, f"{name}_{date_suffix}.sql")
+        print_info(f"Creating SQL backup of '{name}'...")
+
+        if not backup_database_sql(name, output_file, **params):
+            print_error("Backup failed")
+            raise SystemExit(1)
+
+        size = _format_size(os.path.getsize(output_file))
+        print_success(f"Backup created: {output_file} ({size})")
+
+    else:
+        # ZIP: dump SQL to temp, then create ZIP
+        tmp_dir = tempfile.mkdtemp(prefix="odoodev_backup_")
+        try:
+            sql_path = os.path.join(tmp_dir, "dump.sql")
+            print_info(f"Dumping database '{name}'...")
+
+            if not backup_database_sql(name, sql_path, **params):
+                print_error("Database dump failed")
+                raise SystemExit(1)
+
+            filestore_path = get_filestore_path(version, name)
+            fs_dir = filestore_path if os.path.isdir(filestore_path) else None
+
+            output_file = os.path.join(output_dir, f"{name}_{date_suffix}.zip")
+            print_info("Creating ZIP backup...")
+
+            if fs_dir:
+                print_info(f"Including filestore: {fs_dir}")
+
+            if not create_backup_zip(sql_path, output_file, fs_dir):
+                print_error("ZIP creation failed")
+                raise SystemExit(1)
+
+            size = _format_size(os.path.getsize(output_file))
+            print_success(f"Backup created: {output_file} ({size})")
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)

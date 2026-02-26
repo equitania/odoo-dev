@@ -332,6 +332,69 @@ def get_filestore_path(odoo_version: str, db_name: str) -> str:
     )
 
 
+def backup_database_sql(
+    db_name: str,
+    output_path: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Create a SQL dump of a database using pg_dump.
+
+    Args:
+        db_name: Database name to dump
+        output_path: Full path for the output SQL file
+        host: PostgreSQL host
+        port: PostgreSQL port
+        user: PostgreSQL user
+
+    Returns:
+        True if dump was successful.
+    """
+    env = _get_pg_env(host, port)
+    cmd = f'pg_dump -U {user} -h {host} -p {port} {db_name} > "{output_path}"'
+    try:
+        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, env=env)
+        logger.info("Database %s dumped to %s", db_name, output_path)
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error("Failed to dump %s: %s", db_name, e.stderr)
+        return False
+
+
+def create_backup_zip(
+    sql_path: str,
+    output_path: str,
+    filestore_path: str | None = None,
+) -> bool:
+    """Create a ZIP backup in Odoo standard format (dump.sql + filestore/).
+
+    Args:
+        sql_path: Path to the SQL dump file
+        output_path: Full path for the output ZIP file
+        filestore_path: Optional path to filestore directory
+
+    Returns:
+        True if ZIP was created successfully.
+    """
+    try:
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(sql_path, "dump.sql")
+
+            if filestore_path and os.path.isdir(filestore_path):
+                for root, _dirs, files in os.walk(filestore_path):
+                    for fname in files:
+                        full_path = os.path.join(root, fname)
+                        arcname = os.path.join("filestore", os.path.relpath(full_path, filestore_path))
+                        zf.write(full_path, arcname)
+
+        logger.info("Backup ZIP created: %s", output_path)
+        return True
+    except Exception as e:
+        logger.error("Failed to create backup ZIP: %s", e)
+        return False
+
+
 def deactivate_cronjobs(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
