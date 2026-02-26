@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.3.4 (26.02.2026)
+
+### Security
+- Default password `CHANGE_AT_FIRST` replaced with `CHANGE_AT_FIRST` across all source files, templates, and documentation
+- Git history cleaned via `git filter-repo` to remove hardcoded credentials from all historical commits
+- Affected files: `global_config.py`, `database.py`, `start.py`, `odoo_template.conf.j2`, `docker-compose.yml.j2`, `README.md`, `CLAUDE.md`
+
 ## Version 0.3.3 (26.02.2026)
 
 ### Added
