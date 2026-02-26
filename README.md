@@ -306,6 +306,18 @@ odoodev start 18 --prepare
 odoodev start 18 -- -d mydb -u my_module
 ```
 
+**Start-Modi im Überblick:**
+
+| Modus | Flag | Beschreibung |
+|-------|------|-------------|
+| **Normal** | *(kein Flag)* | Produktionsnaher Start. Views werden aus der Datenbank geladen, kein Auto-Reload. |
+| **Development** | `--dev` | Entwicklungsmodus (`--dev=all`): Views aus XML-Dateien laden, Auto-Reload bei Code-Änderungen, pdb-Debugger bei Exceptions. **Nur für Entwicklung!** |
+| **Shell** | `--shell` | Interaktive Odoo-Python-Shell mit vollem Zugriff auf die ORM-API. |
+| **Test** | `--test` | Startet Odoo mit `--test-enable --stop-after-init` — führt Unit-Tests aus und beendet sich. |
+| **Prepare** | `--prepare` | Aktiviert nur die virtuelle Umgebung und öffnet eine Shell, ohne Odoo zu starten. |
+
+> **Hinweis:** `--dev=all` aktiviert alle Entwickler-Features (XML-Reload, Python Auto-Reload, pdb-Debugger). Einzelne Features können kommagetrennt gewählt werden, z.B. `--dev=reload,xml`. Niemals in Produktion verwenden!
+
 #### Server stoppen
 
 ```bash
@@ -892,6 +904,18 @@ odoodev start 18 --prepare
 # Pass additional Odoo arguments
 odoodev start 18 -- -d mydb -u my_module
 ```
+
+**Start Modes Overview:**
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| **Normal** | *(no flag)* | Production-like start. Views are loaded from the database, no auto-reload. |
+| **Development** | `--dev` | Development mode (`--dev=all`): load views from XML files, auto-reload on code changes, pdb debugger on exceptions. **Development only!** |
+| **Shell** | `--shell` | Interactive Odoo Python shell with full ORM API access. |
+| **Test** | `--test` | Starts Odoo with `--test-enable --stop-after-init` — runs unit tests and exits. |
+| **Prepare** | `--prepare` | Only activates the virtual environment and opens a shell without starting Odoo. |
+
+> **Note:** `--dev=all` enables all developer features (XML reload, Python auto-reload, pdb debugger). Individual features can be selected comma-separated, e.g. `--dev=reload,xml`. Never use in production!
 
 #### Stop Server
 

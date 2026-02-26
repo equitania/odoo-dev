@@ -108,10 +108,13 @@ def _start_odoo(
     else:
         # Normal mode
         odoo_port = env.get("ODOO_PORT", "18069")
+        subtitle = f"Web: http://localhost:{odoo_port}"
         mailpit_port = env.get("MAILPIT_PORT", "18025")
+        if check_port("localhost", int(mailpit_port)):
+            subtitle += f"  |  Mailpit: http://localhost:{mailpit_port}"
         print_header(
             f"Odoo v{env.get('ODOO_VERSION', '?')} — Native Development",
-            f"Web: http://localhost:{odoo_port}  |  Mailpit: http://localhost:{mailpit_port}",
+            subtitle,
         )
 
     # Add extra arguments
@@ -273,10 +276,26 @@ def start(
     if no_confirm:
         _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir)
     else:
-        if confirm(f"Start Odoo v{version} in {mode} mode?"):
+        if mode == "normal":
+            prompt = f"Start Odoo v{version} server?"
+        else:
+            mode_descriptions = {
+                "dev": "development mode (hot-reload)",
+                "shell": "interactive shell",
+                "test": "test mode (--test-enable)",
+            }
+            mode_label = mode_descriptions.get(mode, f"{mode} mode")
+            prompt = f"Start Odoo v{version} in {mode_label}?"
+
+        if confirm(prompt):
             _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir)
         else:
-            if confirm("Open interactive shell instead?"):
+            print_info("Alternative start modes:")
+            print_info("  odoodev start --dev      Development mode (hot-reload)")
+            print_info("  odoodev start --shell    Odoo interactive shell")
+            print_info("  odoodev start --test     Run tests (--test-enable)")
+            print_info("  odoodev start --prepare  Open shell with venv activated")
+            if confirm("Open interactive shell with venv instead?"):
                 _start_interactive_shell(odoo_dir, venv_dir, config_path, env)
             else:
                 print_info("Aborted.")

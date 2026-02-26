@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.3.2 (25.02.2026)
+## Version 0.3.2 (26.02.2026)
 
 ### Added
 - `odoodev stop [VERSION]` command — stops running Odoo process (via port-based process discovery) and Docker services
@@ -8,8 +8,14 @@
 - `--keep-docker` flag for `stop` — keeps PostgreSQL/Mailpit running while stopping Odoo
 - `--force` flag for `stop` — immediate SIGKILL without graceful shutdown
 - `odoodev init` now checks for `wkhtmltopdf` at startup — shows install hint if missing (non-blocking warning)
+- Start modes overview table in README (DE + EN) documenting all `--dev`, `--shell`, `--test`, `--prepare` flags
+
+### Changed
+- Start prompt improved: "Start Odoo v18 server?" instead of unclear "in normal mode"; descriptive labels for dev/shell/test modes
+- When declining start prompt, alternative modes (`--dev`, `--shell`, `--test`, `--prepare`) are now shown with descriptions
 
 ### Fixed
+- Mailpit URL in start banner is now only displayed when the Mailpit service is actually reachable (port check via `check_port()`)
 - `wkhtmltopdf` install hint now recommends the 'patched qt' binary from wkhtmltopdf.org instead of `brew install wkhtmltopdf` — Homebrew's version lacks patched Qt and may not render Odoo PDF reports correctly
 - README installation instructions corrected accordingly (both DE and EN sections)
 
