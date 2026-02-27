@@ -606,7 +606,6 @@ odoodev/
 ├── templates/              # Jinja2-Templates
 │   ├── docker-compose.yml.j2
 │   ├── env.template.j2
-│   ├── odoo_template.conf.j2
 │   └── shell/              # Shell-Aktivierungsskripte
 └── data/
     └── versions.yaml       # Versionsregistry
@@ -1245,7 +1244,6 @@ odoodev/
 ├── templates/              # Jinja2 templates
 │   ├── docker-compose.yml.j2
 │   ├── env.template.j2
-│   ├── odoo_template.conf.j2
 │   └── shell/              # Shell activation scripts
 └── data/
     └── versions.yaml       # Version registry

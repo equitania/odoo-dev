@@ -231,8 +231,8 @@ class TestTemplateContent:
         assert "[options]" in content
         assert "addons_path" in content
         assert "db_host" in content
-        assert "db_user = odoo" in content
-        assert "admin_passwd = admin" in content
+        assert "db_user = ownerp" in content
+        assert "admin_passwd = CHANGE_AT_FIRST" in content
 
     def test_v19_has_new_fields(self) -> None:
         """v19 config contains v19-specific fields."""

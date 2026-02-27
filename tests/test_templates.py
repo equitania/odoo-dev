@@ -94,21 +94,3 @@ class TestDockerComposeTemplate:
         assert "19432" in result
         assert "postgresql.conf:/etc/postgresql/postgresql.conf" in result
         assert "config_file=/etc/postgresql/postgresql.conf" in result
-
-
-class TestOdooConfigTemplate:
-    def test_renders_odoo_config(self):
-        jinja_env = _get_template_env()
-        template = jinja_env.get_template("odoo_template.conf.j2")
-        result = template.render(
-            data_dir="/home/user/odoo-share/",
-            db_host="localhost",
-            db_port=18432,
-            gevent_port=18072,
-            http_port=18069,
-        )
-        assert "[options]" in result
-        assert "db_host = localhost" in result
-        assert "db_port = 18432" in result
-        assert "http_port = 18069" in result
-        assert "gevent_port = 18072" in result

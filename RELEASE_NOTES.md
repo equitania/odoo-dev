@@ -1,11 +1,21 @@
 # Release Notes
 
-## Version 0.3.4 (26.02.2026)
+## Version 0.3.4 (27.02.2026)
+
+### Fixed
+- Odoo config templates (v16-v19): replaced deprecated `longpolling_port` with `gevent_port`
+- Odoo config templates (v16-v19): corrected `limit_request` from `8192` to `65536` (official default)
+- v16 template: replaced deprecated `osv_memory_age_limit` with `transient_age_limit = 1.0`
+- v19 template: replaced `without_demo` with `with_demo` (new v19 parameter)
+- Removed invalid parameters from all templates: `demo = {}`, `translate_modules`
+
+### Changed
+- Removed unused Jinja2 master template `odoo_template.conf.j2` (not version-specific, never used by repos command)
+- Credentials in all example templates now use project standard (`ownerp`/`CHANGE_AT_FIRST`)
 
 ### Security
 - Default password replaced with `CHANGE_AT_FIRST` across all source files, templates, and documentation
 - Git history cleaned via `git filter-repo` to remove hardcoded credentials from all historical commits
-- Affected files: `global_config.py`, `database.py`, `start.py`, `odoo_template.conf.j2`, `docker-compose.yml.j2`, `README.md`, `CLAUDE.md`
 
 ## Version 0.3.3 (26.02.2026)
 
