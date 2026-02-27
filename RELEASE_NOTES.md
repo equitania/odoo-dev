@@ -1,5 +1,24 @@
 # Release Notes
 
+## Version 0.4.0 (27.02.2026)
+
+### Added
+- `odoodev run` command — YAML-driven playbook automation for AI agents and scripted workflows
+- Two execution modes: YAML playbook files (`odoodev run playbook.yaml`) and inline steps (`odoodev run --step docker.up --step pull -V 18`)
+- 15 non-interactive command handlers: `docker.up`, `docker.down`, `docker.status`, `pull`, `repos`, `start`, `stop`, `db.list`, `db.backup`, `db.restore`, `db.drop`, `env.check`, `venv.check`, `venv.setup`
+- `--dry-run` flag for previewing playbook steps without execution
+- `--output json` for NDJSON machine-readable output (one JSON event per line)
+- Per-step `on_error` override (stop/continue) with playbook-level default
+- Non-blocking `start` handler — launches Odoo as background subprocess
+- `--yes` flag for `odoodev db drop` to skip confirmation prompt
+- 4 bundled example playbooks in `odoodev/data/examples/playbooks/`: daily-update, start-dev, full-refresh, restore-db
+- `odoodev/core/playbook.py` — frozen dataclasses (`StepConfig`, `PlaybookConfig`, `StepResult`, `PlaybookResult`), YAML loader with validation, `PlaybookRunner`
+- `odoodev/core/automation.py` — handler registry (`COMMAND_HANDLERS`) with non-interactive wrappers around core functions
+- 69 new tests covering playbook engine, automation handlers, and CLI integration
+
+### Fixed
+- `odoodev start --no-confirm` now also skips the Docker start confirmation prompt
+
 ## Version 0.3.4 (27.02.2026)
 
 ### Fixed

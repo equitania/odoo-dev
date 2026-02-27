@@ -1,0 +1,22 @@
+# Restore database from backup: Docker up + restore + start dev
+# NOTE: Replace backup-file path before use!
+version: "18"
+on_error: stop
+
+steps:
+  - name: "Start Docker services"
+    command: docker.up
+
+  - name: "Restore database"
+    command: db.restore
+    args:
+      name: v18_exam
+      backup-file: /path/to/backup.zip
+      drop: true
+      deactivate-cron: true
+      deactivate-cloud-integrations: true
+
+  - name: "Start Odoo dev server"
+    command: start
+    args:
+      mode: dev

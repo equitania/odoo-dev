@@ -76,6 +76,7 @@ from odoodev.commands.env import env  # noqa: E402
 from odoodev.commands.init_cmd import init  # noqa: E402
 from odoodev.commands.pull import pull  # noqa: E402
 from odoodev.commands.repos import repos  # noqa: E402
+from odoodev.commands.run import run  # noqa: E402
 from odoodev.commands.setup_cmd import setup  # noqa: E402
 from odoodev.commands.shell_setup import shell_setup  # noqa: E402
 from odoodev.commands.start import start  # noqa: E402
@@ -92,5 +93,6 @@ cli.add_command(env)
 cli.add_command(venv)
 cli.add_command(docker)
 cli.add_command(config)
+cli.add_command(run)
 cli.add_command(setup)
 cli.add_command(shell_setup)

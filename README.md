@@ -277,6 +277,7 @@ odoodev start
 | `odoodev venv [SUBCOMMAND] [VERSION]` | Virtual Environment verwalten |
 | `odoodev docker [SUBCOMMAND] [VERSION]` | Docker-Services steuern |
 | `odoodev config [SUBCOMMAND]` | Konfiguration und Versionen |
+| `odoodev run [PLAYBOOK] [OPTIONS]` | YAML-Playbook oder Inline-Steps ausführen |
 | `odoodev shell-setup` | Shell-Wrapper installieren |
 
 #### Setup-Wizard
@@ -400,7 +401,50 @@ odoodev db restore 18 -n v18_test -z backup.zip
 
 # Datenbank löschen
 odoodev db drop 18 -n v18_test
+
+# Datenbank löschen ohne Bestätigungsprompt
+odoodev db drop 18 -n v18_test --yes
 ```
+
+#### Playbook-Automation (run)
+
+```bash
+# YAML-Playbook ausführen
+odoodev run playbook.yaml
+
+# Dry-Run — Schritte anzeigen ohne auszuführen
+odoodev run playbook.yaml --dry-run
+
+# JSON-Output (NDJSON) für maschinelle Verarbeitung
+odoodev run playbook.yaml --output json
+
+# Inline-Steps ohne YAML-Datei
+odoodev run --step docker.up --step pull -V 18
+
+# Version überschreiben
+odoodev run playbook.yaml -V 19
+```
+
+**Playbook-Format:**
+
+```yaml
+version: "18"
+on_error: stop          # stop | continue
+
+steps:
+  - name: "Start Docker"
+    command: docker.up
+  - name: "Pull code"
+    command: pull
+  - name: "Generate config"
+    command: repos
+    args:
+      config-only: true
+```
+
+**Verfügbare Commands:** `docker.up`, `docker.down`, `docker.status`, `pull`, `repos`, `start`, `stop`, `db.list`, `db.backup`, `db.restore`, `db.drop`, `env.check`, `venv.check`, `venv.setup`
+
+Beispiel-Playbooks unter `odoodev/data/examples/playbooks/`: `daily-update.yaml`, `start-dev.yaml`, `full-refresh.yaml`, `restore-db.yaml`
 
 #### Docker-Services
 
@@ -591,6 +635,7 @@ odoodev/
 │   ├── venv.py             # Virtual Environment
 │   ├── docker.py           # Docker-Services
 │   ├── config.py           # Konfiguration
+│   ├── run.py              # Playbook-Automation (run)
 │   └── shell_setup.py      # Shell-Integration
 ├── core/
 │   ├── global_config.py    # Globale Konfiguration (config.yaml)
@@ -602,13 +647,16 @@ odoodev/
 │   ├── venv_manager.py     # UV-Venv-Verwaltung
 │   ├── docker_compose.py   # Docker-Compose-Operationen
 │   ├── prerequisites.py    # Voraussetzungsprüfungen
-│   └── shell_integration.py# Shell-Aktivierung
+│   ├── shell_integration.py# Shell-Aktivierung
+│   ├── playbook.py         # Playbook-Engine (Dataclasses, Runner)
+│   └── automation.py       # Non-Interactive Command-Handler
 ├── templates/              # Jinja2-Templates
 │   ├── docker-compose.yml.j2
 │   ├── env.template.j2
 │   └── shell/              # Shell-Aktivierungsskripte
 └── data/
-    └── versions.yaml       # Versionsregistry
+    ├── versions.yaml       # Versionsregistry
+    └── examples/playbooks/ # Beispiel-Playbooks (daily-update, start-dev, ...)
 ```
 
 ### Entwicklung
@@ -915,6 +963,7 @@ odoodev start
 | `odoodev venv [SUBCOMMAND] [VERSION]` | Virtual environment management |
 | `odoodev docker [SUBCOMMAND] [VERSION]` | Docker service control |
 | `odoodev config [SUBCOMMAND]` | Configuration and versions |
+| `odoodev run [PLAYBOOK] [OPTIONS]` | Run YAML playbook or inline steps |
 | `odoodev shell-setup` | Install shell wrapper functions |
 
 #### Setup Wizard
@@ -1038,7 +1087,50 @@ odoodev db restore 18 -n v18_test -z backup.zip
 
 # Drop database
 odoodev db drop 18 -n v18_test
+
+# Drop database without confirmation prompt
+odoodev db drop 18 -n v18_test --yes
 ```
+
+#### Playbook Automation (run)
+
+```bash
+# Execute YAML playbook
+odoodev run playbook.yaml
+
+# Dry-run — show steps without executing
+odoodev run playbook.yaml --dry-run
+
+# JSON output (NDJSON) for machine processing
+odoodev run playbook.yaml --output json
+
+# Inline steps without YAML file
+odoodev run --step docker.up --step pull -V 18
+
+# Override version
+odoodev run playbook.yaml -V 19
+```
+
+**Playbook format:**
+
+```yaml
+version: "18"
+on_error: stop          # stop | continue
+
+steps:
+  - name: "Start Docker"
+    command: docker.up
+  - name: "Pull code"
+    command: pull
+  - name: "Generate config"
+    command: repos
+    args:
+      config-only: true
+```
+
+**Available commands:** `docker.up`, `docker.down`, `docker.status`, `pull`, `repos`, `start`, `stop`, `db.list`, `db.backup`, `db.restore`, `db.drop`, `env.check`, `venv.check`, `venv.setup`
+
+Example playbooks in `odoodev/data/examples/playbooks/`: `daily-update.yaml`, `start-dev.yaml`, `full-refresh.yaml`, `restore-db.yaml`
 
 #### Docker Services
 

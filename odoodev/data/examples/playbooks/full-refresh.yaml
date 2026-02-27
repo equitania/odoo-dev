@@ -1,0 +1,22 @@
+# Full refresh: Docker + pull + repos + venv check + start dev
+version: "18"
+on_error: stop
+
+steps:
+  - name: "Start Docker services"
+    command: docker.up
+
+  - name: "Pull latest code"
+    command: pull
+
+  - name: "Update repos and regenerate config"
+    command: repos
+
+  - name: "Check venv freshness"
+    command: venv.check
+    on_error: continue
+
+  - name: "Start Odoo dev server"
+    command: start
+    args:
+      mode: dev

@@ -83,15 +83,16 @@ def db_list(ctx: click.Context, version: str | None) -> None:
 @db.command("drop")
 @click.argument("version", required=False)
 @click.option("-n", "--name", required=True, help="Database name to drop")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
-def db_drop(ctx: click.Context, version: str | None, name: str) -> None:
+def db_drop(ctx: click.Context, version: str | None, name: str, yes: bool) -> None:
     """Drop a database."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
 
-    if not confirm(f"Drop database '{name}'? This cannot be undone.", default=False):
+    if not yes and not confirm(f"Drop database '{name}'? This cannot be undone.", default=False):
         print_info("Aborted.")
         return
 

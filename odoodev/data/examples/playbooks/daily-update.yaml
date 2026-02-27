@@ -1,0 +1,22 @@
+# Daily update playbook: start Docker, pull repos, regenerate config, backup DB
+version: "18"
+on_error: stop
+
+steps:
+  - name: "Start Docker services"
+    command: docker.up
+
+  - name: "Pull latest code"
+    command: pull
+
+  - name: "Regenerate Odoo config"
+    command: repos
+    args:
+      config-only: true
+
+  - name: "Backup database"
+    command: db.backup
+    args:
+      name: v18_exam
+      type: sql
+    on_error: continue

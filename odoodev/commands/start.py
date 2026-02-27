@@ -231,7 +231,7 @@ def start(
     db_port = int(env_vars.get("DB_PORT", str(version_cfg.ports.db)))
     if not check_port("localhost", db_port):
         print_warning(f"PostgreSQL not accessible on localhost:{db_port}")
-        if confirm("Start Docker services now?"):
+        if no_confirm or confirm("Start Docker services now?"):
             subprocess.run(["docker", "compose", "up", "-d"], cwd=native_dir)
             import time
 

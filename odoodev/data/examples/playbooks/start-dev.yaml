@@ -1,0 +1,12 @@
+# Quick start: Docker services + Odoo dev server
+version: "18"
+on_error: stop
+
+steps:
+  - name: "Start Docker services"
+    command: docker.up
+
+  - name: "Start Odoo dev server"
+    command: start
+    args:
+      mode: dev
