@@ -20,7 +20,7 @@ def versions_yaml(tmp_dir):
     data = {
         "versions": {
             "18": {
-                "python": "3.12",
+                "python": "3.13",
                 "postgres": "16.11-alpine",
                 "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025, "smtp": 1025},
                 "paths": {

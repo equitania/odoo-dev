@@ -18,7 +18,7 @@ def _make_version_cfg(version: str, base: str) -> VersionConfig:
     """Create a VersionConfig pointing at a temp directory."""
     return VersionConfig(
         version=version,
-        python="3.12",
+        python="3.13",
         postgres="16.11-alpine",
         ports=PortConfig(db=18432, odoo=18069, gevent=18072, mailpit=18025, smtp=1025),
         paths=PathConfig(

@@ -29,7 +29,7 @@ def mock_version_cfg():
     cfg.paths.myconfs_dir = "/tmp/test_myconfs"
     cfg.paths.base_expanded = "/tmp/test_base"
     cfg.paths.server_subdir = "v18-server"
-    cfg.python = "3.12"
+    cfg.python = "3.13"
     return cfg
 
 

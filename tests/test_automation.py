@@ -35,7 +35,7 @@ def mock_version_cfg():
     cfg.paths.server_subdir = "v18-server"
     cfg.paths.dev_dir = "/tmp/test_dev"
     cfg.git.server_url = "git@example.com:v18/v18-server.git"
-    cfg.python = "3.12"
+    cfg.python = "3.13"
     return cfg
 
 

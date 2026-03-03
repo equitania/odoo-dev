@@ -149,7 +149,7 @@ def _make_version_cfg(base_path: str):
     @dataclass(frozen=True)
     class MockVersionConfig:
         version: str = "18"
-        python: str = "3.12"
+        python: str = "3.13"
         postgres: str = "16.11-alpine"
         paths: MockPaths = MockPaths()
         git: MockGit = MockGit()

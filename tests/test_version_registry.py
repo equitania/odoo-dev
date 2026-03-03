@@ -44,7 +44,7 @@ class TestLoadVersions:
     def test_version_18_config(self):
         versions = load_versions()
         v18 = versions["18"]
-        assert v18.python == "3.12"
+        assert v18.python == "3.13"
         assert v18.postgres == "16.11-alpine"
         assert v18.ports.db == 18432
         assert v18.ports.odoo == 18069
@@ -205,7 +205,7 @@ class TestApplyGlobalBaseDir:
         override_data = {
             "versions": {
                 "18": {
-                    "python": "3.12",
+                    "python": "3.13",
                     "postgres": "16.11-alpine",
                     "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025, "smtp": 1025},
                     "paths": {

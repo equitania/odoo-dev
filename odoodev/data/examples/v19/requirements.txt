@@ -1,58 +1,97 @@
-# Odoo 19 Requirements (based on official odoo/odoo master branch)
+# Odoo 19 Requirements — Python 3.13 (based on CI prepare-19)
 # psycopg2-binary used instead of psycopg2 for native development
-asn1crypto==1.5.1 ; python_version >= '3.11'
-Babel==2.10.3 ; python_version >= '3.11' and python_version < '3.13'
-Babel==2.17.0 ; python_version >= '3.13'
-cbor2==5.6.2 ; python_version >= '3.12'
-chardet==5.2.0 ; python_version >= '3.11'
-cryptography==42.0.8 ; python_version >= '3.12'
-docutils==0.20.1 ; python_version >= '3.11'
-freezegun==1.2.1 ; python_version >= '3.11' and python_version < '3.13'
-freezegun==1.5.1 ; python_version >= '3.13'
+# Old Python markers (< 3.13) removed as v19 exclusively uses Python 3.13
+asn1crypto==1.5.1
+Babel==2.16.0  # upgraded for sphinx 8.2.3 (requires >=2.13)
+cbor2==5.8.0
+chardet==5.2.0
+cryptography==46.0.5  # upgraded for pyopenssl 25.3.0 compatibility (requires >=45.0.7)
+decorator==5.1.1
+docutils==0.20.1
+freezegun==1.5.1
 geoip2==2.9.0
-gevent==24.2.1 ; sys_platform != 'win32' and python_version >= '3.12' and python_version < '3.13'
-gevent==24.11.1 ; sys_platform != 'win32' and python_version >= '3.13'
-greenlet==3.0.3 ; sys_platform != 'win32' and python_version >= '3.12' and python_version < '3.13'
-greenlet==3.1.1 ; sys_platform != 'win32' and python_version >= '3.13'
-idna==3.6 ; python_version >= '3.12'
-Jinja2==3.1.2 ; python_version > '3.10'
-libsass==0.22.0 ; python_version >= '3.11'
-lxml==5.2.1; python_version >= '3.12'
-lxml-html-clean; python_version >= '3.12'
-MarkupSafe==2.1.5 ; python_version >= '3.12'
-num2words==0.5.13 ; python_version >= '3.12'
+gevent==24.11.1 ; sys_platform != 'win32'  # (Trixie)
+greenlet==3.1.1 ; sys_platform != 'win32'  # (Trixie)
+idna==3.11
+Jinja2==3.1.6
+libsass==0.22.0
+lxml==5.2.1
+lxml-html-clean
+MarkupSafe==2.1.5
+num2words==0.5.13
 ofxparse==0.21
-openpyxl==3.1.2 ; python_version >= '3.12'
+openpyxl==3.1.2
 passlib==1.7.4
-Pillow==10.2.0 ; python_version >= '3.12' and python_version < '3.13'
-Pillow==11.1.0 ; python_version >= '3.13'
+Pillow==11.1.0  # (Trixie)
 polib==1.1.1
-psutil==5.9.8 ; python_version >= '3.12'
-psycopg2-binary==2.9.9 ; python_version >= '3.12' and python_version < '3.13'
-psycopg2-binary==2.9.10 ; python_version >= '3.13'
-pyopenssl==24.1.0 ; python_version >= '3.12'
-PyPDF2==2.12.1 ; python_version < '3.13'
-PyPDF==5.4.0 ; python_version >= '3.13'
+psutil==5.9.8
+psycopg2-binary==2.9.10  # (Trixie)
+pyopenssl==25.3.0  # upgraded from 24.1.0, requires cryptography>=45.0.7
+PyPDF==5.4.0  # (Trixie)
 pyserial==3.5
-python-dateutil==2.8.2 ; python_version >= '3.11'
-python-magic==0.4.27; sys_platform != 'win32' and python_version >= '3.12'
-python-ldap==3.4.4 ; sys_platform != 'win32' and python_version >= '3.12'
-python-stdnum==1.19 ; python_version >= '3.11'
+python-dateutil==2.8.2
+python-magic>=0.4.27 ; sys_platform != 'win32'
+python-ldap==3.4.4 ; sys_platform != 'win32'
+python-stdnum==1.19
+pytz  # no version pinning to avoid OS perturbations
 pyusb==1.2.1
-qrcode==7.4.2 ; python_version >= '3.11'
-reportlab==4.1.0 ; python_version >= '3.12'
-requests==2.31.0 ; python_version >= '3.11'
-rjsmin==1.2.0 ; python_version >= '3.11'
-rl-renderPM==4.0.3 ; sys_platform == 'win32' and python_version >= '3.12'
-tzdata; sys_platform == 'win32'
-urllib3==2.0.7 ; python_version >= '3.12'
+qrcode==7.4.2
+reportlab==4.1.0
+requests==2.32.5  # upgraded from 2.31.0 for CVE-2024-35195 fix
+rjsmin==1.2.0
+rl-renderPM==4.0.3 ; sys_platform == 'win32'
+tzdata ; sys_platform == 'win32'
+urllib3==2.6.3  # upgraded from 2.0.7 for multiple CVEs (CVSS 8.9)
 vobject==0.9.6.1
-Werkzeug==3.0.1 ; python_version >= '3.12'
-xlrd==2.0.1 ; python_version >= '3.12'
-XlsxWriter==3.1.9 ; python_version >= '3.12'
+Werkzeug==3.0.6  # upgraded from 3.0.1 for CVE-2024-34069 RCE fix
+xlrd==2.0.1
+XlsxWriter==3.1.9
 xlwt==1.3.0
-zeep==4.2.1 ; python_version >= '3.11' and python_version < '3.13'
-zeep==4.3.1 ; python_version >= '3.13'
+zeep==4.3.1
+rlPyCairo
 
-# Native development additions (not in official Odoo requirements)
-rlPyCairo==0.3.0 ; sys_platform == 'darwin'  # reportlab rendering on macOS
+# custom libs
+openpyxl
+pycryptodome==3.23.0
+nextcloud-api-wrapper
+phonenumbers
+python-slugify
+parse-accept-language
+bleach==6.2.0
+holidays==0.84
+#odoorpc-toolbox
+python-gitlab
+pypandoc==1.6.4
+python-docx==0.8.11
+PyYAML>=6.0.1,<7.0.0
+pyotp>=2.9.0,<3.0.0
+paramiko>=3.5.0
+python-barcode
+#GitPython
+pandas==2.2.3
+numpy==1.26.3
+deepl
+unidecode
+pdfminer.six==20251107
+oauthlib==3.3.1
+sphinx==8.2.3
+sphinx_tabs==3.4.7
+sphinxcontrib-httpdomain==1.8.1
+sphinx_rtd_theme==3.0.2
+dicttoxml==1.7.16
+xmltodict==0.13.0
+openai>=1.58.0,<3.0.0
+xmlschema
+msal==1.34.0  # upgraded from 1.31.1, supports cryptography>=46
+email_validator
+pymupdf>=1.25.0
+click>=8.1.0
+openupgradelib
+
+# AI/Chatbot dependencies
+eq-chatbot-core>=1.2.1
+anthropic>=0.42.0,<1.0.0
+qdrant-client>=1.12.0,<2.0.0
+tiktoken>=0.9.0,<1.0.0
+httpx>=0.27.0,<1.0.0
+pydantic>=2.10.0,<3.0.0
