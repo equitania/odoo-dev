@@ -80,6 +80,39 @@ def check_requirements_changed(venv_dir: str, requirements_path: str) -> bool:
     return current_hash != stored_hash
 
 
+def get_venv_python_version(venv_dir: str) -> str | None:
+    """Get the Python major.minor version from an existing venv.
+
+    Returns e.g. "3.13" or None if not determinable.
+    """
+    python_bin = os.path.join(venv_dir, "bin", "python3")
+    if not os.path.exists(python_bin):
+        return None
+    try:
+        result = subprocess.run(
+            [python_bin, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
+def check_venv_python_matches(venv_dir: str, expected_version: str) -> bool:
+    """Check if venv Python version matches the expected version.
+
+    Returns True if matching, False if mismatch or not determinable.
+    """
+    actual = get_venv_python_version(venv_dir)
+    if actual is None:
+        return False
+    return actual == expected_version
+
+
 def get_venv_python(venv_dir: str) -> str:
     """Get path to Python binary in venv."""
     return os.path.join(venv_dir, "bin", "python3")

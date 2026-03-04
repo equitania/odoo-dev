@@ -116,11 +116,17 @@ def venv_check(ctx: click.Context, version: str | None) -> None:
     if os.path.islink(venv_dir):
         print_warning(".venv is a symlink — may cause issues with native development")
 
-    # Check Python version
+    # Check Python version and validate against configuration
     python_bin = os.path.join(venv_dir, "bin", "python3")
     if os.path.exists(python_bin):
         result = subprocess.run([python_bin, "--version"], capture_output=True, text=True)
         print_info(f"Python: {result.stdout.strip()}")
+
+        from odoodev.core.venv_manager import check_venv_python_matches
+
+        if not check_venv_python_matches(venv_dir, version_cfg.python):
+            print_warning(f"Python version mismatch! Expected {version_cfg.python}")
+            print_info(f"Run: odoodev venv setup {version} --force")
     else:
         print_warning("Python binary not found in venv")
 

@@ -118,28 +118,45 @@ def init(
     # Step 5: Create virtual environment
     venv_dir = os.path.join(native_dir, ".venv")
     if os.path.exists(venv_dir):
-        print_info(f"Virtual environment already exists at {venv_dir}")
-        # Check if requirements.txt has changed since last install
-        requirements = os.path.join(native_dir, "requirements.txt")
-        if os.path.exists(requirements):
-            from odoodev.core.venv_manager import check_requirements_changed
+        # Check if venv Python version matches configuration
+        from odoodev.core.venv_manager import check_venv_python_matches, get_venv_python_version
 
-            if check_requirements_changed(venv_dir, requirements):
-                print_warning("requirements.txt has changed since last install")
-                if not non_interactive and confirm("Update packages now?"):
-                    import subprocess
+        actual_python = get_venv_python_version(venv_dir)
+        expected_python = version_cfg.python
+        if actual_python and not check_venv_python_matches(venv_dir, expected_python):
+            print_warning(f"Venv Python version mismatch: found {actual_python}, expected {expected_python}")
+            if non_interactive or confirm("Recreate venv with correct Python version?"):
+                print_info(f"Recreating venv with Python {expected_python}...")
+                ctx.invoke(
+                    _get_venv_setup_cmd(),
+                    version=version,
+                    force=True,
+                )
+            else:
+                print_warning("Keeping mismatched venv — packages may fail to install")
+        else:
+            print_info(f"Virtual environment already exists at {venv_dir}")
+            # Check if requirements.txt has changed since last install
+            requirements = os.path.join(native_dir, "requirements.txt")
+            if os.path.exists(requirements):
+                from odoodev.core.venv_manager import check_requirements_changed
 
-                    result = subprocess.run(
-                        ["uv", "pip", "install", "-r", requirements],
-                        env={**os.environ, "VIRTUAL_ENV": venv_dir},
-                    )
-                    if result.returncode == 0:
-                        from odoodev.core.venv_manager import store_requirements_hash
+                if check_requirements_changed(venv_dir, requirements):
+                    print_warning("requirements.txt has changed since last install")
+                    if not non_interactive and confirm("Update packages now?"):
+                        import subprocess
 
-                        store_requirements_hash(venv_dir, requirements)
-                        print_success("Packages updated and hash stored")
-                    else:
-                        print_warning("Package update failed — continue manually")
+                        result = subprocess.run(
+                            ["uv", "pip", "install", "-r", requirements],
+                            env={**os.environ, "VIRTUAL_ENV": venv_dir},
+                        )
+                        if result.returncode == 0:
+                            from odoodev.core.venv_manager import store_requirements_hash
+
+                            store_requirements_hash(venv_dir, requirements)
+                            print_success("Packages updated and hash stored")
+                        else:
+                            print_warning("Package update failed — continue manually")
     else:
         if non_interactive or confirm("Create virtual environment?"):
             print_info("Creating virtual environment...")

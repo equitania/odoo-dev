@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.4.1"
+version = "0.4.3"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "Equitania Software GmbH", email = "info@equitania.de" },
 ]
@@ -16,8 +16,6 @@ keywords = ["odoo", "development", "cli", "native", "devtool"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: POSIX :: Linux",
@@ -52,7 +50,7 @@ packages = ["odoodev"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "S"]

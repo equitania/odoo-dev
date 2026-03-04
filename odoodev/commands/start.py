@@ -12,7 +12,12 @@ import click
 from odoodev.cli import resolve_version
 from odoodev.core.environment import detect_shell
 from odoodev.core.prerequisites import check_port
-from odoodev.core.venv_manager import check_requirements_changed, get_venv_python
+from odoodev.core.venv_manager import (
+    check_requirements_changed,
+    check_venv_python_matches,
+    get_venv_python,
+    get_venv_python_version,
+)
 from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import confirm, print_error, print_header, print_info, print_table, print_warning
 
@@ -213,6 +218,13 @@ def start(
     if not os.path.isdir(venv_dir):
         print_error(f"Virtual environment not found at {venv_dir}")
         print_info(f"Run: odoodev venv setup {version}")
+        raise SystemExit(1)
+
+    # Check venv Python version matches configuration
+    if not check_venv_python_matches(venv_dir, version_cfg.python):
+        actual = get_venv_python_version(venv_dir) or "unknown"
+        print_error(f"Venv Python version mismatch: found {actual}, expected {version_cfg.python}")
+        print_info(f"Run: odoodev venv setup {version} --force")
         raise SystemExit(1)
 
     if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):
