@@ -27,7 +27,7 @@ polib==1.1.1
 psutil==5.9.8
 psycopg2-binary==2.9.10  # (Trixie)
 pyopenssl==25.3.0  # upgraded from 24.1.0, requires cryptography>=45.0.7
-PyPDF==5.4.0  # (Trixie)
+pypdf==5.4.0  # (Trixie)
 pyserial==3.5
 python-dateutil==2.8.2
 python-magic>=0.4.27 ; sys_platform != 'win32'
