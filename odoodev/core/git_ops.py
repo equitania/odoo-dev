@@ -180,7 +180,7 @@ def clone_repo_fresh(git_url: str, target_dir: str, branch: str) -> bool:
     return clone_repo_with_progress(git_url, target_dir, branch)
 
 
-def update_repo(repo_dir: str, branch: str) -> bool:
+def update_repo(repo_dir: str, branch: str) -> tuple[bool, str]:
     """Update an existing repository (checkout + pull).
 
     Args:
@@ -188,20 +188,20 @@ def update_repo(repo_dir: str, branch: str) -> bool:
         branch: Branch to checkout
 
     Returns:
-        True if successful.
+        Tuple of (success, error_message). Error is empty on success.
     """
-    success, _ = run_git_command(f"git checkout {branch}", cwd=repo_dir)
+    success, output = run_git_command(f"git checkout {branch}", cwd=repo_dir)
     if not success:
-        return False
-    success, _ = run_git_command("git pull", cwd=repo_dir)
+        return False, f"checkout {branch}: {output.strip()}"
+    success, output = run_git_command("git pull", cwd=repo_dir)
     if not success:
-        return False
+        return False, f"pull: {output.strip()}"
 
     # Clean Python cache
     run_git_command("find . -name '*.pyc' -type f -delete", cwd=repo_dir)
     run_git_command("find . -type d -empty -delete", cwd=repo_dir)
 
-    return True
+    return True, ""
 
 
 def get_module_paths(repo_dir: str, is_oca: bool = False) -> list[str]:

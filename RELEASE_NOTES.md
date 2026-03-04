@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.4.4 (04.03.2026)
+
+### Changed
+- `odoodev pull` now shows detailed error messages when repository updates fail (e.g. branch not found, merge conflicts)
+- `update_repo()` returns `tuple[bool, str]` instead of `bool` to propagate git error messages
+- `--verbose` flag now produces debug logs per repository (updating, success/failure)
+- Summary table displays error details below the table for each failed repository
+
 ## Version 0.4.0 (27.02.2026)
 
 ### Added

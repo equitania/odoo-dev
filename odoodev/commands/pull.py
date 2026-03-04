@@ -56,7 +56,7 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
 
     updated: list[str] = []
     skipped: list[str] = []
-    failed: list[str] = []
+    failed: list[tuple[str, str]] = []  # (repo_name, error_message)
 
     # Server repo
     server_config = config.get("server", {})
@@ -64,10 +64,13 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
     server_name = f"server ({os.path.basename(server_path)})"
 
     if os.path.isdir(server_path):
-        if update_repo(server_path, branch):
+        logger.debug("Updating %s at %s (branch: %s)", server_name, server_path, branch)
+        success, error = update_repo(server_path, branch)
+        if success:
             updated.append(server_name)
+            logger.debug("  ✓ %s updated successfully", server_name)
         else:
-            failed.append(server_name)
+            failed.append((server_name, error))
     else:
         skipped.append(server_name)
 
@@ -79,10 +82,13 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
         full_path = os.path.join(base_path, repo_path)
 
         if os.path.isdir(full_path):
-            if update_repo(full_path, branch):
+            logger.debug("Updating %s at %s (branch: %s)", key, full_path, branch)
+            success, error = update_repo(full_path, branch)
+            if success:
                 updated.append(key)
+                logger.debug("  ✓ %s updated successfully", key)
             else:
-                failed.append(key)
+                failed.append((key, error))
         else:
             skipped.append(key)
 
@@ -99,9 +105,16 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
     if skipped:
         table.add_row("[yellow]Skipped[/yellow]", str(len(skipped)), ", ".join(skipped))
     if failed:
-        table.add_row("[red]Failed[/red]", str(len(failed)), ", ".join(failed))
+        failed_names = ", ".join(name for name, _ in failed)
+        table.add_row("[red]Failed[/red]", str(len(failed)), failed_names)
 
     console.print(table)
+
+    # Show detailed error messages below the table
+    if failed:
+        console.print()
+        for name, error in failed:
+            console.print(f"  [red]✗[/red] [bold]{name}[/bold]: {error}")
 
     total = len(updated) + len(skipped) + len(failed)
     if failed:

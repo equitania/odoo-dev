@@ -80,7 +80,7 @@ class TestPullExecution:
             "odoodev.commands.pull.get_version",
             lambda v, vers=None: _make_version_cfg(str(tmp_path)),
         )
-        monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: True)
+        monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (True, ""))
 
         runner = CliRunner()
         result = runner.invoke(cli, ["pull", "18", "-c", str(repos_yaml)])
@@ -101,7 +101,8 @@ class TestPullExecution:
             "odoodev.commands.pull.get_version",
             lambda v, vers=None: _make_version_cfg(str(tmp_path)),
         )
-        monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: False)
+        mock_error = "checkout develop: error: pathspec 'develop' did not match"
+        monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (False, mock_error))
 
         runner = CliRunner()
         result = runner.invoke(cli, ["pull", "18", "-c", str(repos_yaml)])
