@@ -1,5 +1,26 @@
 # Release Notes
 
+## Version 0.4.8 (05.03.2026)
+
+### Added
+- Fish shell completions for all `odoodev` commands, subcommands, and flags via Click's built-in completion
+- Dynamic version completions for `odoodev-activate` (Tab shows available versions like 16, 17, 18, 19)
+- Fish abbreviations: `oda` -> `odoodev-activate`, `odev` -> `odoodev`
+- Bash/Zsh completions for `odoodev` (via `eval`) and `odoodev-activate`
+- Bash/Zsh aliases: `oda` -> `odoodev-activate`, `odev` -> `odoodev`
+- `odoodev config versions --plain` flag for script-friendly output (one version per line)
+- Python patch version advisory: `odoodev start` and `odoodev venv check` warn when a newer Python patch version is available on the system
+- `get_full_python_version()` and `get_system_python_version()` in `venv_manager.py`
+- Zsh now has its own completion block (using `compdef`) instead of sharing Bash's function
+- 27 new tests for shell integration (completions, abbreviations, installation, `--plain` flag)
+
+### Changed
+- `odoodev shell-setup` now installs completions, abbreviations/aliases alongside the `odoodev-activate` function
+- Shell setup output shows what was installed (completions, abbreviations/aliases)
+- `tests/**` excluded from ruff S101 rule (assert is standard in pytest)
+- README.md refactored: compact main README with links to `usage/` documentation files
+- Separate bilingual docs (DE/EN) in `usage/` for: setup, start, db, repos, venv, docker, run, shell, config
+
 ## Version 0.4.7 (05.03.2026)
 
 ### Changed

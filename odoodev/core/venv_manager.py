@@ -113,6 +113,70 @@ def check_venv_python_matches(venv_dir: str, expected_version: str) -> bool:
     return actual == expected_version
 
 
+def get_full_python_version(venv_dir: str) -> str | None:
+    """Get the full Python version (major.minor.patch) from a venv."""
+    python_bin = os.path.join(venv_dir, "bin", "python3")
+    if not os.path.exists(python_bin):
+        return None
+    try:
+        result = subprocess.run(
+            [
+                python_bin,
+                "-c",
+                "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
+def get_system_python_version(major_minor: str) -> str | None:
+    """Get the newest installed Python version for a major.minor via UV.
+
+    Args:
+        major_minor: e.g. "3.13"
+
+    Returns:
+        Full version string (e.g. "3.13.12") or None.
+    """
+    try:
+        result = subprocess.run(
+            ["uv", "python", "list", "--only-installed"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        # Parse lines like: "cpython-3.13.12-macos-aarch64-none    /path/to/python"
+        best: str | None = None
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line.startswith("cpython-"):
+                continue
+            parts = line.split()
+            if not parts:
+                continue
+            version_part = parts[0].split("-")[1]  # "3.13.12"
+            if version_part.startswith(major_minor + "."):
+                if best is None or _version_tuple(version_part) > _version_tuple(best):
+                    best = version_part
+        return best
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return None
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Convert version string to comparable tuple."""
+    return tuple(int(x) for x in version.split("."))
+
+
 def get_venv_python(venv_dir: str) -> str:
     """Get path to Python binary in venv."""
     return os.path.join(venv_dir, "bin", "python3")

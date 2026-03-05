@@ -32,11 +32,13 @@ def shell_setup(shell: str) -> None:
     print_info(f"Installing shell integration for {shell}...")
     config_path = install_shell_function(shell)
     print_success(f"Shell function installed: {config_path}")
+    print_success("Tab completions for odoodev and odoodev-activate installed")
+    if shell == "fish":
+        print_success("Fish abbreviations installed: oda -> odoodev-activate, odev -> odoodev")
+    else:
+        print_success("Aliases installed: oda -> odoodev-activate, odev -> odoodev")
 
     print_info("Restart your shell or run:")
-    if shell == "fish":
-        click.echo(f"  source {config_path}")
-    else:
-        click.echo(f"  source {config_path}")
+    click.echo(f"  source {config_path}")
 
     print_info("Then use: odoodev-activate <version>")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import click
 
 from odoodev.core.environment import detect_arch, detect_docker_platform, detect_os, detect_shell, detect_user
-from odoodev.core.version_registry import load_versions
+from odoodev.core.version_registry import available_versions, load_versions
 from odoodev.output import print_header, print_table, print_version_table
 
 
@@ -15,8 +15,13 @@ def config() -> None:
 
 
 @config.command("versions")
-def config_versions() -> None:
+@click.option("--plain", is_flag=True, help="Plain output (one version per line, for scripts)")
+def config_versions(plain: bool) -> None:
     """List all available Odoo versions with their configuration."""
+    if plain:
+        for v in available_versions():
+            click.echo(v)
+        return
     versions = load_versions()
     print_version_table(versions)
 

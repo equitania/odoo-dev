@@ -135,6 +135,16 @@ def venv_check(ctx: click.Context, version: str | None) -> None:
     else:
         print_warning("Python binary not found in venv")
 
+    # Check if a newer patch version is available on the system
+    from odoodev.core.venv_manager import get_full_python_version, get_system_python_version
+
+    venv_full = get_full_python_version(venv_dir)
+    system_full = get_system_python_version(version_cfg.python)
+    if venv_full and system_full and venv_full != system_full:
+        print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
+        if confirm(f"Recreate venv with Python {system_full}?", default=False):
+            ctx.invoke(venv_setup, version=version, force=True)
+
     # Check requirements hash
     if os.path.exists(requirements):
         hash_file = os.path.join(venv_dir, ".requirements.sha256")

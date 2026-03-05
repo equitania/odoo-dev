@@ -241,6 +241,15 @@ def start(
         print_info(f"Run: odoodev venv setup {version} --force")
         raise SystemExit(1)
 
+    # Advisory: check for newer Python patch version
+    from odoodev.core.venv_manager import get_full_python_version, get_system_python_version
+
+    venv_full = get_full_python_version(venv_dir)
+    system_full = get_system_python_version(version_cfg.python)
+    if venv_full and system_full and venv_full != system_full:
+        print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
+        print_info(f"Run: odoodev venv setup {version} --force")
+
     if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):
         print_warning(f"Odoo not found at {odoo_dir}/odoo-bin")
         if confirm(f"Clone repositories for v{version} now?"):
