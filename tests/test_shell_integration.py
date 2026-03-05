@@ -42,6 +42,11 @@ class TestFishCompletions:
     def test_fish_completion_uses_fish_complete_env(self):
         assert "_ODOODEV_COMPLETE=fish_complete" in FISH_FUNCTION
 
+    def test_fish_avoids_reserved_version_variable(self):
+        # Fish has a special $version variable — we must not use 'set -l version'
+        assert "set -l version" not in FISH_FUNCTION
+        assert "$version" not in FISH_FUNCTION
+
 
 class TestBashCompletions:
     """Test Bash shell completion content."""
