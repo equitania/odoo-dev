@@ -109,9 +109,14 @@ def env_check(ctx: click.Context, version: str | None) -> None:
     env_file = os.path.join(version_cfg.paths.native_dir, ".env")
 
     if not os.path.exists(env_file):
-        print_error(f"No .env file found at {env_file}")
-        print_info(f"Run: odoodev env setup {version}")
-        raise SystemExit(1)
+        print_warning(f"No .env file found at {env_file}")
+        if confirm(f"Create .env for v{version} now?"):
+            ctx.invoke(env_setup, version=version, non_interactive=False)
+            if not os.path.exists(env_file):
+                print_error("Failed to create .env file")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     values = dotenv_values(env_file)
     required_keys = [
@@ -146,8 +151,14 @@ def env_show(ctx: click.Context, version: str | None) -> None:
     env_file = os.path.join(version_cfg.paths.native_dir, ".env")
 
     if not os.path.exists(env_file):
-        print_error(f"No .env file found at {env_file}")
-        raise SystemExit(1)
+        print_warning(f"No .env file found at {env_file}")
+        if confirm(f"Create .env for v{version} now?"):
+            ctx.invoke(env_setup, version=version, non_interactive=False)
+            if not os.path.exists(env_file):
+                print_error("Failed to create .env file")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     values = dotenv_values(env_file)
     print_table(f"Environment v{version} ({env_file})", dict(values))

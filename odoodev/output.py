@@ -100,3 +100,27 @@ def select(message: str, choices: Sequence[str | questionary.Choice], default: s
     if result is None:
         raise SystemExit(0)
     return result
+
+
+def text_input(message: str, default: str = "") -> str:
+    """Interactive text input prompt using questionary."""
+    result = questionary.text(message, default=default, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result
+
+
+def path_input(message: str, default: str = "") -> str:
+    """Interactive file path input with autocomplete using questionary."""
+    result = questionary.path(message, default=default, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result
+
+
+def checkbox(message: str, choices: Sequence[str | questionary.Choice]) -> list[str]:
+    """Interactive multi-select checkbox using questionary."""
+    result = questionary.checkbox(message, choices=choices, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result

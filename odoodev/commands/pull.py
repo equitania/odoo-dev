@@ -11,7 +11,7 @@ from odoodev.cli import resolve_version
 from odoodev.commands.repos import _collect_all_repos, _find_repos_config, _load_repos_config
 from odoodev.core.git_ops import set_ssh_key, update_repo
 from odoodev.core.version_registry import get_version, load_versions
-from odoodev.output import console, print_error, print_info, print_success, print_warning
+from odoodev.output import console, print_info, print_success, print_warning
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,16 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
     if not config_path:
         config_path = _find_repos_config(version_cfg)
         if not config_path:
-            print_error(f"No repos.yaml found for v{version}")
+            print_warning(f"No repos.yaml found for v{version}")
+            print_info("Expected locations:")
+            print_info(f"  {version_cfg.paths.native_dir}/repos.yaml")
+            print_info(f"  {os.path.join(version_cfg.paths.dev_dir, 'scripts')}/repos.yaml")
+            from odoodev.core.example_templates import copy_example_templates
+
+            copied, _ = copy_example_templates(version, version_cfg)
+            if "repos.yaml" in copied:
+                print_success(f"Example repos.yaml created: {copied['repos.yaml']}")
+                print_info("Customize it for your project, then run this command again.")
             raise SystemExit(1)
 
     config = _load_repos_config(config_path)

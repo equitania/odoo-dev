@@ -1,5 +1,24 @@
 # Release Notes
 
+## Version 0.4.7 (05.03.2026)
+
+### Changed
+- All commands now interactive when flags are omitted — "prompt if not provided" pattern
+- `odoodev db drop` without `-n`: interactive database selection via `_select_database()`
+- `odoodev db restore` without `-n`/`-z`: interactive file path and database name prompts with smart name suggestion from filename
+- `odoodev run` without args: interactive mode selection (YAML playbook or inline step checkbox)
+- `odoodev start` prerequisite checks: missing `.env`, `.venv`, `odoo-bin`, `odoo_*.conf` now offer to create/clone via `confirm()` + `ctx.invoke()` instead of showing error
+- `odoodev env check`/`env show`: missing `.env` offers creation via `confirm()` + `ctx.invoke(env_setup)`
+- `odoodev venv check`/`venv activate`: missing `.venv` offers creation via `confirm()` + `ctx.invoke(venv_setup)`
+- `odoodev repos`/`pull`: missing `repos.yaml` copies example template and shows guidance instead of bare error
+- New output helpers: `text_input()`, `path_input()`, `checkbox()` in `output.py`
+- All commands remain fully scriptable — explicit flags skip interactive prompts
+
+## Version 0.4.6 (05.03.2026)
+
+### Changed
+- Questionary as unified prompt system across all commands
+
 ## Version 0.4.5 (05.03.2026)
 
 ### Changed

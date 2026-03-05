@@ -207,18 +207,32 @@ def start(
     # Load .env
     env_file = os.path.join(native_dir, ".env")
     if not os.path.exists(env_file):
-        print_error(f"No .env file found at {env_file}")
-        print_info(f"Run: odoodev env setup {version}")
-        raise SystemExit(1)
+        print_warning(f"No .env file found at {env_file}")
+        if confirm(f"Create .env for v{version} now?"):
+            from odoodev.commands.env import env_setup
+
+            ctx.invoke(env_setup, version=version, non_interactive=False)
+            if not os.path.exists(env_file):
+                print_error("Failed to create .env file")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     env_vars = _load_env_file(env_file)
     env = _set_environment(env_vars)
 
     # Check prerequisites
     if not os.path.isdir(venv_dir):
-        print_error(f"Virtual environment not found at {venv_dir}")
-        print_info(f"Run: odoodev venv setup {version}")
-        raise SystemExit(1)
+        print_warning(f"Virtual environment not found at {venv_dir}")
+        if confirm(f"Create venv for v{version} now?"):
+            from odoodev.commands.venv import venv_setup
+
+            ctx.invoke(venv_setup, version=version, force=False)
+            if not os.path.isdir(venv_dir):
+                print_error("Failed to create virtual environment")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     # Check venv Python version matches configuration
     if not check_venv_python_matches(venv_dir, version_cfg.python):
@@ -228,16 +242,31 @@ def start(
         raise SystemExit(1)
 
     if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):
-        print_error(f"Odoo not found at {odoo_dir}/odoo-bin")
-        print_info(f"Run: odoodev repos {version}")
-        raise SystemExit(1)
+        print_warning(f"Odoo not found at {odoo_dir}/odoo-bin")
+        if confirm(f"Clone repositories for v{version} now?"):
+            from odoodev.commands.repos import repos as repos_cmd
+
+            ctx.invoke(repos_cmd, version=version, init_mode=True)
+            if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):
+                print_error("odoo-bin still not found after repos clone")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     # Find config
     config_path = _find_odoo_config(myconfs_dir)
     if not config_path:
-        print_error(f"No Odoo config found in {myconfs_dir}")
-        print_info(f"Run: odoodev repos {version} --config-only")
-        raise SystemExit(1)
+        print_warning(f"No Odoo config found in {myconfs_dir}")
+        if confirm("Generate Odoo config now?"):
+            from odoodev.commands.repos import repos as repos_cmd
+
+            ctx.invoke(repos_cmd, version=version, config_only=True)
+            config_path = _find_odoo_config(myconfs_dir)
+            if not config_path:
+                print_error("Config generation failed")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     # Check PostgreSQL
     db_port = int(env_vars.get("DB_PORT", str(version_cfg.ports.db)))

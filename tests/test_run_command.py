@@ -39,10 +39,11 @@ def mock_version_cfg():
 
 
 class TestRunCommand:
-    def test_no_args_shows_error(self, runner):
+    def test_no_args_shows_interactive_prompt(self, runner):
         result = runner.invoke(cli, ["run"])
+        # Without args, run now shows an interactive prompt (select mode)
+        # In non-interactive test context, questionary aborts → exit code != 0
         assert result.exit_code != 0
-        assert "required" in result.output.lower() or "error" in result.output.lower()
 
     def test_both_playbook_and_step_error(self, runner, tmp_dir):
         pb_file = os.path.join(tmp_dir, "test.yaml")

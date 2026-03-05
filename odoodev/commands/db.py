@@ -27,7 +27,35 @@ from odoodev.core.database import (
     restore_database,
 )
 from odoodev.core.version_registry import get_version
-from odoodev.output import confirm, console, print_error, print_info, print_success, print_warning, select
+from odoodev.output import (
+    confirm,
+    console,
+    path_input,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
+    select,
+    text_input,
+)
+
+
+def _suggest_db_name(backup_file: str) -> str:
+    """Suggest a database name from a backup filename.
+
+    Strips date suffixes (e.g. _250305) and extensions.
+    """
+    import re
+
+    name = os.path.basename(backup_file)
+    # Remove extensions (.zip, .sql, .tar.gz, .7z, etc.)
+    for ext in (".tar.gz", ".zip", ".7z", ".tgz", ".gz", ".sql", ".dump", ".tar"):
+        if name.lower().endswith(ext):
+            name = name[: -len(ext)]
+            break
+    # Strip trailing date suffix like _YYMMDD or _YYYYMMDD
+    name = re.sub(r"_\d{6,8}$", "", name)
+    return name
 
 
 def _get_db_params(version_cfg, env_vars: dict[str, str] | None = None) -> dict:
@@ -83,15 +111,20 @@ def db_list(ctx: click.Context, version: str | None) -> None:
 
 @db.command("drop")
 @click.argument("version", required=False)
-@click.option("-n", "--name", required=True, help="Database name to drop")
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
-def db_drop(ctx: click.Context, version: str | None, name: str, yes: bool) -> None:
+def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool) -> None:
     """Drop a database."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
 
     filestore_path = get_filestore_path(version, db_name=name)
     has_filestore = os.path.isdir(filestore_path)
@@ -123,8 +156,8 @@ def db_drop(ctx: click.Context, version: str | None, name: str, yes: bool) -> No
 
 @db.command("restore")
 @click.argument("version", required=False)
-@click.option("-n", "--name", required=True, help="New database name")
-@click.option("-z", "--backup-file", required=True, type=click.Path(exists=True), help="Backup file path")
+@click.option("-n", "--name", help="New database name (prompted if omitted)")
+@click.option("-z", "--backup-file", type=click.Path(), help="Backup file path (prompted if omitted)")
 @click.option("--drop/--no-drop", default=True, help="Drop existing database first")
 @click.option("--deactivate-cron/--no-deactivate-cron", default=True, help="Deactivate cron jobs after restore")
 @click.option(
@@ -138,8 +171,8 @@ def db_drop(ctx: click.Context, version: str | None, name: str, yes: bool) -> No
 def db_restore(
     ctx: click.Context,
     version: str | None,
-    name: str,
-    backup_file: str,
+    name: str | None,
+    backup_file: str | None,
     drop: bool,
     deactivate_cron: bool,
     deactivate_cloud_flag: bool,
@@ -154,6 +187,17 @@ def db_restore(
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+
+    if not backup_file:
+        backup_file = path_input("Backup file:")
+        if not backup_file or not os.path.exists(backup_file):
+            print_error(f"File not found: {backup_file}")
+            raise SystemExit(1)
+
+    if not name:
+        name = text_input("Database name:", default=_suggest_db_name(backup_file))
+        if not name.strip():
+            raise SystemExit(1)
 
     backup_file = os.path.abspath(backup_file)
     print_info(f"Restoring database '{name}' from {os.path.basename(backup_file)}")

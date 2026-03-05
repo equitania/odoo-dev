@@ -109,9 +109,14 @@ def venv_check(ctx: click.Context, version: str | None) -> None:
     requirements = _get_requirements_path(version_cfg)
 
     if not os.path.exists(venv_dir):
-        print_error(f"No venv found at {venv_dir}")
-        print_info(f"Run: odoodev venv setup {version}")
-        raise SystemExit(1)
+        print_warning(f"No venv found at {venv_dir}")
+        if confirm(f"Create venv for v{version} now?"):
+            ctx.invoke(venv_setup, version=version, force=False)
+            if not os.path.exists(venv_dir):
+                print_error("Failed to create virtual environment")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     if os.path.islink(venv_dir):
         print_warning(".venv is a symlink — may cause issues with native development")
@@ -158,9 +163,14 @@ def venv_activate(ctx: click.Context, version: str | None) -> None:
     venv_dir = _get_venv_dir(version_cfg)
 
     if not os.path.exists(venv_dir):
-        print_error(f"No venv found at {venv_dir}")
-        print_info(f"Run: odoodev venv setup {version}")
-        raise SystemExit(1)
+        print_warning(f"No venv found at {venv_dir}")
+        if confirm(f"Create venv for v{version} now?"):
+            ctx.invoke(venv_setup, version=version, force=False)
+            if not os.path.exists(venv_dir):
+                print_error("Failed to create virtual environment")
+                raise SystemExit(1)
+        else:
+            raise SystemExit(1)
 
     shell = detect_shell()
     if shell == "fish":

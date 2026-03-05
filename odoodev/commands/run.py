@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import click
@@ -120,9 +121,22 @@ def run(
     Use --dry-run to preview steps without executing them.
     """
     if not playbook and not step:
-        print_error("Either a playbook file or --step options are required")
-        print_info("Usage: odoodev run <playbook.yaml>  or  odoodev run --step docker.up --step pull -V 18")
-        raise SystemExit(1)
+        from odoodev.output import checkbox, path_input, select
+
+        mode = select("Run mode:", choices=["YAML playbook", "Inline steps"])
+        if mode == "YAML playbook":
+            playbook = path_input("Playbook file:")
+            if not playbook or not os.path.exists(playbook):
+                print_error(f"File not found: {playbook}")
+                raise SystemExit(1)
+        else:
+            from odoodev.core.playbook import VALID_COMMANDS
+
+            selected = checkbox("Select steps:", choices=sorted(VALID_COMMANDS))
+            if not selected:
+                print_error("No steps selected")
+                raise SystemExit(1)
+            step = tuple(selected)
 
     if playbook and step:
         print_error("Cannot use both a playbook file and --step options")
