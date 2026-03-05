@@ -1,6 +1,6 @@
 # Odoo 16.0 Requirements (Python >= 3.12, macOS/Linux only)
 # psycopg2-binary used instead of psycopg2 for native development
-Babel==2.9.1
+Babel==2.16.0
 chardet==4.0.0
 cryptography==44.0.0
 decorator==4.4.2
@@ -27,7 +27,7 @@ pyopenssl==24.3.0
 PyPDF2==2.12.1 ; python_version < '3.13'
 pypdf==5.4.0 ; python_version >= '3.13'
 pyserial==3.5
-python-dateutil==2.8.1
+python-dateutil==2.8.2
 python-ldap==3.4.4
 python-stdnum==1.16
 pytz
@@ -74,10 +74,10 @@ python-docx==1.1.2
 python-gitlab
 python-slugify
 PyYAML
-sphinx==7.4.7
-sphinx_rtd_theme==0.2.5b2
-sphinx_tabs==1.1.6
-sphinxcontrib-httpdomain==1.5.0
+sphinx==5.3.0
+sphinx_rtd_theme==2.0.0
+sphinx_tabs==3.4.5
+sphinxcontrib-httpdomain==1.8.1
 unidecode
 xmlschema
 xmltodict==0.13.0
