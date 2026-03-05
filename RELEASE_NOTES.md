@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.4.10 (05.03.2026)
+
+### Fixed
+- `odoodev venv check`: Patch version upgrade now correctly passes the full Python version (e.g. `3.13.12`) to `venv setup`, so UV creates the venv with the exact detected version instead of the latest for the major.minor
+- `odoodev venv setup`: Uses `--clear` flag when recreating an existing venv, preventing UV's interactive "replace?" prompt
+- `odoodev core/venv_manager.py`: `create_venv()` now appends `--clear` when target directory exists
+
 ## Version 0.4.9 (05.03.2026)
 
 ### Fixed

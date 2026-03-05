@@ -41,8 +41,9 @@ def venv() -> None:
 @venv.command("setup")
 @click.argument("version", required=False)
 @click.option("--force", is_flag=True, help="Recreate even if venv exists")
+@click.option("--python-version", "python_ver", default=None, hidden=True, help="Full Python version override")
 @click.pass_context
-def venv_setup(ctx: click.Context, version: str | None, force: bool) -> None:
+def venv_setup(ctx: click.Context, version: str | None, force: bool, python_ver: str | None) -> None:
     """Create virtual environment with UV and install requirements."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
@@ -58,19 +59,18 @@ def venv_setup(ctx: click.Context, version: str | None, force: bool) -> None:
             if not confirm(f".venv already exists at {venv_dir}. Recreate?", default=False):
                 print_info("Keeping existing venv.")
                 return
-            # Remove existing
-            print_info("Removing existing venv...")
-            subprocess.run(["rm", "-rf", venv_dir], check=True)
 
-    # Create venv with UV
-    python_version = version_cfg.python
+    # Use explicit patch version if provided, otherwise major.minor from config
+    python_version = python_ver or version_cfg.python
     env_name = version_cfg.env_name
     print_info(f"Creating UV venv with Python {python_version}...")
 
-    result = subprocess.run(
-        ["uv", "venv", "--python", python_version, "--prompt", env_name, venv_dir],
-        cwd=native_dir,
-    )
+    cmd = ["uv", "venv", "--python", python_version, "--prompt", env_name]
+    if os.path.exists(venv_dir):
+        cmd.append("--clear")
+    cmd.append(venv_dir)
+
+    result = subprocess.run(cmd, cwd=native_dir)
     if result.returncode != 0:
         print_error("Failed to create virtual environment")
         raise SystemExit(1)
@@ -143,7 +143,7 @@ def venv_check(ctx: click.Context, version: str | None) -> None:
     if venv_full and system_full and venv_full != system_full:
         print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
         if confirm(f"Recreate venv with Python {system_full}?", default=False):
-            ctx.invoke(venv_setup, version=version, force=True)
+            ctx.invoke(venv_setup, version=version, force=True, python_ver=system_full)
 
     # Check requirements hash
     if os.path.exists(requirements):

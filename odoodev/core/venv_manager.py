@@ -12,14 +12,18 @@ def create_venv(venv_dir: str, python_version: str, prompt: str) -> bool:
 
     Args:
         venv_dir: Path where venv should be created
-        python_version: Python version (e.g., '3.12')
+        python_version: Python version (e.g., '3.12' or '3.13.12')
         prompt: Shell prompt name for the venv
 
     Returns:
         True if successful.
     """
+    cmd = ["uv", "venv", "--python", python_version, "--prompt", prompt]
+    if os.path.exists(venv_dir):
+        cmd.append("--clear")
+    cmd.append(venv_dir)
     result = subprocess.run(
-        ["uv", "venv", "--python", python_version, "--prompt", prompt, venv_dir],
+        cmd,
         capture_output=True,
         text=True,
     )
