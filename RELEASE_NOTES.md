@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.9 (05.03.2026)
+
+### Fixed
+- Fish shell: `odoodev-activate` used reserved `$version` variable (Fish built-in = Fish version e.g. `4.5.0`), causing all commands to receive wrong version. Renamed to `$_odoo_ver`.
+
 ## Version 0.4.8 (05.03.2026)
 
 ### Added
