@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.4.5 (05.03.2026)
+
+### Changed
+- `odoodev db drop` now also removes the filestore directory (`~/odoo-share/vXX/filestore/{db_name}/`) when dropping a database
+- Confirmation prompt includes filestore notice when a filestore exists
+- `odoodev db restore` now shows a hint to run `odoodev start -- -d {name} -u all` after restore
+
 ## Version 0.4.4 (04.03.2026)
 
 ### Changed

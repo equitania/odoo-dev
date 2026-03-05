@@ -92,15 +92,31 @@ def db_drop(ctx: click.Context, version: str | None, name: str, yes: bool) -> No
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
 
-    if not yes and not confirm(f"Drop database '{name}'? This cannot be undone.", default=False):
-        print_info("Aborted.")
-        return
+    filestore_path = get_filestore_path(version, db_name=name)
+    has_filestore = os.path.isdir(filestore_path)
+
+    if not yes:
+        msg = f"Drop database '{name}'"
+        if has_filestore:
+            msg += " and its filestore"
+        msg += "? This cannot be undone."
+        if not confirm(msg, default=False):
+            print_info("Aborted.")
+            return
 
     if drop_database(name, host=params["host"], port=params["port"], user=params["user"]):
         print_success(f"Database '{name}' dropped")
     else:
         print_error(f"Failed to drop database '{name}'")
         raise SystemExit(1)
+
+    # Remove filestore directory
+    if has_filestore:
+        try:
+            shutil.rmtree(filestore_path)
+            print_success(f"Filestore removed: {filestore_path}")
+        except OSError as e:
+            print_warning(f"Could not remove filestore: {e}")
 
 
 @db.command("restore")
@@ -201,6 +217,10 @@ def db_restore(
             print_warning(f"Could not remove temp files: {extract_path}")
 
     print_success(f"Database '{name}' restore complete")
+
+    console.print()
+    print_info("Next step: Update all modules to match your local Odoo version:")
+    print_info(f"  odoodev start {version} -- -d {name} -u all")
 
 
 def _select_database(params: dict) -> str | None:
