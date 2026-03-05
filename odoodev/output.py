@@ -1,11 +1,29 @@
 """Rich console output helpers for odoodev CLI."""
 
+from collections.abc import Sequence
+
+import questionary
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
 error_console = Console(stderr=True)
+
+
+def _ownerp_style() -> questionary.Style:
+    """ownerp-branded questionary style, reused across all commands."""
+    return questionary.Style(
+        [
+            ("qmark", "fg:green bold"),
+            ("question", "fg:white bold"),
+            ("answer", "fg:green"),
+            ("pointer", "fg:green bold"),
+            ("highlighted", "fg:green bold"),
+            ("selected", "fg:green bold"),
+            ("instruction", "fg:white"),
+        ]
+    )
 
 
 def print_success(message: str) -> None:
@@ -69,9 +87,16 @@ def print_version_table(versions: dict) -> None:
 
 
 def confirm(message: str, default: bool = True) -> bool:
-    """Interactive confirmation prompt."""
-    suffix = " [Y/n] " if default else " [y/N] "
-    response = console.input(f"{message}{suffix}").strip().lower()
-    if not response:
-        return default
-    return response in ("y", "yes")
+    """Interactive confirmation prompt using questionary."""
+    result = questionary.confirm(message, default=default, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result
+
+
+def select(message: str, choices: Sequence[str | questionary.Choice], default: str | None = None) -> str:
+    """Interactive selection prompt using questionary."""
+    result = questionary.select(message, choices=choices, default=default, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result

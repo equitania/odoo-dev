@@ -19,19 +19,7 @@ from odoodev.core.global_config import (
     load_global_config,
     save_global_config,
 )
-from odoodev.output import print_error, print_header, print_info, print_success, print_table, print_warning
-
-
-def _get_questionary():
-    """Lazy import of questionary with helpful error message."""
-    try:
-        import questionary
-
-        return questionary
-    except ImportError:
-        print_error("questionary package required for interactive setup.")
-        print_info("Install with: uv pip install questionary>=2.0.0")
-        raise SystemExit(1) from None
+from odoodev.output import _ownerp_style, confirm, print_header, print_info, print_success, print_table, print_warning
 
 
 @contextmanager
@@ -60,22 +48,6 @@ def _patch_checkbox_indicators():
         _common.INDICATOR_SELECTED, _common.INDICATOR_UNSELECTED = orig
 
 
-def _custom_style():
-    """Create a custom questionary style matching ownerp branding."""
-    questionary = _get_questionary()
-    return questionary.Style(
-        [
-            ("qmark", "fg:green bold"),
-            ("question", "fg:white bold"),
-            ("answer", "fg:green"),
-            ("pointer", "fg:green bold"),
-            ("highlighted", "fg:green bold"),
-            ("selected", "fg:green bold"),
-            ("instruction", "fg:white"),
-        ]
-    )
-
-
 def _run_interactive_wizard() -> GlobalConfig:
     """Run the interactive setup wizard.
 
@@ -84,10 +56,11 @@ def _run_interactive_wizard() -> GlobalConfig:
     """
     import os
 
+    import questionary
+
     os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
 
-    questionary = _get_questionary()
-    style = _custom_style()
+    style = _ownerp_style()
 
     print_header("odoodev Setup", "Interactive configuration wizard")
 
@@ -166,13 +139,7 @@ def _run_interactive_wizard() -> GlobalConfig:
         },
     )
 
-    confirmed = questionary.confirm(
-        "Save this configuration?",
-        default=True,
-        style=style,
-    ).ask()
-
-    if not confirmed:
+    if not confirm("Save this configuration?", default=True):
         print_info("Setup cancelled.")
         raise SystemExit(0)
 

@@ -10,16 +10,15 @@ import pytest
 import yaml
 
 from odoodev.core.playbook import (
+    VALID_COMMANDS,
     PlaybookConfig,
     PlaybookRunner,
     PlaybookValidationError,
     StepConfig,
     StepResult,
-    VALID_COMMANDS,
     build_playbook_from_steps,
     load_playbook,
 )
-
 
 # =============================================================================
 # StepConfig dataclass tests

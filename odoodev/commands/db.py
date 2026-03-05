@@ -8,6 +8,7 @@ import tempfile
 from datetime import datetime
 
 import click
+import questionary
 
 from odoodev.cli import resolve_version
 from odoodev.core.database import (
@@ -26,7 +27,7 @@ from odoodev.core.database import (
     restore_database,
 )
 from odoodev.core.version_registry import get_version
-from odoodev.output import confirm, console, print_error, print_info, print_success, print_warning
+from odoodev.output import confirm, console, print_error, print_info, print_success, print_warning, select
 
 
 def _get_db_params(version_cfg, env_vars: dict[str, str] | None = None) -> dict:
@@ -96,11 +97,12 @@ def db_drop(ctx: click.Context, version: str | None, name: str, yes: bool) -> No
     has_filestore = os.path.isdir(filestore_path)
 
     if not yes:
-        msg = f"Drop database '{name}'"
+        print_warning("This will permanently delete:")
+        print_warning(f"  Database: {name}")
         if has_filestore:
-            msg += " and its filestore"
-        msg += "? This cannot be undone."
-        if not confirm(msg, default=False):
+            print_warning(f"  Filestore: {filestore_path}")
+        console.print()
+        if not confirm("Proceed with deletion? This cannot be undone.", default=False):
             print_info("Aborted.")
             return
 
@@ -235,29 +237,10 @@ def _select_database(params: dict) -> str | None:
         return None
 
     print_info(f"Available databases ({len(databases)}):")
-    for i, db_name in enumerate(databases, 1):
-        console.print(f"  [bold]{i}[/bold]) {db_name}")
-
-    choice = console.input("\nSelect database (number or name): ").strip()
-    if not choice:
-        return None
-
-    # Try as number
     try:
-        idx = int(choice) - 1
-        if 0 <= idx < len(databases):
-            return databases[idx]
-        print_error(f"Invalid number: {choice}")
+        return select("Select database:", choices=databases)
+    except SystemExit:
         return None
-    except ValueError:
-        pass
-
-    # Try as name
-    if choice in databases:
-        return choice
-
-    print_error(f"Database not found: {choice}")
-    return None
 
 
 def _select_backup_type(version: str, db_name: str) -> str | None:
@@ -269,24 +252,18 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
     filestore_path = get_filestore_path(version, db_name)
     has_filestore = os.path.isdir(filestore_path)
 
-    console.print("\nBackup type:")
-    console.print("  [bold]1[/bold]) SQL — pg_dump only")
+    choices = [
+        questionary.Choice("SQL — pg_dump only", value="sql"),
+    ]
     if has_filestore:
-        console.print("  [bold]2[/bold]) ZIP — SQL + filestore (Odoo standard format)")
+        choices.append(questionary.Choice("ZIP — SQL + filestore", value="zip"))
     else:
-        console.print("  [dim]  2) ZIP — SQL + filestore (no filestore found)[/dim]")
+        choices.append(questionary.Choice("ZIP — SQL only (no filestore found)", value="zip"))
 
-    choice = console.input("\nSelect type [1]: ").strip()
-    if not choice or choice == "1":
-        return "sql"
-    if choice == "2":
-        if not has_filestore:
-            if not confirm("No filestore found. Create ZIP with SQL only?", default=True):
-                return None
-        return "zip"
-
-    print_error(f"Invalid choice: {choice}")
-    return None
+    try:
+        return select("Backup type:", choices=choices)
+    except SystemExit:
+        return None
 
 
 def _format_size(size_bytes: int) -> str:
