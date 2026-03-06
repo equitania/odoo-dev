@@ -54,15 +54,14 @@ def _run_psql(
         Tuple of (success, output_or_error).
     """
     env = _get_pg_env(host, port)
-    cmd = f"psql -U {user} -h {host} -p {port}"
+    cmd = ["psql", "-U", user, "-h", host, "-p", str(port)]
     if db:
-        cmd += f" -d {db}"
-    cmd += f' -c "{command}"'
+        cmd.extend(["-d", db])
+    cmd.extend(["-c", command])
 
     try:
         result = subprocess.run(
             cmd,
-            shell=True,
             check=True,
             capture_output=True,
             text=True,
@@ -81,9 +80,16 @@ def database_exists(
 ) -> bool:
     """Check if a database exists."""
     env = _get_pg_env(host, port)
-    cmd = f"psql -U {user} -h {host} -p {port} -lqt | cut -d \\| -f 1 | grep -qw {db_name}"
-    result = subprocess.run(cmd, shell=True, capture_output=True, env=env)
-    return result.returncode == 0
+    cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-lqt"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        for line in result.stdout.split("\n"):
+            parts = line.split("|")
+            if parts and parts[0].strip() == db_name:
+                return True
+        return False
+    except subprocess.CalledProcessError:
+        return False
 
 
 def list_databases(
@@ -97,9 +103,9 @@ def list_databases(
         List of database names.
     """
     env = _get_pg_env(host, port)
-    cmd = f"psql -U {user} -h {host} -p {port} -lqt"
+    cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-lqt"]
     try:
-        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, env=env)
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
         databases = []
         for line in result.stdout.strip().split("\n"):
             parts = line.split("|")
@@ -124,9 +130,9 @@ def drop_database(
         return True
 
     env = _get_pg_env(host, port)
-    cmd = f"dropdb -U {user} -h {host} -p {port} {db_name}"
+    cmd = ["dropdb", "-U", user, "-h", host, "-p", str(port), db_name]
     try:
-        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, env=env)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
         logger.info("Database %s dropped.", db_name)
         return True
     except subprocess.CalledProcessError as e:
@@ -142,9 +148,9 @@ def create_database(
 ) -> bool:
     """Create a new database."""
     env = _get_pg_env(host, port)
-    cmd = f"createdb -U {user} -T template1 -h {host} -p {port} {db_name}"
+    cmd = ["createdb", "-U", user, "-T", "template1", "-h", host, "-p", str(port), db_name]
     try:
-        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, env=env)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
         logger.info("Database %s created.", db_name)
         return True
     except subprocess.CalledProcessError as e:
@@ -161,9 +167,9 @@ def restore_database(
 ) -> bool:
     """Restore a database from SQL file."""
     env = _get_pg_env(host, port)
-    cmd = f"psql -U {user} -h {host} -p {port} -d {db_name} -f {sql_file}"
+    cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-d", db_name, "-f", sql_file]
     try:
-        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, env=env)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
         logger.info("Database %s restored from %s.", db_name, sql_file)
         return True
     except subprocess.CalledProcessError as e:
@@ -217,12 +223,14 @@ def extract_backup(backup_file: str, extract_path: str) -> bool:
 
         # GZIP files
         if ext == ".gz":
-            result = subprocess.run(
-                f'gunzip -c "{backup_file}" > "{extract_path}/dump.sql"',
-                shell=True,
-                capture_output=True,
-                text=True,
-            )
+            dump_path = os.path.join(extract_path, "dump.sql")
+            with open(dump_path, "w", encoding="utf-8") as outfile:
+                result = subprocess.run(
+                    ["gunzip", "-c", backup_file],
+                    stdout=outfile,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
             return result.returncode == 0
 
         # Direct SQL files
@@ -352,9 +360,10 @@ def backup_database_sql(
         True if dump was successful.
     """
     env = _get_pg_env(host, port)
-    cmd = f'pg_dump -U {user} -h {host} -p {port} {db_name} > "{output_path}"'
+    cmd = ["pg_dump", "-U", user, "-h", host, "-p", str(port), db_name]
     try:
-        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, env=env)
+        with open(output_path, "w", encoding="utf-8") as outfile:
+            subprocess.run(cmd, check=True, stdout=outfile, stderr=subprocess.PIPE, text=True, env=env)
         logger.info("Database %s dumped to %s", db_name, output_path)
         return True
     except subprocess.CalledProcessError as e:

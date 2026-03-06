@@ -38,11 +38,11 @@ def get_git_env() -> dict[str, str]:
     return env
 
 
-def run_git_command(command: str, cwd: str | None = None) -> tuple[bool, str]:
+def run_git_command(cmd: list[str], cwd: str | None = None) -> tuple[bool, str]:
     """Execute a git command.
 
     Args:
-        command: Shell command to execute
+        cmd: Command as argument list (e.g. ["git", "pull"])
         cwd: Working directory
 
     Returns:
@@ -50,8 +50,7 @@ def run_git_command(command: str, cwd: str | None = None) -> tuple[bool, str]:
     """
     try:
         result = subprocess.run(
-            command,
-            shell=True,
+            cmd,
             check=True,
             capture_output=True,
             text=True,
@@ -61,7 +60,7 @@ def run_git_command(command: str, cwd: str | None = None) -> tuple[bool, str]:
         return True, result.stdout
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
-        logger.error("Error executing '%s': %s", command, error_msg)
+        logger.error("Error executing %s: %s", cmd, error_msg)
         return False, error_msg
 
 
@@ -77,8 +76,7 @@ def check_repo_access(git_url: str, timeout: int = 30) -> bool:
     """
     try:
         subprocess.run(
-            f"git ls-remote {git_url} HEAD",
-            shell=True,
+            ["git", "ls-remote", git_url, "HEAD"],
             check=True,
             capture_output=True,
             timeout=timeout,
@@ -135,8 +133,7 @@ def clone_repo_with_progress(git_url: str, target_dir: str, branch: str) -> bool
     os.makedirs(parent_dir, exist_ok=True)
     try:
         subprocess.run(
-            f"git clone --progress -b {branch} {git_url} {repo_name}",
-            shell=True,
+            ["git", "clone", "--progress", "-b", branch, git_url, repo_name],
             check=True,
             cwd=parent_dir,
             env=get_git_env(),
@@ -160,7 +157,7 @@ def clone_repo(git_url: str, target_dir: str, branch: str) -> bool:
     """
     parent_dir = os.path.dirname(target_dir)
     repo_name = os.path.basename(target_dir)
-    success, _ = run_git_command(f"git clone -b {branch} {git_url} {repo_name}", cwd=parent_dir)
+    success, _ = run_git_command(["git", "clone", "-b", branch, git_url, repo_name], cwd=parent_dir)
     return success
 
 
@@ -190,16 +187,16 @@ def update_repo(repo_dir: str, branch: str) -> tuple[bool, str]:
     Returns:
         Tuple of (success, error_message). Error is empty on success.
     """
-    success, output = run_git_command(f"git checkout {branch}", cwd=repo_dir)
+    success, output = run_git_command(["git", "checkout", branch], cwd=repo_dir)
     if not success:
         return False, f"checkout {branch}: {output.strip()}"
-    success, output = run_git_command("git pull", cwd=repo_dir)
+    success, output = run_git_command(["git", "pull"], cwd=repo_dir)
     if not success:
         return False, f"pull: {output.strip()}"
 
     # Clean Python cache
-    run_git_command("find . -name '*.pyc' -type f -delete", cwd=repo_dir)
-    run_git_command("find . -type d -empty -delete", cwd=repo_dir)
+    run_git_command(["find", ".", "-name", "*.pyc", "-type", "f", "-delete"], cwd=repo_dir)
+    run_git_command(["find", ".", "-type", "d", "-empty", "-delete"], cwd=repo_dir)
 
     return True, ""
 

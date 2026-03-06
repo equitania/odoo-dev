@@ -80,7 +80,7 @@ class TestCreateBackupZip:
 
 class TestBackupDatabaseSql:
     def test_backup_sql_called(self, monkeypatch, tmp_path):
-        """Test that pg_dump is called with correct arguments."""
+        """Test that pg_dump is called with correct argument list."""
         calls = []
 
         def mock_run(cmd, **kwargs):
@@ -99,9 +99,11 @@ class TestBackupDatabaseSql:
         result = backup_database_sql("testdb", output_path, host="localhost", port=18432, user="ownerp")
         assert result is True
         assert len(calls) == 1
-        assert "pg_dump" in calls[0]
+        # Command is now a list, not a shell string
+        assert calls[0][0] == "pg_dump"
         assert "testdb" in calls[0]
-        assert output_path in calls[0]
+        assert "-U" in calls[0]
+        assert "ownerp" in calls[0]
 
 
 class TestFormatSize:

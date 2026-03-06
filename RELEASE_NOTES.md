@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.4.11 (06.03.2026)
+
+### Fixed
+- **Security hardening**: Eliminated all `shell=True` subprocess calls in `database.py` and `git_ops.py` to prevent command injection via user-supplied database names, git URLs, and branch names
+- `database.py`: All PostgreSQL commands (`psql`, `createdb`, `dropdb`, `pg_dump`) now use safe argument lists instead of shell string interpolation
+- `git_ops.py`: `run_git_command()` signature changed from `str` to `list[str]`; all git operations (`clone`, `checkout`, `pull`, `ls-remote`) and `find` commands use argument lists
+- `backup_database_sql()` and `extract_backup()` gz: Shell output redirects replaced with Python file handles
+- Removed obsolete `S602` ruff ignores from `pyproject.toml`
+
 ## Version 0.4.10 (05.03.2026)
 
 ### Fixed
