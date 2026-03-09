@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.4.12 (09.03.2026)
+
+### Added
+- `odoodev pull`: Automatic Odoo config regeneration (`odoo_YYMMDD.conf`) after pulling repositories, so the `addons_path` stays up-to-date when new modules arrive via pull
+- `odoodev pull --no-config`: Opt-out flag to skip config regeneration when only a quick pull is needed
+
 ## Version 0.4.11 (06.03.2026)
 
 ### Fixed

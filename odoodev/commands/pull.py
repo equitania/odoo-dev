@@ -8,7 +8,13 @@ import os
 import click
 
 from odoodev.cli import resolve_version
-from odoodev.commands.repos import _collect_all_repos, _find_repos_config, _load_repos_config
+from odoodev.commands.repos import (
+    _collect_all_repos,
+    _find_repos_config,
+    _generate_config,
+    _load_repos_config,
+    _process_repos,
+)
 from odoodev.core.git_ops import set_ssh_key, update_repo
 from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import console, print_info, print_success, print_warning
@@ -20,13 +26,16 @@ logger = logging.getLogger(__name__)
 @click.argument("version", required=False)
 @click.option("-c", "--config", "config_path", type=click.Path(), help="Custom repos.yaml path")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
+@click.option("--no-config", is_flag=True, help="Skip Odoo config regeneration after pull")
 @click.pass_context
-def pull(ctx: click.Context, version: str | None, config_path: str | None, verbose: bool) -> None:
+def pull(ctx: click.Context, version: str | None, config_path: str | None, verbose: bool, no_config: bool) -> None:
     """Pull (update) all existing repositories.
 
     Unlike 'repos', this only runs git pull on repositories that
-    already exist locally. No cloning, no SSH access check, no
-    config regeneration.
+    already exist locally. No cloning, no SSH access check.
+
+    After pulling, the Odoo config file is regenerated automatically
+    to reflect any new modules. Use --no-config to skip this step.
     """
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -133,3 +142,9 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
         print_success(f"{len(updated)}/{total} repositories updated")
     else:
         print_info("No repositories to update (all skipped)")
+
+    # Regenerate Odoo config after pull
+    if not no_config and updated:
+        print_info("Regenerating Odoo configuration...")
+        all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
+        _generate_config(config, version_cfg, all_paths, repo_metadata)

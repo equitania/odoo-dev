@@ -20,6 +20,7 @@ class TestPullHelp:
         assert result.exit_code == 0
         assert "--config" in result.output
         assert "--verbose" in result.output
+        assert "--no-config" in result.output
 
 
 class TestPullNoConfig:
@@ -81,11 +82,40 @@ class TestPullExecution:
             lambda v, vers=None: _make_version_cfg(str(tmp_path)),
         )
         monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (True, ""))
+        monkeypatch.setattr("odoodev.commands.pull._process_repos", lambda *a, **kw: ({}, {}))
+        monkeypatch.setattr("odoodev.commands.pull._generate_config", lambda *a, **kw: None)
 
         runner = CliRunner()
         result = runner.invoke(cli, ["pull", "18", "-c", str(repos_yaml)])
         assert result.exit_code == 0
         assert "Updated" in result.output
+
+    def test_pull_with_no_config_flag(self, tmp_path, monkeypatch):
+        """With --no-config, config regeneration is skipped."""
+        server_dir = tmp_path / "v18-server"
+        server_dir.mkdir()
+
+        repos_yaml = tmp_path / "repos.yaml"
+        repos_yaml.write_text(f"version: '18'\nbranch: develop\npaths:\n  base: {tmp_path}\n")
+
+        monkeypatch.setattr("odoodev.commands.pull.resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr("odoodev.commands.pull.load_versions", lambda: {})
+        monkeypatch.setattr(
+            "odoodev.commands.pull.get_version",
+            lambda v, vers=None: _make_version_cfg(str(tmp_path)),
+        )
+        monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (True, ""))
+
+        config_called = []
+        monkeypatch.setattr(
+            "odoodev.commands.pull._generate_config", lambda *a, **kw: config_called.append(True)
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["pull", "18", "-c", str(repos_yaml), "--no-config"])
+        assert result.exit_code == 0
+        assert "Updated" in result.output
+        assert len(config_called) == 0  # Config generation was skipped
 
     def test_pull_failed_repo(self, tmp_path, monkeypatch):
         """Failed repo update → exit code 1."""
