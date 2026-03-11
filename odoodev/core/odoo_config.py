@@ -9,18 +9,6 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Section order for addons_path generation
-SECTION_ORDER = [
-    "Odoo",
-    "OCA",
-    "Enterprise",
-    "Syscoon",
-    "3rd-party",
-    "Equitania",
-    "Customer",
-    "Other",
-]
-
 
 def generate_addons_path(
     all_paths: dict[str, list[str]],
@@ -28,6 +16,9 @@ def generate_addons_path(
     home_replacement: str = "$HOME",
 ) -> str:
     """Generate the addons_path configuration section.
+
+    Sections are output in the order they are first encountered in repos.yaml,
+    so any section name (e.g. "DACH", "Design", "Chatbot") is supported.
 
     Args:
         all_paths: Dict of {repo_key: [list_of_paths]}
@@ -47,7 +38,8 @@ def generate_addons_path(
             formatted = path.replace(home, home_replacement) if home_replacement != home else path
             lines.append(f"    {formatted},")
 
-    # Group by section
+    # Collect entries preserving section order from repos.yaml
+    seen_sections: list[str] = []
     sections: dict[str, list[tuple[str, bool]]] = {}
     for key, paths in all_paths.items():
         if key == "base":
@@ -57,14 +49,13 @@ def generate_addons_path(
         commented = meta.get("commented", False)
         if section not in sections:
             sections[section] = []
+            seen_sections.append(section)
         for path in paths:
             formatted = path.replace(home, home_replacement) if home_replacement != home else path
             sections[section].append((formatted, commented))
 
-    # Output in section order
-    for section_name in SECTION_ORDER:
-        if section_name not in sections:
-            continue
+    # Output in repos.yaml encounter order
+    for section_name in seen_sections:
         entries = sections[section_name]
         lines.append(f"    # {section_name}")
         for path, commented in entries:

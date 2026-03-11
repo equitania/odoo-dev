@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.4.10-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.4.15-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.10-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -19,7 +19,7 @@
 - Automatische Versionserkennung aus dem aktuellen Verzeichnis
 - Interaktiver Setup-Wizard für die Ersteinrichtung
 - Native Entwicklung mit UV Virtual Environments
-- Repository-Management (Odoo, OCA, Enterprise, Custom)
+- Repository-Management mit frei benennbaren Sections in repos.yaml
 - Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, SQL)
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
@@ -145,7 +145,7 @@ odoodev ersetzt:
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (257+)
+pytest                                  # Tests (290+)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type-Check
 uv build                                # Paket bauen
@@ -173,7 +173,7 @@ uv build                                # Paket bauen
 - Automatic version detection from current directory
 - Interactive setup wizard for first-time configuration
 - Native development with UV virtual environments
-- Repository management (Odoo, OCA, Enterprise, Custom)
+- Repository management with freely nameable sections in repos.yaml
 - Database backup & restoration (ZIP, 7z, tar, SQL)
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
@@ -299,7 +299,7 @@ odoodev replaces:
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (257+)
+pytest                                  # Tests (290+)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type checking
 uv build                                # Build package

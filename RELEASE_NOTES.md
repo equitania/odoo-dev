@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.15 (11.03.2026)
+
+### Changed
+- **Dynamic sections for addons_path**: Removed hardcoded `SECTION_ORDER` list from `odoo_config.py` — sections in the generated `odoo.conf` now follow the insertion order from `repos.yaml`. Any section name (e.g. "DACH", "Design", "Chatbot", "fast-report") is supported; previously only 8 fixed names were recognized and all others were silently dropped.
+
 ## Version 0.4.14 (11.03.2026)
 
 ### Added
