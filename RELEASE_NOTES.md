@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.4.14 (11.03.2026)
+
+### Added
+- **Interpreter health check**: Detects broken UV tool environments where Python versions have been removed by `uv python` updates
+  - `check_interpreter_health()`: Validates the running Python interpreter's symlink chain at CLI startup; exits with clear fix instruction (`uv tool upgrade --all`) if broken
+  - `check_venv_interpreter()`: Validates Odoo venv Python symlink chains before `odoodev start`; suggests `odoodev venv setup <version> --force` if broken
+  - `_resolve_symlink_chain()`: Utility to follow and report multi-level symlink chains with broken-link detection
+- **Shell wrapper pre-flight checks**: `odoodev-activate` (Fish/Bash/Zsh) now verifies the odoodev interpreter is functional before calling it — catches the case where `odoodev` itself cannot start at all
+- 14 new tests for interpreter health checks (symlink chain resolution, broken venvs, UV tool directory detection)
+
 ## Version 0.4.13 (11.03.2026)
 
 ### Added

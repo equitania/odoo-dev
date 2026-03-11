@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 
 from odoodev.core.environment import command_exists, detect_os, find_executable
 from odoodev.output import print_error, print_info, print_success, print_warning
@@ -350,6 +351,103 @@ def check_system_libs() -> list[str]:
             print_success("All required system libraries installed")
 
     return missing
+
+
+def _resolve_symlink_chain(path: str) -> tuple[str, list[str]]:
+    """Follow a symlink chain and return the final target and intermediate links.
+
+    Args:
+        path: Starting path to resolve
+
+    Returns:
+        Tuple of (final_target, list_of_intermediate_links)
+    """
+    chain: list[str] = [path]
+    current = path
+    seen: set[str] = set()
+    while os.path.islink(current):
+        if current in seen:
+            break  # circular symlink
+        seen.add(current)
+        target = os.readlink(current)
+        if not os.path.isabs(target):
+            target = os.path.join(os.path.dirname(current), target)
+        target = os.path.normpath(target)
+        chain.append(target)
+        current = target
+    return current, chain
+
+
+def check_interpreter_health() -> bool:
+    """Check if the current Python interpreter's symlink chain is intact.
+
+    Detects broken UV tool environments where Python versions have been
+    removed by 'uv python' updates. Warns early before the environment
+    becomes completely unusable.
+
+    Returns:
+        True if interpreter is healthy, False if broken links detected.
+    """
+    python_path = sys.executable
+    if not python_path:
+        return True  # cannot determine, assume OK
+
+    final_target, chain = _resolve_symlink_chain(python_path)
+
+    if not os.path.exists(final_target):
+        print_error(f"Python interpreter broken: {final_target} does not exist")
+        print_info("Symlink chain:")
+        for i, link in enumerate(chain):
+            exists = os.path.exists(link)
+            marker = "[OK]" if exists else "[BROKEN]"
+            prefix = "  " + ("→ " if i > 0 else "  ")
+            print_info(f"{prefix}{marker} {link}")
+        print_info("Fix: uv tool upgrade --all")
+        return False
+
+    # Also check the venv-style python → python3 chain in UV tool dirs
+    tool_dir = os.path.dirname(python_path)
+    if "uv/tools" in tool_dir:
+        python_link = os.path.join(tool_dir, "python")
+        if os.path.islink(python_link):
+            final, _ = _resolve_symlink_chain(python_link)
+            if not os.path.exists(final):
+                print_warning(f"UV tool Python link degraded: {python_link} → {final}")
+                print_info("Fix: uv tool upgrade --all")
+                return False
+
+    return True
+
+
+def check_venv_interpreter(venv_dir: str) -> bool:
+    """Check if a venv's Python interpreter symlink chain is intact.
+
+    Detects broken venvs where the underlying Python installation was removed
+    or updated by UV.
+
+    Args:
+        venv_dir: Path to the virtual environment directory
+
+    Returns:
+        True if venv interpreter is healthy, False if broken.
+    """
+    python_bin = os.path.join(venv_dir, "bin", "python3")
+    if not os.path.exists(python_bin) and not os.path.islink(python_bin):
+        return False  # no python at all
+
+    final_target, chain = _resolve_symlink_chain(python_bin)
+
+    if not os.path.exists(final_target):
+        print_error(f"Venv interpreter broken: {python_bin}")
+        print_info("Symlink chain:")
+        for i, link in enumerate(chain):
+            exists = os.path.exists(link)
+            marker = "[OK]" if exists else "[BROKEN]"
+            prefix = "  " + ("→ " if i > 0 else "  ")
+            print_info(f"{prefix}{marker} {link}")
+        return False
+
+    return True
 
 
 def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]:

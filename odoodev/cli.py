@@ -58,6 +58,13 @@ def cli(ctx: click.Context) -> None:
     """
     ctx.ensure_object(dict)
 
+    # Check interpreter health early — broken UV tool environments
+    # produce cryptic errors; this gives a clear fix instruction.
+    from odoodev.core.prerequisites import check_interpreter_health
+
+    if not check_interpreter_health():
+        raise SystemExit(1)
+
     # First-run hint when no config exists
     if ctx.invoked_subcommand != "setup":
         from odoodev.core.global_config import config_exists

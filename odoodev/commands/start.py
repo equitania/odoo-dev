@@ -234,6 +234,14 @@ def start(
         else:
             raise SystemExit(1)
 
+    # Check venv interpreter symlink chain is intact
+    from odoodev.core.prerequisites import check_venv_interpreter
+
+    if not check_venv_interpreter(venv_dir):
+        print_error("Venv Python interpreter is broken (underlying Python removed)")
+        print_info(f"Fix: odoodev venv setup {version} --force")
+        raise SystemExit(1)
+
     # Check venv Python version matches configuration
     if not check_venv_python_matches(venv_dir, version_cfg.python):
         actual = get_venv_python_version(venv_dir) or "unknown"
