@@ -38,10 +38,13 @@ def init(
     version_cfg = get_version(version, versions)
 
     # Check optional system prerequisites
-    from odoodev.core.prerequisites import check_wkhtmltopdf
+    from odoodev.core.prerequisites import check_node, check_node_packages, check_system_libs, check_wkhtmltopdf
 
     print_info("Checking system prerequisites...")
     check_wkhtmltopdf()
+    check_node()
+    check_node_packages()
+    check_system_libs()
 
     print_info(f"Initializing Odoo v{version} native development environment")
 

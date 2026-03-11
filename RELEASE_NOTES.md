@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.4.13 (11.03.2026)
+
+### Added
+- System dependency checks for `odoodev init`: Node.js, npm, Node packages (rtlcss, less, less-plugin-clean-css), and system libraries (libldap, libxml2, libxslt, libjpeg, cairo, fontconfig)
+- Platform-specific install instructions: Homebrew (macOS) and apt-get (Linux/Debian)
+- `check_node()`: Detects Node.js with version warning (< 20) and npm availability check
+- `check_node_packages()`: Verifies rtlcss/lessc binaries and less-plugin-clean-css via npm
+- `check_system_libs()`: Checks C-extension build dependencies via `brew --prefix` (macOS) or `dpkg -l` (Linux)
+- 17 new tests for all prerequisite checks
+
+### Changed
+- All new checks are WARNING-level (non-blocking) — pre-built wheels don't need system libs
+
 ## Version 0.4.12 (09.03.2026)
 
 ### Added

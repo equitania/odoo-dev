@@ -181,6 +181,177 @@ def check_python_packages(venv_python: str, packages: list[str] | None = None) -
     return missing
 
 
+def check_node() -> str | None:
+    """Check if Node.js is installed and return its path.
+
+    Returns:
+        Path to node binary, or None if not found.
+    """
+    extra_paths = []
+    os_name = detect_os()
+    if os_name == "macos":
+        extra_paths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+    else:
+        extra_paths = [
+            "/usr/local/bin",
+            "/usr/bin",
+        ]
+
+    path = find_executable("node", extra_paths)
+    if not path:
+        print_warning("Node.js not found")
+        if os_name == "macos":
+            print_info("Install: brew install node@20")
+        else:
+            print_info("Install: sudo apt-get install -y nodejs npm")
+        return None
+
+    # Parse version
+    result = subprocess.run(
+        [path, "--version"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        version_str = result.stdout.strip().lstrip("v")
+        try:
+            major = int(version_str.split(".")[0])
+            if major < 20:
+                print_warning(f"Node.js {version_str} found — version 20+ recommended")
+            else:
+                print_success(f"Node.js {version_str} found: {path}")
+        except (ValueError, IndexError):
+            print_warning(f"Node.js found but could not parse version: {result.stdout.strip()}")
+
+    # Check npm
+    if not command_exists("npm"):
+        print_warning("npm not found — required for Node.js package management")
+        if os_name == "macos":
+            print_info("Install: brew install node@20 (includes npm)")
+        else:
+            print_info("Install: sudo apt-get install -y npm")
+
+    return path
+
+
+def check_node_packages() -> list[str]:
+    """Check which required Node.js packages are missing globally.
+
+    Returns:
+        List of missing package names.
+    """
+    missing = []
+
+    if not command_exists("npm"):
+        missing = ["rtlcss", "less", "less-plugin-clean-css"]
+        print_warning(f"npm not available — cannot verify Node.js packages: {', '.join(missing)}")
+        return missing
+
+    # rtlcss and lessc have their own binaries
+    if not command_exists("rtlcss"):
+        missing.append("rtlcss")
+    if not command_exists("lessc"):
+        missing.append("less")
+
+    # less-plugin-clean-css has no binary — check via npm list
+    result = subprocess.run(
+        ["npm", "list", "-g", "--depth=0"],
+        capture_output=True,
+        text=True,
+    )
+    if "less-plugin-clean-css" not in result.stdout:
+        missing.append("less-plugin-clean-css")
+
+    if missing:
+        print_warning(f"Missing Node.js packages: {', '.join(missing)}")
+        print_info("Install: npm install -g rtlcss less less-plugin-clean-css")
+    else:
+        print_success("All required Node.js packages installed")
+
+    return missing
+
+
+# macOS Homebrew formulae → description
+MACOS_LIBS: dict[str, str] = {
+    "openldap": "libldap (python-ldap)",
+    "libxml2": "libxml2 (lxml)",
+    "libxslt": "libxslt (lxml)",
+    "jpeg": "libjpeg (Pillow)",
+    "cairo": "cairo (reportlab)",
+    "fontconfig": "fontconfig (wkhtmltopdf)",
+}
+
+# Linux Debian/Ubuntu packages → description
+LINUX_LIBS: dict[str, str] = {
+    "libldap2-dev": "libldap-dev (python-ldap)",
+    "libsasl2-dev": "libsasl2-dev (python-ldap)",
+    "libxml2-dev": "libxml2-dev (lxml)",
+    "libxslt1-dev": "libxslt-dev (lxml)",
+    "libjpeg-dev": "libjpeg-dev (Pillow)",
+    "libcairo2-dev": "libcairo2-dev (reportlab)",
+    "fontconfig": "fontconfig (wkhtmltopdf)",
+    "fonts-dejavu-core": "fonts-dejavu-core",
+    "fonts-noto-core": "fonts-noto-core",
+}
+
+
+def check_system_libs() -> list[str]:
+    """Check which system libraries needed for Odoo compilation are missing.
+
+    Returns:
+        List of missing library descriptions.
+    """
+    missing = []
+    os_name = detect_os()
+
+    if os_name == "macos":
+        if not command_exists("brew"):
+            print_info("Homebrew not found — skipping system library checks")
+            return missing
+
+        for formula, description in MACOS_LIBS.items():
+            result = subprocess.run(
+                ["brew", "--prefix", formula],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                missing.append(description)
+
+        if missing:
+            formulae = " ".join(MACOS_LIBS.keys())
+            print_warning(f"Missing system libraries: {', '.join(missing)}")
+            print_info(f"Install: brew install {formulae}")
+        else:
+            print_success("All required system libraries installed")
+
+    else:
+        if not command_exists("dpkg"):
+            print_info("dpkg not found — skipping system library checks (non-Debian system?)")
+            return missing
+
+        for package, description in LINUX_LIBS.items():
+            result = subprocess.run(
+                ["dpkg", "-l", package],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0 or "ii" not in result.stdout:
+                missing.append(description)
+
+        if missing:
+            packages = " ".join(LINUX_LIBS.keys())
+            print_warning(f"Missing system libraries: {', '.join(missing)}")
+            print_info(f"Install: sudo apt-get install -y {packages}")
+        else:
+            print_success("All required system libraries installed")
+
+    return missing
+
+
 def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]:
     """Run all prerequisite checks.
 
@@ -199,6 +370,10 @@ def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]
         "pg_tools": check_pg_tools() is not None,
         "postgres": check_postgres_port(db_port),
     }
+
+    results["node"] = check_node() is not None
+    results["node_packages"] = len(check_node_packages()) == 0
+    results["system_libs"] = len(check_system_libs()) == 0
 
     if venv_dir:
         python_bin = os.path.join(venv_dir, "bin", "python3")
