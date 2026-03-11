@@ -60,7 +60,7 @@ addons:
     path: v18-addons
     git_url: git@gitlab.ownerp.io:v18/v18-addons.git
     section: Equitania
-    commented: false
+    use: true
     suffix: ""
 
 customers:
@@ -68,7 +68,7 @@ customers:
     path: v18-customer
     git_url: git@gitlab.ownerp.io:customer/v18-customer.git
     section: Customer
-    commented: true
+    use: false
 ```
 
 ### Felder-Referenz
@@ -86,7 +86,7 @@ customers:
 | `addons[].path` | Ja | Zielverzeichnis (relativ zu paths.base) |
 | `addons[].git_url` | Ja | Git-Repository-URL |
 | `addons[].section` | Nein | Gruppierung in odoo.conf (Standard: "Other") |
-| `addons[].commented` | Nein | `true` = als Kommentar in odoo.conf (Standard: `false`) |
+| `addons[].use` | Nein | `true` = aktiv, `false` = als Kommentar in odoo.conf (Standard: `true`) |
 | `addons[].suffix` | Nein | Unterverzeichnis-Suffix fuer addons_path |
 
 ### Sektionen im addons_path
@@ -166,7 +166,7 @@ addons:
     path: v18-addons
     git_url: git@gitlab.ownerp.io:v18/v18-addons.git
     section: Equitania
-    commented: false
+    use: true
     suffix: ""
 
 customers:
@@ -174,7 +174,7 @@ customers:
     path: v18-customer
     git_url: git@gitlab.ownerp.io:customer/v18-customer.git
     section: Customer
-    commented: true
+    use: false
 ```
 
 ### Field Reference
@@ -192,7 +192,7 @@ customers:
 | `addons[].path` | Yes | Target directory (relative to paths.base) |
 | `addons[].git_url` | Yes | Git repository URL |
 | `addons[].section` | No | Grouping in odoo.conf (default: "Other") |
-| `addons[].commented` | No | `true` = as comment in odoo.conf (default: `false`) |
+| `addons[].use` | No | `true` = active, `false` = as comment in odoo.conf (default: `true`) |
 | `addons[].suffix` | No | Subdirectory suffix for addons_path |
 
 ### Sections in addons_path

@@ -22,7 +22,7 @@ def generate_addons_path(
 
     Args:
         all_paths: Dict of {repo_key: [list_of_paths]}
-        repo_metadata: Dict of {repo_key: {section: str, commented: bool}}
+        repo_metadata: Dict of {repo_key: {section: str, use: bool}}
         home_replacement: String to use for home directory ('$HOME' or actual path)
 
     Returns:
@@ -46,20 +46,20 @@ def generate_addons_path(
             continue
         meta = repo_metadata.get(key, {})
         section = meta.get("section", "Other")
-        commented = meta.get("commented", False)
+        use = meta.get("use", True)
         if section not in sections:
             sections[section] = []
             seen_sections.append(section)
         for path in paths:
             formatted = path.replace(home, home_replacement) if home_replacement != home else path
-            sections[section].append((formatted, commented))
+            sections[section].append((formatted, use))
 
     # Output in repos.yaml encounter order
     for section_name in seen_sections:
         entries = sections[section_name]
         lines.append(f"    # {section_name}")
-        for path, commented in entries:
-            prefix = "    # " if commented else "    "
+        for path, use in entries:
+            prefix = "    " if use else "    # "
             lines.append(f"{prefix}{path},")
 
     return "\n".join(lines)
@@ -84,7 +84,7 @@ def create_odoo_config(
         template_path: Path to odoo_template.conf
         config_dir: Output directory for generated config
         all_paths: Addon paths per repository
-        repo_metadata: Metadata per repository (section, commented)
+        repo_metadata: Metadata per repository (section, use)
         config_mode: 'native' or 'docker'
         native_db_host: Database host for native mode
         native_db_port: Database port for native mode

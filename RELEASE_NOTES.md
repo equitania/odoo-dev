@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.16 (11.03.2026)
+
+### Changed
+- **Rename `commented` → `use` in repos.yaml**: The `commented` field (inverted logic: `true` = disabled) is replaced by the self-documenting `use` field (`true` = active, `false` = disabled). Legacy `commented` field is still supported for backwards compatibility.
+
 ## Version 0.4.15 (11.03.2026)
 
 ### Changed

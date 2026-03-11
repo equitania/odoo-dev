@@ -62,7 +62,14 @@ def _collect_all_repos(config: dict) -> list[dict]:
         section_repos = config.get(section_key, [])
         if section_repos:
             for repo in section_repos:
-                if not repo.get("commented", False):
+                # Support legacy "commented" field (inverted logic)
+                if "use" in repo:
+                    use = repo["use"]
+                elif "commented" in repo:
+                    use = not repo["commented"]
+                else:
+                    use = True
+                if use:
                     repos.append(repo)
     return repos
 
@@ -96,16 +103,22 @@ def _process_repos(
             repo_path = repo.get("path", "")
             git_url = repo.get("git_url", "")
             section = repo.get("section", "Other")
-            commented = repo.get("commented", False)
+            # Support legacy "commented" field (inverted logic)
+            if "use" in repo:
+                use = repo["use"]
+            elif "commented" in repo:
+                use = not repo["commented"]
+            else:
+                use = True
             suffix = repo.get("suffix", "")
             is_oca = "oca" in repo_path.lower()
 
             full_path = os.path.join(base_path, repo_path)
 
-            repo_metadata[key] = {"section": section, "commented": commented}
+            repo_metadata[key] = {"section": section, "use": use}
 
-            if commented:
-                # Still collect paths for commented repos (shown as comments in config)
+            if not use:
+                # Still collect paths for unused repos (shown as comments in config)
                 if os.path.isdir(full_path):
                     paths = get_module_paths(full_path, is_oca)
                     if suffix:
