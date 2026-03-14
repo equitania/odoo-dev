@@ -474,7 +474,10 @@ def handle_db_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
 
         return _step_ok("db.backup", "db.backup", f"Backup created: {output_file}", 0, file=output_file)
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            shutil.rmtree(tmp_dir)
+        except OSError as e:
+            logger.warning("Could not remove temp directory %s: %s", tmp_dir, e)
 
 
 @_timed
@@ -548,7 +551,10 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         return _step_ok("db.restore", "db.restore", f"Database '{name}' restored", 0)
 
     finally:
-        shutil.rmtree(extract_path, ignore_errors=True)
+        try:
+            shutil.rmtree(extract_path)
+        except OSError as e:
+            logger.warning("Could not remove temp directory %s: %s", extract_path, e)
 
 
 @_timed

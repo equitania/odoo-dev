@@ -107,9 +107,7 @@ class TestPullExecution:
         monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (True, ""))
 
         config_called = []
-        monkeypatch.setattr(
-            "odoodev.commands.pull._generate_config", lambda *a, **kw: config_called.append(True)
-        )
+        monkeypatch.setattr("odoodev.commands.pull._generate_config", lambda *a, **kw: config_called.append(True))
 
         runner = CliRunner()
         result = runner.invoke(cli, ["pull", "18", "-c", str(repos_yaml), "--no-config"])

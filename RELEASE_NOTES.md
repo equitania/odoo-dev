@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.4.17 (14.03.2026)
+
+### Security
+- **SSH hardening**: Replaced `StrictHostKeyChecking=accept-new` with `StrictHostKeyChecking=yes` in `git_ops.py` to prevent automatic acceptance of unknown SSH host keys (MITM protection)
+- **SSH key isolation**: SSH key path is now written to a temporary SSH config file (`~/.ssh/odoodev_config`) instead of being exposed in `GIT_SSH_COMMAND` environment variable (visible via `ps aux`)
+- **PostgreSQL credentials**: Replaced `PGPASSWORD` environment variable with `.pgpass` file authentication in `start.py` and `database.py` — passwords no longer visible in process environment
+- **Temp file race conditions**: Fixed TOCTOU vulnerabilities in `start.py` — temporary shell config files are now created with correct permissions atomically via `os.open()` with mode flags instead of post-creation `chmod()`
+- **Temp cleanup logging**: Replaced `shutil.rmtree(ignore_errors=True)` with explicit error logging in `automation.py` and `db.py` — failed cleanup of temp directories containing sensitive data (SQL dumps) is now visible
+
+### Added
+- Database name validation: `db restore` now validates names against PostgreSQL naming rules (letters, digits, underscores; must not start with digit)
+- `types-click` added to dev dependencies for improved mypy type checking of Click decorators
+- pytest-cov integration: Coverage tracking enabled by default with 45% minimum threshold
+
 ## Version 0.4.16 (11.03.2026)
 
 ### Changed

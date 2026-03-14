@@ -32,12 +32,24 @@ def _get_default_credentials() -> tuple[str, str]:
 
 
 def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 18432) -> dict[str, str]:
-    """Get environment variables for PostgreSQL commands."""
-    _, default_password = _get_default_credentials()
+    """Get environment variables for PostgreSQL commands.
+
+    Prefers .pgpass authentication. Falls back to PGPASSWORD env var
+    only if .pgpass does not exist.
+    """
     env = os.environ.copy()
-    env["PGPASSWORD"] = os.environ.get("PGPASSWORD", default_password)
     env["PGHOST"] = host
     env["PGPORT"] = str(port)
+
+    pgpass_path = os.path.join(os.path.expanduser("~"), ".pgpass")
+    if not os.path.exists(pgpass_path):
+        # Fallback: use PGPASSWORD only when .pgpass is unavailable
+        _, default_password = _get_default_credentials()
+        env["PGPASSWORD"] = os.environ.get("PGPASSWORD", default_password)
+    else:
+        # .pgpass exists — remove PGPASSWORD to let psql use .pgpass
+        env.pop("PGPASSWORD", None)
+
     return env
 
 

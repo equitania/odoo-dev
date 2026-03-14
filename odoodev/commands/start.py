@@ -71,20 +71,67 @@ def _load_env_file(env_file: str) -> dict[str, str]:
 
 
 def _set_environment(env_vars: dict[str, str]) -> dict[str, str]:
-    """Set up environment variables for Odoo execution."""
+    """Set up environment variables for Odoo execution.
+
+    Uses .pgpass file for PostgreSQL authentication instead of
+    exposing PGPASSWORD in the process environment.
+    """
     env = os.environ.copy()
     # Export .env values
     for key, value in env_vars.items():
         env[key] = value
 
     # Set PostgreSQL connection vars
-    env["PGHOST"] = "localhost"
-    env["PGPORT"] = env_vars.get("DB_PORT", "18432")
-    env["PGUSER"] = env_vars.get("PGUSER", "ownerp")
-    env["PGPASSWORD"] = env_vars.get("PGPASSWORD", "CHANGE_AT_FIRST")
+    pg_host = "localhost"
+    pg_port = env_vars.get("DB_PORT", "18432")
+    pg_user = env_vars.get("PGUSER", "ownerp")
+    pg_password = env_vars.get("PGPASSWORD", "CHANGE_AT_FIRST")
+
+    env["PGHOST"] = pg_host
+    env["PGPORT"] = pg_port
+    env["PGUSER"] = pg_user
     env["HOST"] = "0.0.0.0"
 
+    # Write credentials to .pgpass instead of PGPASSWORD env var
+    _write_pgpass(pg_host, pg_port, pg_user, pg_password)
+    # Remove PGPASSWORD from env if present (prefer .pgpass)
+    env.pop("PGPASSWORD", None)
+
     return env
+
+
+def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
+    """Write PostgreSQL credentials to ~/.pgpass file.
+
+    This avoids exposing passwords via process environment variables.
+    The file is created with 0600 permissions atomically.
+    """
+    pgpass_path = os.path.join(os.path.expanduser("~"), ".pgpass")
+    entry = f"{host}:{port}:*:{user}:{password}"
+
+    # Read existing entries, update or append
+    existing_lines: list[str] = []
+    if os.path.exists(pgpass_path):
+        with open(pgpass_path, encoding="utf-8") as f:
+            existing_lines = [line.rstrip("\n") for line in f if line.strip()]
+
+    # Build match prefix to find existing entry for this host:port:*:user
+    prefix = f"{host}:{port}:*:{user}:"
+    updated = False
+    new_lines = []
+    for line in existing_lines:
+        if line.startswith(prefix):
+            new_lines.append(entry)
+            updated = True
+        else:
+            new_lines.append(line)
+    if not updated:
+        new_lines.append(entry)
+
+    # Write atomically with correct permissions
+    fd = os.open(pgpass_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(new_lines) + "\n")
 
 
 def _start_odoo(
@@ -145,10 +192,11 @@ def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env
     elif shell == "zsh":
         import tempfile
 
-        tmpdir = tempfile.mkdtemp()
-        os.chmod(tmpdir, 0o700)
+        tmpdir = tempfile.mkdtemp(prefix="odoodev_")
         zshrc = os.path.join(tmpdir, ".zshrc")
-        with open(zshrc, "w") as f:
+        # Create file with correct permissions from the start (no race condition)
+        fd = os.open(zshrc, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             f.write("[[ -f ~/.zshrc ]] && source ~/.zshrc\n")
             f.write(f'source "{venv_dir}/bin/activate"\n')
             f.write(f'cd "{odoo_dir}"\n')
@@ -158,14 +206,16 @@ def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env
     else:
         import tempfile
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".bashrc", delete=False)
-        tmp.write("[[ -f ~/.bashrc ]] && source ~/.bashrc\n")
-        tmp.write(f'source "{venv_dir}/bin/activate"\n')
-        tmp.write(f'cd "{odoo_dir}"\n')
-        tmp.write(f'export ODOO_CONF="{config_path}"\n')
-        tmp.close()
-        os.chmod(tmp.name, 0o600)
-        cmd = ["bash", "--rcfile", tmp.name]
+        # Create temp file with correct permissions atomically
+        tmpdir = tempfile.mkdtemp(prefix="odoodev_")
+        bashrc_path = os.path.join(tmpdir, "odoodev.bashrc")
+        fd = os.open(bashrc_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write("[[ -f ~/.bashrc ]] && source ~/.bashrc\n")
+            f.write(f'source "{venv_dir}/bin/activate"\n')
+            f.write(f'cd "{odoo_dir}"\n')
+            f.write(f'export ODOO_CONF="{config_path}"\n')
+        cmd = ["bash", "--rcfile", bashrc_path]
 
     print_info(f"Opening {shell} shell with venv activated...")
     print_info(f"ODOO_CONF={config_path}")

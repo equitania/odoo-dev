@@ -40,6 +40,17 @@ from odoodev.output import (
 )
 
 
+def _validate_db_name(name: str) -> bool:
+    """Validate a PostgreSQL database name.
+
+    Valid names contain only letters, digits, and underscores,
+    must not start with a digit, and must not be empty.
+    """
+    import re
+
+    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name.strip()))
+
+
 def _suggest_db_name(backup_file: str) -> str:
     """Suggest a database name from a backup filename.
 
@@ -198,6 +209,10 @@ def db_restore(
         name = text_input("Database name:", default=_suggest_db_name(backup_file))
         if not name.strip():
             raise SystemExit(1)
+
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}' (only letters, digits, underscores allowed)")
+        raise SystemExit(1)
 
     backup_file = os.path.abspath(backup_file)
     print_info(f"Restoring database '{name}' from {os.path.basename(backup_file)}")
@@ -410,4 +425,7 @@ def db_backup(
             print_success(f"Backup created: {output_file} ({size})")
 
         finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(tmp_dir)
+            except OSError as e:
+                print_warning(f"Could not remove temp directory: {e}")

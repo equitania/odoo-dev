@@ -28,14 +28,47 @@ def set_ssh_key(key_path: str) -> None:
 
 
 def get_git_env() -> dict[str, str]:
-    """Get environment variables for git operations with SSH key and timeout."""
+    """Get environment variables for git operations with SSH key and timeout.
+
+    Uses a temporary SSH config file instead of exposing the key path
+    in environment variables (visible via ps/proc).
+    StrictHostKeyChecking=yes requires pre-populated known_hosts.
+    """
     env = os.environ.copy()
-    ssh_opts = "-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
+    ssh_opts = "-o ConnectTimeout=10 -o StrictHostKeyChecking=yes"
     if _ssh_key_path:
-        env["GIT_SSH_COMMAND"] = f"ssh -i {_ssh_key_path} -o IdentitiesOnly=yes {ssh_opts}"
+        # Write a temp SSH config to avoid exposing key path in process env
+        ssh_config = _get_ssh_config_path()
+        if ssh_config:
+            env["GIT_SSH_COMMAND"] = f"ssh -F {ssh_config} {ssh_opts}"
+        else:
+            # Fallback: direct key reference (less secure but functional)
+            env["GIT_SSH_COMMAND"] = f"ssh -i {_ssh_key_path} -o IdentitiesOnly=yes {ssh_opts}"
     else:
         env["GIT_SSH_COMMAND"] = f"ssh {ssh_opts}"
     return env
+
+
+def _get_ssh_config_path() -> str | None:
+    """Create a temporary SSH config file referencing the SSH key.
+
+    Returns path to the config file, or None on failure.
+    The file is placed in ~/.ssh/ so it persists for the session.
+    """
+    if not _ssh_key_path:
+        return None
+    try:
+        config_dir = os.path.join(os.path.expanduser("~"), ".ssh")
+        os.makedirs(config_dir, mode=0o700, exist_ok=True)
+        config_path = os.path.join(config_dir, "odoodev_config")
+        fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(f"IdentityFile {_ssh_key_path}\n")
+            f.write("IdentitiesOnly yes\n")
+        return config_path
+    except OSError:
+        logger.warning("Could not create SSH config file, using direct key reference")
+        return None
 
 
 def run_git_command(cmd: list[str], cwd: str | None = None) -> tuple[bool, str]:
