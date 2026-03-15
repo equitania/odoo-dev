@@ -187,3 +187,41 @@ class TestOdooTuiAppIntegration:
             assert status_bar.version == "18"
             assert status_bar.port == 18069
             assert status_bar.db_name == "v18_exam"
+
+    async def test_get_visible_text(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(1.0)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            text = log_viewer.get_visible_text()
+            assert "Loading module base" in text
+
+    async def test_get_errors_text(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(1.0)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            errors = log_viewer.get_errors_text()
+            assert "Request failed" in errors
+            assert "Loading module base" not in errors
+
+    async def test_get_warnings_and_errors_text(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(1.0)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            text = log_viewer.get_warnings_and_errors_text()
+            assert "Deprecated field" in text
+            assert "Request failed" in text
+            assert "Loading module base" not in text
+
+
+class TestClipboard:
+    """Test clipboard copy functionality."""
+
+    def test_copy_to_clipboard_returns_bool(self):
+        result = OdooTuiApp._copy_to_clipboard("test")
+        assert isinstance(result, bool)
+
+    def test_copy_empty_string(self):
+        assert OdooTuiApp._copy_to_clipboard("") is True

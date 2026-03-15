@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import platform
+import shutil
+import subprocess
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Footer, Static
@@ -31,6 +35,9 @@ class OdooTuiApp(App):
         Binding("f", "cycle_filter", "Filter Level"),
         Binding("slash", "search", "Search"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
+        Binding("c", "copy_visible", "Copy Visible"),
+        Binding("e", "copy_errors", "Copy Errors"),
+        Binding("w", "copy_warnings", "Copy Warn+Err"),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
     ]
@@ -198,6 +205,63 @@ class OdooTuiApp(App):
         """Clear the log display."""
         log_viewer = self.query_one("#log-viewer", LogViewer)
         log_viewer.clear_log()
+
+    def action_copy_visible(self) -> None:
+        """Copy all currently visible (filtered) log lines to clipboard."""
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        text = log_viewer.get_visible_text()
+        count = log_viewer.visible_count
+        if self._copy_to_clipboard(text):
+            self.notify(f"{count} visible lines copied to clipboard", severity="information")
+        else:
+            self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
+
+    def action_copy_errors(self) -> None:
+        """Copy only ERROR/CRITICAL lines to clipboard."""
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        text = log_viewer.get_errors_text()
+        if not text:
+            self.notify("No errors to copy", severity="warning")
+            return
+        count = text.count("\n") + 1
+        if self._copy_to_clipboard(text):
+            self.notify(f"{count} error lines copied to clipboard", severity="information")
+        else:
+            self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
+
+    def action_copy_warnings(self) -> None:
+        """Copy WARNING, ERROR, and CRITICAL lines to clipboard."""
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        text = log_viewer.get_warnings_and_errors_text()
+        if not text:
+            self.notify("No warnings or errors to copy", severity="warning")
+            return
+        count = text.count("\n") + 1
+        if self._copy_to_clipboard(text):
+            self.notify(f"{count} warning/error lines copied to clipboard", severity="information")
+        else:
+            self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
+
+    @staticmethod
+    def _copy_to_clipboard(text: str) -> bool:
+        """Copy text to system clipboard. Returns True on success."""
+        if not text:
+            return True
+
+        # macOS
+        if platform.system() == "Darwin" and shutil.which("pbcopy"):
+            subprocess.run(["pbcopy"], input=text, text=True, check=False)
+            return True
+
+        # Linux — try xclip, then xsel
+        if shutil.which("xclip"):
+            subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, check=False)
+            return True
+        if shutil.which("xsel"):
+            subprocess.run(["xsel", "--clipboard", "--input"], input=text, text=True, check=False)
+            return True
+
+        return False
 
     def action_toggle_scroll(self) -> None:
         """Toggle auto-scroll behavior."""

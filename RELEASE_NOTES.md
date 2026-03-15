@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.4.20 (15.03.2026)
+
+### Added
+- **Clipboard copy** for TUI mode: Copy log output directly to system clipboard for AI/debugging transfer
+  - `c` — Copy all currently visible (filtered) log lines
+  - `e` — Copy only ERROR/CRITICAL lines
+  - `w` — Copy WARNING + ERROR + CRITICAL lines
+  - Cross-platform support: macOS (`pbcopy`), Linux (`xclip`, `xsel`)
+- 5 new tests for clipboard and text extraction functions
+
 ## Version 0.4.19 (15.03.2026)
 
 ### Added

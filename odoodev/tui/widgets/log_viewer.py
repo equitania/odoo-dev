@@ -127,3 +127,15 @@ class LogViewer(Widget):
     def visible_count(self) -> int:
         """Number of entries passing the current filter."""
         return sum(1 for e in self._buffer if self._should_show(e))
+
+    def get_visible_text(self) -> str:
+        """Return all currently visible log lines as plain text."""
+        return "\n".join(e.raw for e in self._buffer if self._should_show(e))
+
+    def get_errors_text(self) -> str:
+        """Return only ERROR and CRITICAL log lines as plain text."""
+        return "\n".join(e.raw for e in self._buffer if e.level in ("ERROR", "CRITICAL"))
+
+    def get_warnings_and_errors_text(self) -> str:
+        """Return WARNING, ERROR, and CRITICAL log lines as plain text."""
+        return "\n".join(e.raw for e in self._buffer if e.level in ("WARNING", "ERROR", "CRITICAL"))
