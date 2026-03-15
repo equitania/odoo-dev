@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.4.18 (15.03.2026)
+
+### Added
+- **TUI runtime foundation**: Process group isolation (`os.setsid`) and queue-based output reading for upcoming `--tui` mode
+  - `tui/log_parser.py`: Regex-based Odoo log line parser with `OdooLogEntry` frozen dataclass and level filtering (`level_ge()`)
+  - `tui/odoo_process.py`: `OdooProcess` class wrapping `subprocess.Popen` with process group management, daemon thread I/O, SIGTERM→SIGKILL escalation, and restart-with-extra-args support
+- `stop_process_group()` in `process_manager.py`: Terminate entire process groups via `os.killpg()` for reliable Ctrl+C behavior
+- 44 new tests: log parser (27), OdooProcess lifecycle/output/restart/SIGKILL (14), process group termination (3)
+
 ## Version 0.4.17 (14.03.2026)
 
 ### Security

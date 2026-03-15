@@ -90,6 +90,45 @@ def stop_process(pid: int, timeout: int = 5, force: bool = False) -> bool:
         return False
 
 
+def stop_process_group(pgid: int, timeout: int = 5, force: bool = False) -> bool:
+    """Stop an entire process group: SIGTERM → wait → SIGKILL.
+
+    Uses os.killpg() to signal all processes in the group, ensuring
+    child processes (Odoo workers, cron) are also terminated.
+
+    Args:
+        pgid: Process group ID to stop.
+        timeout: Seconds to wait after SIGTERM before sending SIGKILL.
+        force: If True, send SIGKILL immediately without SIGTERM.
+
+    Returns:
+        True if the process group was stopped, False on error.
+    """
+    try:
+        if force:
+            os.killpg(pgid, signal.SIGKILL)
+        else:
+            os.killpg(pgid, signal.SIGTERM)
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    os.killpg(pgid, 0)  # Check if group still exists
+                except ProcessLookupError:
+                    return True
+                time.sleep(0.2)
+            # Escalate to SIGKILL
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+                time.sleep(0.5)
+            except ProcessLookupError:
+                return True
+        return True
+    except ProcessLookupError:
+        return True  # Already gone
+    except PermissionError:
+        return False
+
+
 def is_odoo_running(port: int) -> bool:
     """Check if an Odoo process is running on the given port.
 
