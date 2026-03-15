@@ -229,6 +229,7 @@ def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env
 @click.option("--test", "mode", flag_value="test", help="Run tests (--test-enable --stop-after-init)")
 @click.option("--prepare", is_flag=True, help="Open interactive shell with venv (don't start Odoo)")
 @click.option("--no-confirm", is_flag=True, help="Skip confirmation prompt")
+@click.option("--tui", is_flag=True, help="Start with Terminal UI (log viewer, filtering, module update)")
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -237,6 +238,7 @@ def start(
     mode: str | None,
     prepare: bool,
     no_confirm: bool,
+    tui: bool,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -379,6 +381,35 @@ def start(
 
     if prepare:
         _start_interactive_shell(odoo_dir, venv_dir, config_path, env)
+        return
+
+    # TUI mode — available for normal and dev modes only
+    if tui:
+        if mode not in ("normal", "dev"):
+            print_error("--tui is only available for normal and dev modes")
+            raise SystemExit(1)
+
+        python = get_venv_python(venv_dir)
+        odoo_bin = os.path.join(odoo_dir, "odoo-bin")
+        tui_cmd = [python, odoo_bin, "-c", config_path]
+        if mode == "dev":
+            tui_cmd.append("--dev=all")
+        tui_cmd.extend(extra_args)
+
+        odoo_port = int(env_vars.get("ODOO_PORT", str(version_cfg.ports.odoo)))
+        tui_db_name = _get_config_value(config_path, "db_name") or f"v{version}_exam"
+
+        from odoodev.tui.app import OdooTuiApp
+
+        app = OdooTuiApp(
+            cmd=tui_cmd,
+            env=env,
+            cwd=odoo_dir,
+            version_info=version,
+            odoo_port=odoo_port,
+            db_name=tui_db_name,
+        )
+        app.run()
         return
 
     if no_confirm:
