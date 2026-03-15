@@ -3,11 +3,22 @@
 ## Version 0.4.18 (15.03.2026)
 
 ### Added
-- **TUI runtime foundation**: Process group isolation (`os.setsid`) and queue-based output reading for upcoming `--tui` mode
-  - `tui/log_parser.py`: Regex-based Odoo log line parser with `OdooLogEntry` frozen dataclass and level filtering (`level_ge()`)
-  - `tui/odoo_process.py`: `OdooProcess` class wrapping `subprocess.Popen` with process group management, daemon thread I/O, SIGTERM→SIGKILL escalation, and restart-with-extra-args support
-- `stop_process_group()` in `process_manager.py`: Terminate entire process groups via `os.killpg()` for reliable Ctrl+C behavior
-- 44 new tests: log parser (27), OdooProcess lifecycle/output/restart/SIGKILL (14), process group termination (3)
+- **TUI runtime mode** (`odoodev start --tui`): Terminal UI for Odoo server management based on Textual
+  - **Log Viewer**: Scrollable log output with level filtering (DEBUG/INFO/WARNING/ERROR/CRITICAL), search highlighting, and auto-scroll toggle
+  - **Status Bar**: Real-time server state (Running/Stopped/Starting), version, port, database, uptime
+  - **Module Update Dialog**: Update modules via restart with `-u` flag or XML-RPC hot upgrade without restart
+  - **Keyboard Shortcuts**: `q` Quit, `r` Restart, `u` Update Module, `f` Filter Level, `/` Search, `Ctrl+L` Clear, `Space` Auto-scroll
+  - **Process Group Isolation**: `os.setsid()` isolates Odoo in its own process group — Ctrl+C reliably terminates the entire process tree via `os.killpg(SIGTERM)` with SIGKILL escalation
+  - `tui/log_parser.py`: Regex-based Odoo log line parser with `OdooLogEntry` frozen dataclass
+  - `tui/odoo_process.py`: `OdooProcess` class with queue-based I/O, daemon threads, restart-with-extra-args
+  - `tui/xmlrpc_client.py`: XML-RPC client for hot module upgrades via `ir.module.module.button_immediate_upgrade`
+  - `tui/app.py`: Textual App with CSS layout, filter bar, and modal screens
+  - `tui/widgets/log_viewer.py`: RichLog wrapper with 10,000-entry buffer and level/search filtering
+  - `tui/widgets/status_bar.py`: Reactive status display with uptime formatting
+- `stop_process_group()` in `process_manager.py`: Terminate entire process groups via `os.killpg()`
+- `textual>=1.0.0` added as dependency
+- `pytest-asyncio` and `textual-dev` added to dev dependencies
+- 72 new tests: log parser (27), OdooProcess (14), process group (3), TUI app integration (18), XML-RPC client (10)
 
 ## Version 0.4.17 (14.03.2026)
 

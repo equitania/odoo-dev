@@ -121,7 +121,6 @@ class TestFilterLevels:
 class TestOdooTuiAppIntegration:
     """Integration tests using Textual's async test runner."""
 
-    @pytest.mark.asyncio
     async def test_app_starts_and_has_widgets(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as _pilot:
@@ -130,7 +129,6 @@ class TestOdooTuiAppIntegration:
             assert app.query_one("#filter-bar", Static) is not None
             assert app.query_one("#log-viewer", LogViewer) is not None
 
-    @pytest.mark.asyncio
     async def test_app_receives_log_output(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -139,7 +137,6 @@ class TestOdooTuiAppIntegration:
             log_viewer = app.query_one("#log-viewer", LogViewer)
             assert log_viewer.entry_count > 0
 
-    @pytest.mark.asyncio
     async def test_cycle_filter(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -152,7 +149,6 @@ class TestOdooTuiAppIntegration:
             await pilot.press("f")
             assert log_viewer.min_level == "WARNING"
 
-    @pytest.mark.asyncio
     async def test_toggle_auto_scroll(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -165,7 +161,6 @@ class TestOdooTuiAppIntegration:
             await pilot.press("space")
             assert log_viewer.auto_scroll is True
 
-    @pytest.mark.asyncio
     async def test_clear_log(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -175,7 +170,6 @@ class TestOdooTuiAppIntegration:
             log_viewer = app.query_one("#log-viewer", LogViewer)
             assert log_viewer.entry_count > 0  # Buffer still has entries
 
-    @pytest.mark.asyncio
     async def test_quit_stops_process(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -185,7 +179,6 @@ class TestOdooTuiAppIntegration:
         # After exit, process should be stopped
         assert app._odoo.is_running is False
 
-    @pytest.mark.asyncio
     async def test_status_bar_updates(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:

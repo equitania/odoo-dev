@@ -46,6 +46,7 @@ dev = [
     "types-click>=7.1.0",
     "build>=1.0.0",
     "textual-dev>=1.0.0",
+    "pytest-asyncio>=1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -81,3 +82,4 @@ quote-style = "double"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short --cov=odoodev --cov-report=term-missing --cov-fail-under=45"
+asyncio_mode = "auto"
