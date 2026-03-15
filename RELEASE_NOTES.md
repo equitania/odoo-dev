@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.4.18 (15.03.2026)
+## Version 0.4.19 (15.03.2026)
 
 ### Added
 - **TUI runtime mode** (`odoodev start --tui`): Terminal UI for Odoo server management based on Textual
