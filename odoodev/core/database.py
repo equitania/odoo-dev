@@ -221,6 +221,13 @@ def extract_backup(backup_file: str, extract_path: str) -> bool:
         # ZIP files
         if ext == ".zip" or zipfile.is_zipfile(backup_file):
             with zipfile.ZipFile(backup_file, "r") as zf:
+                # Validate all members before extraction to prevent path traversal (CWE-22)
+                safe_base = os.path.normpath(os.path.abspath(extract_path))
+                for member in zf.namelist():
+                    member_path = os.path.normpath(os.path.abspath(os.path.join(extract_path, member)))
+                    if not member_path.startswith(safe_base + os.sep) and member_path != safe_base:
+                        msg = f"Zip path traversal detected: {member}"
+                        raise ValueError(msg)
                 zf.extractall(extract_path)
             return True
 
@@ -253,6 +260,8 @@ def extract_backup(backup_file: str, extract_path: str) -> bool:
         logger.error("Unsupported backup format: %s", ext)
         return False
 
+    except ValueError:
+        raise  # Re-raise path traversal errors — must not be silenced
     except Exception as e:
         logger.error("Extraction failed: %s", e)
         return False

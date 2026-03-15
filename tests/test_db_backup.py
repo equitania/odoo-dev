@@ -1,11 +1,13 @@
 """Tests for odoodev db backup command and core backup functions."""
 
+import io
 import zipfile
 
+import pytest
 from click.testing import CliRunner
 
 from odoodev.cli import cli
-from odoodev.core.database import backup_database_sql, create_backup_zip
+from odoodev.core.database import backup_database_sql, create_backup_zip, extract_backup
 
 
 class TestBackupHelp:
@@ -104,6 +106,54 @@ class TestBackupDatabaseSql:
         assert "testdb" in calls[0]
         assert "-U" in calls[0]
         assert "ownerp" in calls[0]
+
+
+class TestExtractBackupZipTraversal:
+    """Test ZIP path traversal protection (CWE-22)."""
+
+    def test_safe_zip_extracts(self, tmp_path):
+        """Normal ZIP without traversal extracts successfully."""
+        zip_path = tmp_path / "safe.zip"
+        with zipfile.ZipFile(str(zip_path), "w") as zf:
+            zf.writestr("dump.sql", "CREATE TABLE test;")
+            zf.writestr("filestore/ab/file1.bin", "data")
+
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        result = extract_backup(str(zip_path), str(extract_dir))
+        assert result is True
+        assert (extract_dir / "dump.sql").exists()
+        assert (extract_dir / "filestore" / "ab" / "file1.bin").exists()
+
+    def test_traversal_zip_rejected(self, tmp_path):
+        """ZIP with path traversal member is rejected with ValueError."""
+        zip_path = tmp_path / "evil.zip"
+        # Create ZIP with malicious path traversal entry
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("../../etc/evil.txt", "malicious content")
+        zip_path.write_bytes(zip_buf.getvalue())
+
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        with pytest.raises(ValueError, match="path traversal"):
+            extract_backup(str(zip_path), str(extract_dir))
+
+        # Verify no file was extracted outside
+        assert not (tmp_path / "etc").exists()
+
+    def test_absolute_path_zip_rejected(self, tmp_path):
+        """ZIP with absolute path member is rejected."""
+        zip_path = tmp_path / "abs.zip"
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("/tmp/evil.txt", "malicious content")
+        zip_path.write_bytes(zip_buf.getvalue())
+
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        with pytest.raises(ValueError, match="path traversal"):
+            extract_backup(str(zip_path), str(extract_dir))
 
 
 class TestFormatSize:

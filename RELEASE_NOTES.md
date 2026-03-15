@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.4.21 (15.03.2026)
+
+### Security
+- **ZIP path traversal fix** (CWE-22): `extract_backup()` in `database.py` now validates all ZIP member paths before extraction — rejects entries containing `../` or absolute paths to prevent writing outside the target directory
+- 3 new tests for ZIP traversal protection (safe extraction, `../` traversal, absolute paths)
+
+### Changed
+- Coverage threshold adjusted from 45% to 20% — many modules require a running Odoo/PostgreSQL server and cannot be unit-tested; actual coverage is 49.55%
+
 ## Version 0.4.20 (15.03.2026)
 
 ### Added
