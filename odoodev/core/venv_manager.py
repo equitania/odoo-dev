@@ -181,6 +181,35 @@ def _version_tuple(version: str) -> tuple[int, ...]:
     return tuple(int(x) for x in version.split("."))
 
 
+def ensure_setuptools(venv_dir: str) -> bool:
+    """Ensure setuptools is installed in the venv.
+
+    Odoo 16/17 require pkg_resources (from setuptools) which is no
+    longer bundled with Python 3.12+. This installs it if missing.
+
+    Returns:
+        True if setuptools is available (already present or installed).
+    """
+    python = os.path.join(venv_dir, "bin", "python3")
+    result = subprocess.run(
+        [python, "-c", "import pkg_resources"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return True
+
+    # Install setuptools
+    env = {**os.environ, "VIRTUAL_ENV": venv_dir}
+    result = subprocess.run(
+        ["uv", "pip", "install", "setuptools"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
 def get_venv_python(venv_dir: str) -> str:
     """Get path to Python binary in venv."""
     return os.path.join(venv_dir, "bin", "python3")

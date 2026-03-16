@@ -335,15 +335,10 @@ def start(
     except (ValueError, TypeError):
         ver_int = 0
     if ver_int in (16, 17):
-        python = get_venv_python(venv_dir)
-        result = subprocess.run(
-            [python, "-c", "import pkg_resources"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            print_error("Odoo v16/v17 requires 'setuptools' (pkg_resources) which is missing")
-            print_info(f"Fix: source {venv_dir}/bin/activate && uv pip install setuptools")
+        from odoodev.core.venv_manager import ensure_setuptools
+
+        if not ensure_setuptools(venv_dir):
+            print_error("Failed to install setuptools (required for Odoo v16/v17)")
             raise SystemExit(1)
 
     if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):

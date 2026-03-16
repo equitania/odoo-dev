@@ -75,6 +75,20 @@ def venv_setup(ctx: click.Context, version: str | None, force: bool, python_ver:
         print_error("Failed to create virtual environment")
         raise SystemExit(1)
 
+    # Odoo 16/17 need setuptools (pkg_resources) — not bundled in Python 3.12+
+    try:
+        ver_int = int(version)
+    except (ValueError, TypeError):
+        ver_int = 0
+    if ver_int in (16, 17):
+        from odoodev.core.venv_manager import ensure_setuptools
+
+        print_info("Installing setuptools (required for Odoo v16/v17)...")
+        if ensure_setuptools(venv_dir):
+            print_success("setuptools installed")
+        else:
+            print_warning("Failed to install setuptools — pkg_resources may be missing")
+
     # Install requirements if available
     if os.path.exists(requirements):
         print_info(f"Installing requirements from {requirements}...")
