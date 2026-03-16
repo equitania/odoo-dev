@@ -216,6 +216,70 @@ class TestOdooTuiAppIntegration:
             assert "Loading module base" not in text
 
 
+class TestTracebackCollection:
+    """Test that error/warning copy includes traceback continuation lines."""
+
+    def test_errors_include_traceback(self):
+        from odoodev.tui.log_parser import parse_line
+
+        viewer = LogViewer()
+        # Simulate buffer directly
+        lines = [
+            "2025-03-15 10:00:00,000 999 INFO db odoo.modules: Starting",
+            "2025-03-15 10:00:01,000 999 ERROR db odoo.http: Exception during request handling.",
+            "Traceback (most recent call last):",
+            '  File "/server/odoo/http.py", line 2825, in __call__',
+            "    response = request._serve_db()",
+            "TypeError: cannot unpack non-iterable NoneType object",
+            "2025-03-15 10:00:02,000 999 INFO db odoo.modules: Loaded",
+        ]
+        for line in lines:
+            viewer._buffer.append(parse_line(line))
+
+        errors = viewer.get_errors_text()
+        assert "Exception during request handling" in errors
+        assert "Traceback (most recent call last):" in errors
+        assert "TypeError: cannot unpack" in errors
+        assert "Starting" not in errors
+        assert "Loaded" not in errors
+
+    def test_warnings_include_traceback(self):
+        from odoodev.tui.log_parser import parse_line
+
+        viewer = LogViewer()
+        lines = [
+            "2025-03-15 10:00:00,000 999 WARNING db odoo.models: Deprecated field usage",
+            "  some continuation detail",
+            "2025-03-15 10:00:01,000 999 INFO db odoo.modules: Done",
+        ]
+        for line in lines:
+            viewer._buffer.append(parse_line(line))
+
+        text = viewer.get_warnings_and_errors_text()
+        assert "Deprecated field usage" in text
+        assert "some continuation detail" in text
+        assert "Done" not in text
+
+    def test_no_traceback_between_separate_errors(self):
+        from odoodev.tui.log_parser import parse_line
+
+        viewer = LogViewer()
+        lines = [
+            "2025-03-15 10:00:00,000 999 ERROR db odoo.http: First error",
+            "2025-03-15 10:00:01,000 999 INFO db odoo.modules: Info between",
+            "2025-03-15 10:00:02,000 999 ERROR db odoo.http: Second error",
+            "Traceback for second error",
+        ]
+        for line in lines:
+            viewer._buffer.append(parse_line(line))
+
+        errors = viewer.get_errors_text()
+        assert "First error" in errors
+        assert "Info between" not in errors
+        assert "Second error" in errors
+        assert "Traceback for second error" in errors
+
+
 class TestClipboard:
     """Test clipboard copy functionality."""
 

@@ -132,10 +132,34 @@ class LogViewer(Widget):
         """Return all currently visible log lines as plain text."""
         return "\n".join(e.raw for e in self._buffer if self._should_show(e))
 
+    def _collect_with_tracebacks(self, trigger_levels: set[str]) -> str:
+        """Collect log lines at trigger levels including their traceback continuation.
+
+        RAW lines (tracebacks, stack traces) following a triggered log entry
+        are included until the next structured log line appears.
+
+        Args:
+            trigger_levels: Set of log levels that start a collection block.
+
+        Returns:
+            Collected lines as plain text.
+        """
+        lines: list[str] = []
+        collecting = False
+        for entry in self._buffer:
+            if entry.level in trigger_levels:
+                collecting = True
+                lines.append(entry.raw)
+            elif entry.level == "RAW" and collecting:
+                lines.append(entry.raw)
+            else:
+                collecting = False
+        return "\n".join(lines)
+
     def get_errors_text(self) -> str:
-        """Return only ERROR and CRITICAL log lines as plain text."""
-        return "\n".join(e.raw for e in self._buffer if e.level in ("ERROR", "CRITICAL"))
+        """Return ERROR/CRITICAL log lines with their tracebacks."""
+        return self._collect_with_tracebacks({"ERROR", "CRITICAL"})
 
     def get_warnings_and_errors_text(self) -> str:
-        """Return WARNING, ERROR, and CRITICAL log lines as plain text."""
-        return "\n".join(e.raw for e in self._buffer if e.level in ("WARNING", "ERROR", "CRITICAL"))
+        """Return WARNING/ERROR/CRITICAL log lines with their tracebacks."""
+        return self._collect_with_tracebacks({"WARNING", "ERROR", "CRITICAL"})
