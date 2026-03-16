@@ -1,15 +1,12 @@
-"""Tests for restore temp directory selection with space check."""
+"""Tests for restore temp directory selection."""
 
 import os
+import platform
 import shutil
-import tempfile
-from collections import namedtuple
 
 import pytest
 
 from odoodev.core.database import cleanup_restore_temp, format_size, get_restore_temp_dir
-
-DiskUsage = namedtuple("DiskUsage", ["total", "used", "free"])
 
 
 @pytest.fixture
@@ -28,28 +25,29 @@ def fake_home(tmp_path, monkeypatch):
 
 
 class TestGetRestoreTempDir:
-    """Test get_restore_temp_dir space checking."""
+    """Test get_restore_temp_dir platform-based selection."""
 
-    def test_uses_system_tmp_when_enough_space(self, small_backup):
-        """Small backup should use system temp."""
+    def test_creates_unique_directories(self, small_backup):
+        """Each call should create a unique temp directory."""
+        dir1 = get_restore_temp_dir(small_backup)
+        dir2 = get_restore_temp_dir(small_backup)
+        assert dir1 != dir2
+        assert os.path.isdir(dir1)
+        assert os.path.isdir(dir2)
+        shutil.rmtree(dir1, ignore_errors=True)
+        shutil.rmtree(dir2, ignore_errors=True)
+
+    def test_macos_uses_system_tmp(self, small_backup, monkeypatch):
+        """On macOS, should use system temp directory."""
+        monkeypatch.setattr(platform, "system", lambda: "Darwin")
         result = get_restore_temp_dir(small_backup)
         assert os.path.isdir(result)
         assert "odoodev_restore_" in result
         shutil.rmtree(result, ignore_errors=True)
 
-    def test_falls_back_to_home_when_tmp_full(self, small_backup, fake_home, monkeypatch):
-        """When system tmp reports no space, fall back to $HOME/odoodev-tmp."""
-        real_disk_usage = shutil.disk_usage
-        system_tmp = tempfile.gettempdir()
-
-        def mock_disk_usage(path):
-            if os.path.normpath(path) == os.path.normpath(system_tmp):
-                usage = real_disk_usage(path)
-                return DiskUsage(usage.total, usage.used, 0)
-            return real_disk_usage(path)
-
-        monkeypatch.setattr(shutil, "disk_usage", mock_disk_usage)
-
+    def test_linux_uses_home_tmp(self, small_backup, fake_home, monkeypatch):
+        """On Linux, should always use $HOME/odoodev-tmp."""
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
         result = get_restore_temp_dir(small_backup)
         assert os.path.isdir(result)
         assert "odoodev_restore_" in result
@@ -57,13 +55,14 @@ class TestGetRestoreTempDir:
         assert result.startswith(home_tmp)
         shutil.rmtree(result, ignore_errors=True)
 
-    def test_result_is_unique_directory(self, small_backup):
-        """Each call should create a unique temp directory."""
-        dir1 = get_restore_temp_dir(small_backup)
-        dir2 = get_restore_temp_dir(small_backup)
-        assert dir1 != dir2
-        shutil.rmtree(dir1, ignore_errors=True)
-        shutil.rmtree(dir2, ignore_errors=True)
+    def test_linux_creates_home_tmp_parent(self, small_backup, fake_home, monkeypatch):
+        """On Linux, should create $HOME/odoodev-tmp if it doesn't exist."""
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        home_tmp = fake_home / "odoodev-tmp"
+        assert not home_tmp.exists()
+        result = get_restore_temp_dir(small_backup)
+        assert home_tmp.exists()
+        shutil.rmtree(result, ignore_errors=True)
 
 
 class TestCleanupRestoreTemp:
