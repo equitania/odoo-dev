@@ -328,6 +328,24 @@ def start(
         print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
         print_info(f"Run: odoodev venv setup {version} --force")
 
+    # Odoo 16/17 require pkg_resources (from setuptools) which is
+    # no longer bundled with Python 3.12+
+    try:
+        ver_int = int(version)
+    except (ValueError, TypeError):
+        ver_int = 0
+    if ver_int in (16, 17):
+        python = get_venv_python(venv_dir)
+        result = subprocess.run(
+            [python, "-c", "import pkg_resources"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print_error("Odoo v16/v17 requires 'setuptools' (pkg_resources) which is missing")
+            print_info(f"Fix: source {venv_dir}/bin/activate && uv pip install setuptools")
+            raise SystemExit(1)
+
     if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):
         print_warning(f"Odoo not found at {odoo_dir}/odoo-bin")
         if confirm(f"Clone repositories for v{version} now?"):
