@@ -169,6 +169,21 @@ def init(
                 force=False,
             )
 
+    # Step 5.5: Ensure setuptools for Odoo v16/v17 (pkg_resources removed in Python 3.12+)
+    if os.path.isdir(venv_dir):
+        try:
+            ver_int = int(version)
+        except (ValueError, TypeError):
+            ver_int = 0
+        if ver_int in (16, 17):
+            from odoodev.core.venv_manager import ensure_setuptools
+
+            print_info("Ensuring setuptools (required for Odoo v16/v17)...")
+            if ensure_setuptools(venv_dir):
+                print_success("setuptools available")
+            else:
+                print_warning("Failed to install setuptools — run manually: uv pip install --reinstall setuptools")
+
     # Step 6: Clone repositories
     if not skip_repos:
         if non_interactive or confirm("Clone/update repositories?"):

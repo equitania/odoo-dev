@@ -199,10 +199,11 @@ def ensure_setuptools(venv_dir: str) -> bool:
     if result.returncode == 0:
         return True
 
-    # Install setuptools — show output so user sees what happens
+    # Install setuptools — force reinstall because UV may report it as
+    # already installed while pkg_resources is physically missing
     env = {**os.environ, "VIRTUAL_ENV": venv_dir}
     result = subprocess.run(
-        ["uv", "pip", "install", "setuptools"],
+        ["uv", "pip", "install", "--reinstall", "setuptools"],
         env=env,
     )
     if result.returncode != 0:
