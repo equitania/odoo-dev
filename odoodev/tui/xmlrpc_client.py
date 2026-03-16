@@ -44,6 +44,14 @@ class OdooXmlRpcClient:
 
         self._base_url = f"http://{host}:{port}"
 
+        # Warn when transmitting credentials over plaintext to non-local hosts
+        if host not in ("localhost", "127.0.0.1", "::1"):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "XML-RPC connection to %s uses plaintext HTTP — credentials are not encrypted", host
+            )
+
     def _get_proxy(self, service: str) -> xmlrpc.client.ServerProxy:
         """Create an XML-RPC proxy for the given service."""
         return xmlrpc.client.ServerProxy(
@@ -74,8 +82,8 @@ class OdooXmlRpcClient:
                 msg = f"Authentication failed for {self._username}@{self._database}"
                 raise ValueError(msg)
 
-            self._uid = uid
-            return uid
+            self._uid = int(uid)
+            return self._uid
         except (ConnectionRefusedError, OSError, TimeoutError) as e:
             msg = f"Cannot connect to Odoo at {self._base_url}: {e}"
             raise ConnectionError(msg) from e

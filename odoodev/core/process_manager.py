@@ -37,6 +37,9 @@ def find_odoo_process(port: int) -> list[int]:
         # lsof not available
         return []
     except Exception:
+        import logging
+
+        logging.getLogger(__name__).debug("Unexpected error in find_odoo_process", exc_info=True)
         return []
 
 

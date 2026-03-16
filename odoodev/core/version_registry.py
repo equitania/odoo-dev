@@ -204,10 +204,7 @@ def load_versions(override_path: Path | None = None) -> dict[str, VersionConfig]
                 ver_str = str(ver)
                 if "paths" in cfg:
                     overridden_versions.add(ver_str)
-                if ver_str in versions:
-                    versions[ver_str] = _parse_version(ver_str, cfg)
-                else:
-                    versions[ver_str] = _parse_version(ver_str, cfg)
+                versions[ver_str] = _parse_version(ver_str, cfg)
 
     # Apply global base_dir from config.yaml (respects overrides)
     versions = _apply_global_base_dir(versions, overridden_versions)

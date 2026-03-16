@@ -108,4 +108,7 @@ class ModuleUpdateScreen(ModalScreen[str | None]):
                 self._restart_with_update(modules)
         except Exception:
             # XML-RPC failed — fallback to restart
+            import logging
+
+            logging.getLogger(__name__).debug("XML-RPC update failed, falling back to restart", exc_info=True)
             self._restart_with_update(modules)

@@ -34,6 +34,35 @@ class TestOdooXmlRpcClientInit:
         assert client._base_url == "http://localhost:18069"
 
 
+class TestNonLocalhostWarning:
+    """Test plaintext HTTP warning for non-local hosts."""
+
+    def test_no_warning_for_localhost(self, caplog):
+        """No warning emitted for localhost connections."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
+            OdooXmlRpcClient(host="localhost", port=8069, database="test")
+        assert "plaintext HTTP" not in caplog.text
+
+    def test_no_warning_for_127(self, caplog):
+        """No warning emitted for 127.0.0.1."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
+            OdooXmlRpcClient(host="127.0.0.1", port=8069, database="test")
+        assert "plaintext HTTP" not in caplog.text
+
+    def test_warning_for_remote_host(self, caplog):
+        """Warning emitted for non-local hosts."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
+            OdooXmlRpcClient(host="remote-server.example.com", port=8069, database="test")
+        assert "plaintext HTTP" in caplog.text
+        assert "remote-server.example.com" in caplog.text
+
+
 class TestAuthenticate:
     """Test authentication."""
 

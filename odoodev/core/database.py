@@ -28,7 +28,7 @@ def _get_default_credentials() -> tuple[str, str]:
 
         cfg = load_global_config()
         return cfg.database.user, cfg.database.password
-    except Exception:
+    except (ImportError, AttributeError, KeyError, OSError):
         return DEFAULT_DB_USER, DEFAULT_DB_PASSWORD
 
 

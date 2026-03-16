@@ -1,5 +1,55 @@
 # Release Notes
 
+## Version 0.4.31 (16.03.2026)
+
+### Changed
+- **start.py refactored**: Extracted 241-line `start()` command into 6 focused helper functions (`_check_env_file`, `_check_venv`, `_check_odoo_source`, `_check_odoo_config`, `_check_services`, `_launch_tui`) — `start()` itself is now ~70 lines of orchestration
+- **Atomic .pgpass write**: `_write_pgpass()` now uses temp-file + `os.rename()` instead of `O_TRUNC` — prevents data loss on crash mid-write
+- **Password validation for .pgpass**: Rejects passwords containing `:` or newline characters that would corrupt the pgpass format
+- **XML-RPC non-localhost warning**: `OdooXmlRpcClient` logs a warning when connecting to non-local hosts over plaintext HTTP
+- **Narrowed exception handling**: `_get_default_credentials()` in `database.py` now catches `(ImportError, AttributeError, KeyError, OSError)` instead of bare `Exception`
+- **Dead code removed**: Identical if/else branches in `version_registry.py` load_versions() simplified to single assignment
+- **Debug logging added**: Silent `except Exception` blocks in `screens.py`, `process_manager.py` now log to `logger.debug()` with traceback
+
+### Fixed
+- **Type safety**: `xmlrpc_client.py` `_uid` now uses explicit `int()` cast for XML-RPC authenticate return value
+
+### Added
+- **28 new tests for start.py**: `_find_odoo_config`, `_get_config_value`, `_load_env_file`, `_write_pgpass` (atomic write, permissions, colon/newline rejection), `_add_v19_log_handlers`
+- **28 new tests for database.py**: `extract_backup` (ZIP, SQL, path traversal protection), `detect_backup_type`, `copy_filestore`, `format_size`, `get_filestore_path`, `get_restore_temp_dir`, `cleanup_restore_temp`
+- **3 new tests for xmlrpc_client.py**: Non-localhost HTTP warning (localhost, 127.0.0.1, remote host)
+- Test coverage increased from 21% to 52% (451 total tests)
+
+## Version 0.4.30 (16.03.2026)
+
+### Added
+- **Port conflict detection**: `odoodev start` detects when the Odoo port is already in use, identifies the blocking process via `lsof`, and offers to kill it
+
+## Version 0.4.29 (16.03.2026)
+
+### Fixed
+- **Werkzeug pinned** for v16/v17 compatibility in templates
+
+## Version 0.4.28 (16.03.2026)
+
+### Changed
+- **Restore temp dir**: Linux always uses `$HOME/odoodev-tmp`, macOS uses system tmp
+
+## Version 0.4.27 (16.03.2026)
+
+### Fixed
+- **TUI error copy**: Now includes full tracebacks in clipboard output
+
+## Version 0.4.26 (16.03.2026)
+
+### Fixed
+- **setuptools pinned to <82**: Version 82+ removed `pkg_resources`
+
+## Version 0.4.25 (16.03.2026)
+
+### Fixed
+- **setuptools**: Install during init, use `--reinstall` for UV
+
 ## Version 0.4.24 (16.03.2026)
 
 ### Added
