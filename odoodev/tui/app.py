@@ -202,9 +202,9 @@ class OdooTuiApp(App):
         self._update_filter_bar()
 
     def action_clear_log(self) -> None:
-        """Clear the log display."""
+        """Clear the log display and buffer."""
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        log_viewer.clear_log()
+        log_viewer.clear_all()
 
     def action_copy_visible(self) -> None:
         """Copy all currently visible (filtered) log lines to clipboard."""

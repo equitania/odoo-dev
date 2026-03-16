@@ -161,14 +161,38 @@ class TestOdooTuiAppIntegration:
             await pilot.press("space")
             assert log_viewer.auto_scroll is True
 
-    async def test_clear_log(self, mock_cmd, tmp_path):
+    async def test_clear_log_clears_buffer(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause(0.5)
-            await pilot.press("ctrl+l")
-            # Buffer preserved, display cleared
             log_viewer = app.query_one("#log-viewer", LogViewer)
-            assert log_viewer.entry_count > 0  # Buffer still has entries
+            assert log_viewer.entry_count > 0  # Has entries before clear
+            await pilot.press("ctrl+l")
+            assert log_viewer.entry_count == 0  # Buffer cleared
+
+    async def test_clear_log_empties_clipboard_copy(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(1.0)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.get_errors_text() != ""  # Has errors before clear
+            await pilot.press("ctrl+l")
+            assert log_viewer.get_errors_text() == ""  # Empty after clear
+            assert log_viewer.get_visible_text() == ""
+
+    async def test_clear_log_prevents_filter_restore(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.5)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.entry_count > 0
+            await pilot.press("ctrl+l")
+            assert log_viewer.entry_count == 0
+            # Cycling filter should NOT bring back cleared entries
+            await pilot.press("f")  # INFO
+            assert log_viewer.entry_count == 0
+            await pilot.press("f")  # WARNING
+            assert log_viewer.entry_count == 0
 
     async def test_quit_stops_process(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
