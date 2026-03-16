@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.4.24 (16.03.2026)
+
+### Added
+- **Odoo 19 RPC deprecation warning mute**: Automatically adds `--log-handler=odoo.addons.rpc.controllers.jsonrpc:ERROR` for Odoo v19+ to suppress deprecated XML-RPC/JSON-RPC endpoint warnings (migration to `/json/2/` API planned for odoorpc-toolbox)
+- **Restore temp directory space check**: `db restore` now checks free space on `/tmp` before extraction — falls back to `$HOME/odoodev-tmp` when system temp has insufficient space; auto-cleanup removes fallback directory after restore
+- **Linux build dependency checks**: Added `python3-dev`, `build-essential`, `pkg-config` to system prerequisite checks — catches missing C compiler toolchain on fresh Debian/Ubuntu before `uv pip install` fails with cryptic errors
+- **Auto-install setuptools for Odoo v16/v17**: `ensure_setuptools()` detects and installs `setuptools` (providing `pkg_resources`) automatically — required on Python 3.12+ where it is no longer bundled
+- 18 new tests: v19 log handlers (7), restore temp dir + cleanup (11)
+
+### Changed
+- `format_size()` moved from `commands/db.py` to `core/database.py` to eliminate duplication
+- `venv setup` for v16/v17: installs setuptools right after venv creation
+- `start` for v16/v17: checks and auto-fixes missing setuptools before launching Odoo
+
 ## Version 0.4.21 (15.03.2026)
 
 ### Security
