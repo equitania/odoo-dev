@@ -5,7 +5,7 @@ asn1crypto==1.5.1
 Babel==2.16.0  # upgraded for sphinx 8.2.3 (requires >=2.13)
 cbor2==5.8.0
 chardet==5.2.0
-cryptography==46.0.5  # upgraded for pyopenssl 25.3.0 compatibility (requires >=45.0.7)
+cryptography==46.0.5  # pyopenssl 26.0.0 requires >=46.0.0
 decorator==5.1.1
 docutils==0.20.1
 freezegun==1.5.1
@@ -26,7 +26,7 @@ Pillow==11.1.0  # (Trixie)
 polib==1.1.1
 psutil==5.9.8
 psycopg2-binary==2.9.10  # (Trixie)
-pyopenssl==25.3.0  # upgraded from 24.1.0, requires cryptography>=45.0.7
+pyopenssl==26.0.0  # CVE-2026-27459: DTLS cookie buffer overflow fix, requires cryptography>=46.0.0
 pypdf==5.4.0  # (Trixie)
 pyserial==3.5
 python-dateutil==2.8.2

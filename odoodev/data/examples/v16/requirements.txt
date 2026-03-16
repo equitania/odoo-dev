@@ -2,7 +2,7 @@
 # psycopg2-binary used instead of psycopg2 for native development
 Babel==2.16.0
 chardet==4.0.0
-cryptography==44.0.0
+cryptography==46.0.0  # upgraded for pyopenssl 26.0.0 (CVE-2026-27459)
 decorator==4.4.2
 docutils==0.16
 ebaysdk==2.1.5
@@ -23,7 +23,7 @@ polib==1.1.0
 psutil==5.9.8
 psycopg2-binary==2.9.9
 pydot==1.4.2
-pyopenssl==24.3.0
+pyopenssl==26.0.0  # CVE-2026-27459: DTLS cookie buffer overflow fix
 PyPDF2==2.12.1 ; python_version < '3.13'
 pypdf==5.4.0 ; python_version >= '3.13'
 pyserial==3.5
