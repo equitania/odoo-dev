@@ -2,8 +2,8 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.4.15-blue.svg)]()
-[![Python](https://img.shields.io/badge/python-≥3.10-yellow.svg)]()
+[![Version](https://img.shields.io/badge/version-0.4.30-blue.svg)]()
+[![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
 ---
@@ -25,6 +25,9 @@
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
 - Odoo-Konfigurationsgenerierung mit Template-System
+- TUI-Modus mit Log-Viewer, Level-Filter und Traceback-Kopie
+- Port-Konflikterkennung mit automatischer Prozessbereinigung
+- Debian 13 / Python 3.12+ Kompatibilität (setuptools, Build-Dependencies)
 
 ### Schnellstart
 
@@ -120,10 +123,11 @@ odoodev/
 ├── output.py               # Rich-Konsolenausgabe
 ├── commands/               # Click-Commands (init, start, stop, repos, db, ...)
 ├── core/                   # Kernmodule (version_registry, database, git_ops, ...)
+├── tui/                   # TUI-Modus (Textual — Log-Viewer, Status, Module-Update)
 ├── templates/              # Jinja2-Templates (docker-compose, .env, odoo.conf)
 └── data/
     ├── versions.yaml       # Versionsregistry
-    └── examples/playbooks/ # Beispiel-Playbooks
+    └── examples/           # Beispiel-Playbooks und Requirements-Templates
 ```
 
 ### Obsolete Komponenten
@@ -145,7 +149,7 @@ odoodev ersetzt:
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (290+)
+pytest                                  # Tests (390+)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type-Check
 uv build                                # Paket bauen
@@ -179,6 +183,9 @@ uv build                                # Paket bauen
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
 - Odoo configuration generation with template system
+- TUI mode with log viewer, level filtering and traceback copy
+- Port conflict detection with automatic process cleanup
+- Debian 13 / Python 3.12+ compatibility (setuptools, build dependencies)
 
 ### Quick Start
 
@@ -274,10 +281,11 @@ odoodev/
 ├── output.py               # Rich console output
 ├── commands/               # Click commands (init, start, stop, repos, db, ...)
 ├── core/                   # Core modules (version_registry, database, git_ops, ...)
+├── tui/                   # TUI mode (Textual — log viewer, status, module update)
 ├── templates/              # Jinja2 templates (docker-compose, .env, odoo.conf)
 └── data/
     ├── versions.yaml       # Version registry
-    └── examples/playbooks/ # Example playbooks
+    └── examples/           # Example playbooks and requirements templates
 ```
 
 ### Obsolete Components
@@ -299,7 +307,7 @@ odoodev replaces:
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (290+)
+pytest                                  # Tests (390+)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type checking
 uv build                                # Build package
