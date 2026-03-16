@@ -19,7 +19,7 @@ from odoodev.core.venv_manager import (
     get_venv_python_version,
 )
 from odoodev.core.version_registry import get_version, load_versions
-from odoodev.output import confirm, print_error, print_header, print_info, print_table, print_warning
+from odoodev.output import confirm, print_error, print_header, print_info, print_success, print_table, print_warning
 
 
 def _find_odoo_config(myconfs_dir: str) -> str | None:
@@ -396,6 +396,24 @@ def start(
                 ["uv", "pip", "install", "-r", requirements],
                 env={**os.environ, "VIRTUAL_ENV": venv_dir},
             )
+
+    # Check if Odoo port is already in use
+    odoo_port = int(env_vars.get("ODOO_PORT", str(version_cfg.ports.odoo)))
+    if check_port("localhost", odoo_port):
+        from odoodev.core.process_manager import find_odoo_process, stop_process
+
+        pids = find_odoo_process(odoo_port)
+        if pids:
+            print_warning(f"Port {odoo_port} already in use by PID(s): {', '.join(str(p) for p in pids)}")
+            if not no_confirm and confirm("Kill blocking process(es) and continue?"):
+                for pid in pids:
+                    stop_process(pid, timeout=5)
+                print_success("Blocking process(es) terminated")
+            else:
+                raise SystemExit(1)
+        else:
+            print_warning(f"Port {odoo_port} is in use but process could not be identified")
+            raise SystemExit(1)
 
     # Show config info
     if not no_confirm and not prepare:
