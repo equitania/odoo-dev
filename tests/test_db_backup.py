@@ -158,9 +158,9 @@ class TestExtractBackupZipTraversal:
 
 class TestFormatSize:
     def test_format_sizes(self):
-        from odoodev.commands.db import _format_size
+        from odoodev.core.database import format_size
 
-        assert "B" in _format_size(500)
-        assert "KB" in _format_size(1500)
-        assert "MB" in _format_size(1500000)
-        assert "GB" in _format_size(1500000000)
+        assert "B" in format_size(500)
+        assert "KB" in format_size(1500)
+        assert "MB" in format_size(1500000)
+        assert "GB" in format_size(1500000000)

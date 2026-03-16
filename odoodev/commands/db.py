@@ -13,6 +13,7 @@ import questionary
 from odoodev.cli import resolve_version
 from odoodev.core.database import (
     backup_database_sql,
+    cleanup_restore_temp,
     copy_filestore,
     create_backup_zip,
     create_database,
@@ -22,7 +23,9 @@ from odoodev.core.database import (
     detect_backup_type,
     drop_database,
     extract_backup,
+    format_size,
     get_filestore_path,
+    get_restore_temp_dir,
     list_databases,
     restore_database,
 )
@@ -223,9 +226,9 @@ def db_restore(
             print_error(f"Failed to drop existing database '{name}'")
             raise SystemExit(1)
 
-    # Extract backup
-    extract_path = tempfile.mkdtemp(prefix="odoodev_restore_")
-    print_info("Extracting backup...")
+    # Extract backup — choose temp dir with enough space
+    extract_path = get_restore_temp_dir(backup_file)
+    print_info(f"Extracting backup to {extract_path}...")
     if not extract_backup(backup_file, extract_path):
         print_error("Backup extraction failed")
         raise SystemExit(1)
@@ -272,10 +275,7 @@ def db_restore(
 
     # Cleanup
     if not keep_temp:
-        try:
-            shutil.rmtree(extract_path)
-        except OSError:
-            print_warning(f"Could not remove temp files: {extract_path}")
+        cleanup_restore_temp(extract_path)
 
     print_success(f"Database '{name}' restore complete")
 
@@ -323,16 +323,6 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
         return select("Backup type:", choices=choices)
     except SystemExit:
         return None
-
-
-def _format_size(size_bytes: int) -> str:
-    """Format file size in human-readable format."""
-    size = float(size_bytes)
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
 
 
 @db.command("backup")
@@ -394,7 +384,7 @@ def db_backup(
             print_error("Backup failed")
             raise SystemExit(1)
 
-        size = _format_size(os.path.getsize(output_file))
+        size = format_size(os.path.getsize(output_file))
         print_success(f"Backup created: {output_file} ({size})")
 
     else:
@@ -421,7 +411,7 @@ def db_backup(
                 print_error("ZIP creation failed")
                 raise SystemExit(1)
 
-            size = _format_size(os.path.getsize(output_file))
+            size = format_size(os.path.getsize(output_file))
             print_success(f"Backup created: {output_file} ({size})")
 
         finally:

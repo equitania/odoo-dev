@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import zipfile
 
 logger = logging.getLogger(__name__)
@@ -462,3 +463,81 @@ def deactivate_cloud(
         if not ok:
             success = False
     return success
+
+
+def format_size(size_bytes: int) -> str:
+    """Format file size in human-readable format."""
+    size = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def get_restore_temp_dir(backup_file: str) -> str:
+    """Choose a temp directory with enough space for backup extraction.
+
+    Checks if the system temp directory has enough free space for the
+    backup file (estimated 3x compressed size). Falls back to
+    $HOME/odoodev-tmp if space is insufficient.
+
+    Args:
+        backup_file: Path to the backup file.
+
+    Returns:
+        Path to a newly created temp directory for extraction.
+    """
+    backup_size = os.path.getsize(backup_file)
+    # Estimate 3x compressed size for extraction headroom
+    required_space = backup_size * 3
+
+    system_tmp = tempfile.gettempdir()
+    tmp_usage = shutil.disk_usage(system_tmp)
+
+    if tmp_usage.free >= required_space:
+        return tempfile.mkdtemp(prefix="odoodev_restore_", dir=system_tmp)
+
+    # Fallback: $HOME/odoodev-tmp
+    home_tmp = os.path.join(os.path.expanduser("~"), "odoodev-tmp")
+    home_usage = shutil.disk_usage(os.path.expanduser("~"))
+
+    if home_usage.free < required_space:
+        logger.warning(
+            "Low disk space: backup needs ~%s, $HOME has %s free",
+            format_size(required_space),
+            format_size(home_usage.free),
+        )
+
+    os.makedirs(home_tmp, exist_ok=True)
+    logger.info(
+        "System temp (%s) has insufficient space (%s free, need ~%s) — using %s",
+        system_tmp,
+        format_size(tmp_usage.free),
+        format_size(required_space),
+        home_tmp,
+    )
+    return tempfile.mkdtemp(prefix="odoodev_restore_", dir=home_tmp)
+
+
+def cleanup_restore_temp(extract_path: str) -> None:
+    """Clean up restore temp directory and parent odoodev-tmp if empty.
+
+    Args:
+        extract_path: Path to the extraction directory to remove.
+    """
+    try:
+        shutil.rmtree(extract_path)
+    except OSError:
+        logger.warning("Could not remove temp files: %s", extract_path)
+        return
+
+    # Clean up $HOME/odoodev-tmp parent if it exists and is now empty
+    parent = os.path.dirname(extract_path)
+    home_tmp = os.path.join(os.path.expanduser("~"), "odoodev-tmp")
+    if os.path.normpath(parent) == os.path.normpath(home_tmp):
+        try:
+            if not os.listdir(parent):
+                os.rmdir(parent)
+        except OSError:
+            pass

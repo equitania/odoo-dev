@@ -287,6 +287,11 @@ MACOS_LIBS: dict[str, str] = {
 
 # Linux Debian/Ubuntu packages → description
 LINUX_LIBS: dict[str, str] = {
+    # Build tools (C compiler, Python headers)
+    "python3-dev": "python3-dev (C extension headers)",
+    "build-essential": "build-essential (gcc/g++/make)",
+    "pkg-config": "pkg-config (library discovery)",
+    # Library dev packages
     "libldap2-dev": "libldap-dev (python-ldap)",
     "libsasl2-dev": "libsasl2-dev (python-ldap)",
     "libxml2-dev": "libxml2-dev (lxml)",

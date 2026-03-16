@@ -134,6 +134,20 @@ def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
         f.write("\n".join(new_lines) + "\n")
 
 
+def _add_v19_log_handlers(cmd: list[str], version: str) -> None:
+    """Mute deprecated XML-RPC/JSON-RPC warnings for Odoo 19+.
+
+    Odoo 19 deprecated /xmlrpc, /xmlrpc/2 and /jsonrpc endpoints
+    (scheduled for removal in Odoo 20). This silences the warnings
+    until clients are migrated to the new /json/2/ API.
+    """
+    try:
+        if int(version) >= 19:
+            cmd.append("--log-handler=odoo.addons.rpc.controllers.jsonrpc:ERROR")
+    except (ValueError, TypeError):
+        pass
+
+
 def _start_odoo(
     odoo_dir: str,
     config_path: str,
@@ -141,6 +155,7 @@ def _start_odoo(
     extra_args: tuple[str, ...],
     env: dict[str, str],
     venv_dir: str,
+    version: str = "",
 ) -> None:
     """Start Odoo server with the given configuration."""
     python = get_venv_python(venv_dir)
@@ -168,6 +183,9 @@ def _start_odoo(
             f"Odoo v{env.get('ODOO_VERSION', '?')} — Native Development",
             subtitle,
         )
+
+    # Mute deprecated RPC endpoint warnings for v19+
+    _add_v19_log_handlers(cmd, version)
 
     # Add extra arguments
     cmd.extend(extra_args)
@@ -394,6 +412,7 @@ def start(
         tui_cmd = [python, odoo_bin, "-c", config_path]
         if mode == "dev":
             tui_cmd.append("--dev=all")
+        _add_v19_log_handlers(tui_cmd, version)
         tui_cmd.extend(extra_args)
 
         odoo_port = int(env_vars.get("ODOO_PORT", str(version_cfg.ports.odoo)))
@@ -413,7 +432,7 @@ def start(
         return
 
     if no_confirm:
-        _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir)
+        _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir, version=version)
     else:
         if mode == "normal":
             prompt = f"Start Odoo v{version} server?"
@@ -427,7 +446,7 @@ def start(
             prompt = f"Start Odoo v{version} in {mode_label}?"
 
         if confirm(prompt):
-            _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir)
+            _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir, version=version)
         else:
             print_info("Alternative start modes:")
             print_info("  odoodev start --dev      Development mode (hot-reload)")
