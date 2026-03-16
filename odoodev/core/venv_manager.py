@@ -199,11 +199,18 @@ def ensure_setuptools(venv_dir: str) -> bool:
     if result.returncode == 0:
         return True
 
-    # Install setuptools
+    # Install setuptools — show output so user sees what happens
     env = {**os.environ, "VIRTUAL_ENV": venv_dir}
     result = subprocess.run(
         ["uv", "pip", "install", "setuptools"],
         env=env,
+    )
+    if result.returncode != 0:
+        return False
+
+    # Verify installation actually worked
+    result = subprocess.run(
+        [python, "-c", "import pkg_resources"],
         capture_output=True,
         text=True,
     )

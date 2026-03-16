@@ -337,8 +337,12 @@ def start(
     if ver_int in (16, 17):
         from odoodev.core.venv_manager import ensure_setuptools
 
-        if not ensure_setuptools(venv_dir):
+        print_info("Checking setuptools (required for Odoo v16/v17)...")
+        if ensure_setuptools(venv_dir):
+            print_info("setuptools available")
+        else:
             print_error("Failed to install setuptools (required for Odoo v16/v17)")
+            print_info(f"Manual fix: VIRTUAL_ENV={venv_dir} uv pip install setuptools")
             raise SystemExit(1)
 
     if not os.path.exists(os.path.join(odoo_dir, "odoo-bin")):
