@@ -33,6 +33,7 @@ class OdooTuiApp(App):
         Binding("ctrl+q", "quit_app", "Quit", priority=True, show=False),
         Binding("r", "restart", "Restart"),
         Binding("u", "update", "Update Module"),
+        Binding("l", "load_language", "Load Language"),
         Binding("f", "cycle_filter", "Filter Level"),
         Binding("slash", "search", "Search"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
@@ -160,6 +161,12 @@ class OdooTuiApp(App):
         from odoodev.tui.screens import ModuleUpdateScreen
 
         self.push_screen(ModuleUpdateScreen(self._odoo, self._odoo_port, self._db_name))
+
+    def action_load_language(self) -> None:
+        """Open language load dialog."""
+        from odoodev.tui.screens import LanguageLoadScreen
+
+        self.push_screen(LanguageLoadScreen(self._odoo))
 
     def action_cycle_filter(self) -> None:
         """Cycle through log level filters."""

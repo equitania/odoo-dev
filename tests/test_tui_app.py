@@ -324,6 +324,52 @@ class TestTracebackCollection:
         assert "Traceback for second error" in errors
 
 
+class TestLanguageLoadScreen:
+    """Test LanguageLoadScreen integration."""
+
+    async def test_language_load_keybinding(self, mock_cmd, tmp_path):
+        """'l' key opens LanguageLoadScreen."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("l")
+            await pilot.pause(0.1)
+            from odoodev.tui.screens import LanguageLoadScreen
+
+            assert any(isinstance(s, LanguageLoadScreen) for s in app.screen_stack)
+
+    async def test_language_load_screen_has_widgets(self, mock_cmd, tmp_path):
+        """LanguageLoadScreen has input, checkbox, and buttons."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("l")
+            await pilot.pause(0.1)
+            from textual.widgets import Button, Checkbox, Input
+
+            screen = app.screen_stack[-1]
+            assert screen.query_one("#lang-input", Input) is not None
+            assert screen.query_one("#lang-overwrite", Checkbox) is not None
+            assert screen.query_one("#btn-load", Button) is not None
+            assert screen.query_one("#btn-cancel", Button) is not None
+
+    async def test_language_load_cancel(self, mock_cmd, tmp_path):
+        """Cancel button dismisses the dialog."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("l")
+            await pilot.pause(0.1)
+            from odoodev.tui.screens import LanguageLoadScreen
+
+            assert any(isinstance(s, LanguageLoadScreen) for s in app.screen_stack)
+            # Click cancel
+            cancel_btn = app.screen_stack[-1].query_one("#btn-cancel")
+            cancel_btn.press()
+            await pilot.pause(0.1)
+            assert not any(isinstance(s, LanguageLoadScreen) for s in app.screen_stack)
+
+
 class TestClipboard:
     """Test clipboard copy functionality."""
 

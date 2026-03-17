@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.4.34 (17.03.2026)
+
+### Added
+- **i18n/Language reload**: New CLI options `--load-language` and `--i18n-overwrite` for `odoodev start` — load or reload translations without manually passing Odoo flags via `--`
+  - `odoodev start 18 --load-language=de_DE --i18n-overwrite -- -d v18_exam`
+  - `odoodev start 18 --load-language=all` to reload all installed languages
+  - `--i18n-overwrite` automatically adds `-u all` when no `-u` is provided (Odoo requirement)
+  - Works with all start modes (normal, `--dev`, `--tui`)
+- **TUI Language Load dialog**: Press `l` in TUI mode to open a modal dialog for language loading — enter language code and toggle overwrite option, then restart Odoo with the flags
+- 9 new tests: 6 CLI tests (help text, command building, flag ordering), 3 TUI tests (keybinding, widgets, cancel)
+
 ## Version 0.4.33 (17.03.2026)
 
 ### Fixed

@@ -180,6 +180,8 @@ def _start_odoo(
     env: dict[str, str],
     venv_dir: str,
     version: str = "",
+    load_language: str | None = None,
+    i18n_overwrite: bool = False,
 ) -> None:
     """Start Odoo server with the given configuration."""
     python = get_venv_python(venv_dir)
@@ -210,6 +212,15 @@ def _start_odoo(
 
     # Mute deprecated RPC endpoint warnings for v19+
     _add_v19_log_handlers(cmd, version)
+
+    # Add i18n/language loading flags
+    if load_language:
+        cmd.append(f"--load-language={load_language}")
+    if i18n_overwrite:
+        cmd.append("--i18n-overwrite")
+        # Odoo requires -u (update) when --i18n-overwrite is used
+        if "-u" not in extra_args:
+            cmd.extend(["-u", "all"])
 
     # Add extra arguments
     cmd.extend(extra_args)
@@ -468,6 +479,8 @@ def _launch_tui(
     venv_dir: str,
     config_path: str,
     extra_args: tuple[str, ...],
+    load_language: str | None = None,
+    i18n_overwrite: bool = False,
 ) -> None:
     """Launch the TUI mode."""
     python = get_venv_python(venv_dir)
@@ -476,6 +489,12 @@ def _launch_tui(
     if mode == "dev":
         tui_cmd.append("--dev=all")
     _add_v19_log_handlers(tui_cmd, version)
+    if load_language:
+        tui_cmd.append(f"--load-language={load_language}")
+    if i18n_overwrite:
+        tui_cmd.append("--i18n-overwrite")
+        if "-u" not in extra_args:
+            tui_cmd.extend(["-u", "all"])
     tui_cmd.extend(extra_args)
 
     ports = version_cfg.ports  # type: ignore[attr-defined]
@@ -506,6 +525,8 @@ def _launch_tui(
 @click.option("--prepare", is_flag=True, help="Open interactive shell with venv (don't start Odoo)")
 @click.option("--no-confirm", is_flag=True, help="Skip confirmation prompt")
 @click.option("--tui", is_flag=True, help="Start with Terminal UI (log viewer, filtering, module update)")
+@click.option("--load-language", default=None, help="Load language (e.g. 'de_DE', 'fr_FR', 'all')")
+@click.option("--i18n-overwrite", is_flag=True, help="Overwrite existing translations when loading language")
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -515,6 +536,8 @@ def start(
     prepare: bool,
     no_confirm: bool,
     tui: bool,
+    load_language: str | None,
+    i18n_overwrite: bool,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -522,6 +545,10 @@ def start(
     Pass additional arguments to Odoo after '--':
 
         odoodev start 18 --dev -- -d v18_exam -u eq_sale
+
+    Load translations:
+
+        odoodev start 18 --load-language=de_DE --i18n-overwrite -- -d v18_exam
     """
     version = resolve_version(ctx, version)
     versions = load_versions()
@@ -567,11 +594,33 @@ def start(
         if mode not in ("normal", "dev"):
             print_error("--tui is only available for normal and dev modes")
             raise SystemExit(1)
-        _launch_tui(version, mode, env, env_vars, version_cfg, odoo_dir, venv_dir, config_path, extra_args)
+        _launch_tui(
+            version,
+            mode,
+            env,
+            env_vars,
+            version_cfg,
+            odoo_dir,
+            venv_dir,
+            config_path,
+            extra_args,
+            load_language=load_language,
+            i18n_overwrite=i18n_overwrite,
+        )
         return
 
     if no_confirm:
-        _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir, version=version)
+        _start_odoo(
+            odoo_dir,
+            config_path,
+            mode,
+            extra_args,
+            env,
+            venv_dir,
+            version=version,
+            load_language=load_language,
+            i18n_overwrite=i18n_overwrite,
+        )
     else:
         if mode == "normal":
             prompt = f"Start Odoo v{version} server?"
@@ -585,7 +634,17 @@ def start(
             prompt = f"Start Odoo v{version} in {mode_label}?"
 
         if confirm(prompt):
-            _start_odoo(odoo_dir, config_path, mode, extra_args, env, venv_dir, version=version)
+            _start_odoo(
+                odoo_dir,
+                config_path,
+                mode,
+                extra_args,
+                env,
+                venv_dir,
+                version=version,
+                load_language=load_language,
+                i18n_overwrite=i18n_overwrite,
+            )
         else:
             print_info("Alternative start modes:")
             print_info("  odoodev start --dev      Development mode (hot-reload)")

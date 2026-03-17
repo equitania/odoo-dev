@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from odoodev.tui.odoo_process import OdooProcess
 
@@ -112,3 +112,89 @@ class ModuleUpdateScreen(ModalScreen[str | None]):
 
             logging.getLogger(__name__).debug("XML-RPC update failed, falling back to restart", exc_info=True)
             self._restart_with_update(modules)
+
+
+class LanguageLoadScreen(ModalScreen[str | None]):
+    """Modal dialog for loading/reloading Odoo translations.
+
+    Restarts Odoo with --load-language and optionally --i18n-overwrite flags.
+    """
+
+    DEFAULT_CSS = """
+    LanguageLoadScreen {
+        align: center middle;
+    }
+    #lang-dialog {
+        width: 70;
+        height: auto;
+        max-height: 22;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #lang-dialog Label {
+        margin-bottom: 1;
+    }
+    #lang-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+    #lang-overwrite {
+        margin-bottom: 1;
+    }
+    .button-row {
+        height: 3;
+        align: center middle;
+        layout: horizontal;
+    }
+    .button-row Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, process: OdooProcess) -> None:
+        super().__init__()
+        self._process = process
+
+    def compose(self) -> ComposeResult:
+        """Build the language load dialog."""
+        with Vertical(id="lang-dialog"):
+            yield Label("Load Language / Reload Translations")
+            yield Static("[dim]Enter language code (e.g. de_DE, fr_FR) or 'all'[/]")
+            yield Input(placeholder="e.g. de_DE, fr_FR, all", id="lang-input")
+            yield Checkbox("Overwrite existing translations (--i18n-overwrite)", id="lang-overwrite")
+            with Vertical(classes="button-row"):
+                yield Button("Load Language (Restart)", variant="primary", id="btn-load")
+                yield Button("Cancel", variant="error", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "btn-cancel":
+            self.dismiss(None)
+            return
+        if event.button.id == "btn-load":
+            self._do_load()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input — trigger load."""
+        if event.value.strip():
+            self._do_load()
+
+    def _do_load(self) -> None:
+        """Restart Odoo with language loading flags."""
+        lang_input = self.query_one("#lang-input", Input)
+        lang = lang_input.value.strip()
+        if not lang:
+            lang_input.placeholder = "Please enter a language code!"
+            return
+
+        overwrite = self.query_one("#lang-overwrite", Checkbox).value
+        args: list[str] = [f"--load-language={lang}"]
+        if overwrite:
+            args.append("--i18n-overwrite")
+            # Odoo requires -u (update) when --i18n-overwrite is used
+            args.extend(["-u", "all"])
+
+        self._process.restart(extra_args=args)
+        overwrite_label = " (overwrite)" if overwrite else ""
+        self.dismiss(f"lang:{lang}{overwrite_label}")
