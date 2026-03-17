@@ -493,6 +493,9 @@ def _launch_tui(
         db_name=tui_db_name,
     )
     app.run()
+    # Safety net: ensure Odoo is stopped regardless of how TUI exited
+    # (crash, unhandled exception, signal). OdooProcess.stop() is idempotent.
+    app._odoo.stop()
 
 
 @click.command()

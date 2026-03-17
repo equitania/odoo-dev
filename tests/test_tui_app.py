@@ -203,6 +203,26 @@ class TestOdooTuiAppIntegration:
         # After exit, process should be stopped
         assert app._odoo.is_running is False
 
+    async def test_ctrl_q_stops_process(self, mock_cmd, tmp_path):
+        """Ctrl+Q must also stop the Odoo process (not just 'q')."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            assert app._odoo.is_running is True
+            await pilot.press("ctrl+q")
+        # After exit, process should be stopped
+        assert app._odoo.is_running is False
+
+    async def test_action_quit_override_stops_process(self, mock_cmd, tmp_path):
+        """Textual's action_quit override must stop the Odoo process."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            assert app._odoo.is_running is True
+            # Call action_quit directly (simulates any Textual quit path)
+            app.action_quit()
+        assert app._odoo.is_running is False
+
     async def test_status_bar_updates(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:

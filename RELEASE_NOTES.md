@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.4.33 (17.03.2026)
+
+### Fixed
+- **TUI: Ctrl+Q now stops Odoo process** — Textual's built-in `ctrl+q` binding called `action_quit()` which only exited the TUI without stopping Odoo. Now `action_quit()` is overridden to call `OdooProcess.stop()` before exit. Explicit `ctrl+q` binding also added to BINDINGS.
+- **TUI: Safety-net process cleanup** — `_launch_tui()` in `start.py` now calls `app._odoo.stop()` after `app.run()` returns, ensuring Odoo is terminated even if the TUI exits abnormally (crash, exception, signal). `OdooProcess.stop()` is idempotent so double-calls are safe.
+
+### Added
+- 2 new TUI integration tests: `test_ctrl_q_stops_process`, `test_action_quit_override_stops_process`
+
 ## Version 0.4.31 (16.03.2026)
 
 ### Changed

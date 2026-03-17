@@ -30,6 +30,7 @@ class OdooTuiApp(App):
 
     BINDINGS = [
         Binding("q", "quit_app", "Quit", priority=True),
+        Binding("ctrl+q", "quit_app", "Quit", priority=True, show=False),
         Binding("r", "restart", "Restart"),
         Binding("u", "update", "Update Module"),
         Binding("f", "cycle_filter", "Filter Level"),
@@ -133,10 +134,18 @@ class OdooTuiApp(App):
 
     # --- Actions ---
 
-    def action_quit_app(self) -> None:
-        """Stop the Odoo process and exit."""
+    def action_quit(self) -> None:
+        """Override Textual's default quit to ensure Odoo process cleanup.
+
+        Textual's built-in ctrl+q binding calls action_quit() which only
+        calls self.exit(). We override it to stop the Odoo process first.
+        """
         self._odoo.stop()
         self.exit()
+
+    def action_quit_app(self) -> None:
+        """Stop the Odoo process and exit (q key binding)."""
+        self.action_quit()
 
     def action_restart(self) -> None:
         """Restart the Odoo server."""
