@@ -117,7 +117,7 @@ odoodev init 18 --skip-docker
 | UV | `uv --version` | Ja | Python-Paketmanager — ersetzt pip |
 | Docker | `docker info` | Ja | Fuer PostgreSQL- und Mailpit-Container |
 | Docker Compose V2 | `docker compose version` | Ja | Service-Orchestrierung |
-| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/usr/local/bin`, `/opt/homebrew/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
+| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/usr/local/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
 | PostgreSQL-Tools | `pg_dump`, `psql` | Fuer DB-Operationen | macOS: `/opt/homebrew/opt/libpq/bin` |
 | Git | SSH-Zugang | Ja | Fuer Repository-Klonen |
 
@@ -133,7 +133,7 @@ sudo apt-get install -y postgresql-client
 # wkhtmltopdf: "patched qt"-Version von https://wkhtmltopdf.org/downloads.html herunterladen
 ```
 
-> **Hinweis:** `brew install wkhtmltopdf` bzw. `apt-get install wkhtmltopdf` enthaelt kein gepatchtes Qt — Odoo-PDF-Rendering funktioniert ggf. nicht korrekt.
+> **Hinweis macOS:** Den `.pkg` Installer von https://wkhtmltopdf.org/downloads.html verwenden (`brew install wkhtmltopdf` funktioniert nicht). **Hinweis Linux:** `apt-get install wkhtmltopdf` enthaelt kein gepatchtes Qt — stattdessen die 'patched qt'-Version von https://wkhtmltopdf.org/downloads.html herunterladen.
 
 ---
 
@@ -250,7 +250,7 @@ odoodev init 18 --skip-docker
 | UV | `uv --version` | Yes | Python package manager — replaces pip |
 | Docker | `docker info` | Yes | For PostgreSQL and Mailpit containers |
 | Docker Compose V2 | `docker compose version` | Yes | Service orchestration |
-| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/usr/local/bin`, `/opt/homebrew/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
+| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/usr/local/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
 | PostgreSQL tools | `pg_dump`, `psql` | For DB operations | macOS: `/opt/homebrew/opt/libpq/bin` |
 | Git | SSH access | Yes | For repository cloning |
 
@@ -266,4 +266,4 @@ sudo apt-get install -y postgresql-client
 # wkhtmltopdf: download 'patched qt' version from https://wkhtmltopdf.org/downloads.html
 ```
 
-> **Note:** `brew install wkhtmltopdf` / `apt-get install wkhtmltopdf` lacks patched Qt — Odoo PDF rendering may not work correctly.
+> **Note macOS:** Use the `.pkg` installer from https://wkhtmltopdf.org/downloads.html (`brew install wkhtmltopdf` does not work). **Note Linux:** `apt-get install wkhtmltopdf` lacks patched Qt — download the 'patched qt' version from https://wkhtmltopdf.org/downloads.html instead.

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.36 (18.03.2026)
+
+### Fixed
+- **wkhtmltopdf: Remove wrong Homebrew recommendation for macOS** — `brew install wkhtmltopdf` does not work on macOS. Prerequisite check now recommends the `.pkg` installer from wkhtmltopdf.org instead. Removed `/opt/homebrew/bin` from macOS search paths. Updated `env.template.j2` and `usage/setup.md` (DE/EN) accordingly.
+
 ## Version 0.4.35 (17.03.2026)
 
 ### Added

@@ -64,7 +64,6 @@ def check_wkhtmltopdf() -> str | None:
     if detect_os() == "macos":
         extra_paths = [
             "/usr/local/bin",
-            "/opt/homebrew/bin",
         ]
     else:
         extra_paths = [
@@ -80,7 +79,7 @@ def check_wkhtmltopdf() -> str | None:
     print_warning("wkhtmltopdf not found")
     print_info("Install: Download 'patched qt' version → https://wkhtmltopdf.org/downloads.html")
     if detect_os() == "macos":
-        print_info("Note: 'brew install wkhtmltopdf' lacks patched Qt — Odoo PDF rendering may not work")
+        print_info("macOS: Download the .pkg installer from https://wkhtmltopdf.org/downloads.html")
     else:
         print_info("Note: 'apt-get install wkhtmltopdf' lacks patched Qt — Odoo PDF rendering may not work")
     return None
