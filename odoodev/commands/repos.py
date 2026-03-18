@@ -261,6 +261,20 @@ def repos(
     print_success(f"Odoo v{version} repositories processed successfully")
 
 
+def _parse_env_file(env_path: str) -> dict[str, str]:
+    """Parse key=value pairs from a .env file."""
+    result = {}
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                result[key.strip()] = value.strip()
+    return result
+
+
 def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: dict) -> None:
     """Generate Odoo config file from template and collected paths."""
     from odoodev.core.global_config import load_global_config
@@ -286,8 +300,19 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
     db_host = db_config.get("host", "localhost")
     db_port = db_config.get("port", version_cfg.ports.db)
 
-    # Load global config for database credentials
+    # Load global config for database credentials (fallback)
     global_cfg = load_global_config()
+    db_user = global_cfg.database.user
+    db_password = global_cfg.database.password
+
+    # Prefer .env values if available (version-specific override)
+    env_path = os.path.join(os.path.expanduser(version_cfg.paths.native_dir), ".env")
+    if os.path.exists(env_path):
+        env_vars = _parse_env_file(env_path)
+        if "PGUSER" in env_vars:
+            db_user = env_vars["PGUSER"]
+        if "PGPASSWORD" in env_vars:
+            db_password = env_vars["PGPASSWORD"]
 
     output = create_odoo_config(
         template_path=template_path,
@@ -297,9 +322,9 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
         config_mode="native",
         native_db_host=db_host,
         native_db_port=db_port,
-        db_user=global_cfg.database.user,
-        db_password=global_cfg.database.password,
-        admin_passwd=global_cfg.database.password,
+        db_user=db_user,
+        db_password=db_password,
+        admin_passwd=db_password,
     )
 
     if output:

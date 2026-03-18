@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.37 (18.03.2026)
+
+### Fixed
+- **repos: Config generation now respects .env password** — `_generate_config()` previously read database credentials exclusively from global config (`~/.config/odoodev/config.yaml`), ignoring version-specific `.env` files. Now reads `PGUSER` and `PGPASSWORD` from the `.env` file in `native_dir` first, falling back to global config only if `.env` is missing or values are not set.
+
 ## Version 0.4.36 (18.03.2026)
 
 ### Fixed
