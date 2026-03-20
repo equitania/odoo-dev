@@ -1,6 +1,9 @@
 """Rich console output helpers for odoodev CLI."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
+from contextlib import contextmanager
 
 import questionary
 from rich.console import Console
@@ -121,6 +124,50 @@ def path_input(message: str, default: str = "") -> str:
 def checkbox(message: str, choices: Sequence[str | questionary.Choice]) -> list[str]:
     """Interactive multi-select checkbox using questionary."""
     result = questionary.checkbox(message, choices=choices, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result
+
+
+@contextmanager
+def _patch_checkbox_indicators():
+    """Patch questionary checkbox indicators for better terminal visibility.
+
+    Default indicators (● selected / ○ unselected) are nearly indistinguishable
+    on dark terminals. Replaces them with [✔] / [ ] for unmistakable checkbox UX.
+
+    Patches both questionary.constants (source) and questionary.prompts.common
+    (already-imported references) to ensure the override takes effect.
+    """
+    import questionary.constants as _constants
+    import questionary.prompts.common as _common
+
+    orig = (_constants.INDICATOR_SELECTED, _constants.INDICATOR_UNSELECTED)
+
+    _constants.INDICATOR_SELECTED = "[\u2714]"  # [✔] (selected)
+    _constants.INDICATOR_UNSELECTED = "[ ]"  # [ ] (unselected)
+    _common.INDICATOR_SELECTED = "[\u2714]"  # [✔] (selected)
+    _common.INDICATOR_UNSELECTED = "[ ]"  # [ ] (unselected)
+    try:
+        yield
+    finally:
+        _constants.INDICATOR_SELECTED, _constants.INDICATOR_UNSELECTED = orig
+        _common.INDICATOR_SELECTED, _common.INDICATOR_UNSELECTED = orig
+
+
+def checkbox_with_separators(
+    message: str,
+    choices: Sequence[str | questionary.Choice | questionary.Separator],
+    instruction: str = "(Space: toggle, Enter: confirm)",
+) -> list[str]:
+    """Interactive multi-select checkbox with separator and indicator support."""
+    with _patch_checkbox_indicators():
+        result = questionary.checkbox(
+            message,
+            choices=choices,
+            style=_ownerp_style(),
+            instruction=instruction,
+        ).ask()
     if result is None:
         raise SystemExit(0)
     return result

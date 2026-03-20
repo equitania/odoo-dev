@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-
 import click
 
 from odoodev.core.global_config import (
@@ -19,33 +17,16 @@ from odoodev.core.global_config import (
     load_global_config,
     save_global_config,
 )
-from odoodev.output import _ownerp_style, confirm, print_header, print_info, print_success, print_table, print_warning
-
-
-@contextmanager
-def _patch_checkbox_indicators():
-    """Patch questionary checkbox indicators for better terminal visibility.
-
-    Default indicators (● selected / ○ unselected) are nearly indistinguishable
-    on dark terminals. Replaces them with [✔] / [ ] for unmistakable checkbox UX.
-
-    Patches both questionary.constants (source) and questionary.prompts.common
-    (already-imported references) to ensure the override takes effect.
-    """
-    import questionary.constants as _constants
-    import questionary.prompts.common as _common
-
-    orig = (_constants.INDICATOR_SELECTED, _constants.INDICATOR_UNSELECTED)
-
-    _constants.INDICATOR_SELECTED = "[\u2714]"  # [✔] (selected)
-    _constants.INDICATOR_UNSELECTED = "[ ]"  # [ ] (unselected)
-    _common.INDICATOR_SELECTED = "[\u2714]"  # [✔] (selected)
-    _common.INDICATOR_UNSELECTED = "[ ]"  # [ ] (unselected)
-    try:
-        yield
-    finally:
-        _constants.INDICATOR_SELECTED, _constants.INDICATOR_UNSELECTED = orig
-        _common.INDICATOR_SELECTED, _common.INDICATOR_UNSELECTED = orig
+from odoodev.output import (
+    _ownerp_style,
+    _patch_checkbox_indicators,
+    confirm,
+    print_header,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+)
 
 
 def _run_interactive_wizard() -> GlobalConfig:

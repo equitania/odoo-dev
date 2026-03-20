@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.4.38 (20.03.2026)
+
+### Added
+- **repos/pull: Interactive addon selector (`--select`)** — New `--select` flag for `odoodev repos` and `odoodev pull` commands. Shows a questionary checkbox UI grouped by section (OCA, Enterprise, Equitania, Customer, etc.) with pre-selection based on `repos.yaml` `use` field. Allows toggling individual addons on/off before config generation. Includes change summary output and TTY guard for CI/CD safety.
+- **output: `checkbox_with_separators()`** — New output helper with section separators and patched checkbox indicators (`[✔]/[ ]`) for better terminal visibility
+- **repos: DRY refactor** — `_collect_all_repos()` now delegates to `_collect_all_repos_with_status()`, eliminating duplicated use-field resolution logic
+- **Circular import fix** — `resolve_version` import in `repos.py` made lazy to break `repos.py → cli.py → pull.py → repos.py` cycle
+- 16 new tests covering addon selector logic, metadata updates, selection summary, CLI flag presence, and non-TTY fallback
+
 ## Version 0.4.37 (18.03.2026)
 
 ### Fixed

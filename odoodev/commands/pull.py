@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 import click
 
@@ -27,8 +28,16 @@ logger = logging.getLogger(__name__)
 @click.option("-c", "--config", "config_path", type=click.Path(), help="Custom repos.yaml path")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
 @click.option("--no-config", is_flag=True, help="Skip Odoo config regeneration after pull")
+@click.option("--select", "select_addons", is_flag=True, help="Interactive addon selector before config generation")
 @click.pass_context
-def pull(ctx: click.Context, version: str | None, config_path: str | None, verbose: bool, no_config: bool) -> None:
+def pull(
+    ctx: click.Context,
+    version: str | None,
+    config_path: str | None,
+    verbose: bool,
+    no_config: bool,
+    select_addons: bool,
+) -> None:
     """Pull (update) all existing repositories.
 
     Unlike 'repos', this only runs git pull on repositories that
@@ -147,4 +156,11 @@ def pull(ctx: click.Context, version: str | None, config_path: str | None, verbo
     if not no_config and updated:
         print_info("Regenerating Odoo configuration...")
         all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
+        if select_addons:
+            if sys.stdin.isatty():
+                from odoodev.commands.repos import _interactive_addon_selector
+
+                repo_metadata = _interactive_addon_selector(config, repo_metadata)
+            else:
+                print_warning("--select requires an interactive terminal, skipping selector")
         _generate_config(config, version_cfg, all_paths, repo_metadata)

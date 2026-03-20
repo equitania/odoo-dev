@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 import click
 import yaml
 
-from odoodev.cli import resolve_version
 from odoodev.core.git_ops import (
     check_repo_access,
     clone_repo_with_progress,
@@ -56,22 +56,114 @@ def _load_repos_config(config_path: str) -> dict:
 
 
 def _collect_all_repos(config: dict) -> list[dict]:
-    """Collect all repository entries from config sections."""
+    """Collect all active repository entries from config sections."""
+    return [r for r in _collect_all_repos_with_status(config) if r["use"]]
+
+
+def _collect_all_repos_with_status(config: dict) -> list[dict]:
+    """Collect all repository entries with their use/commented status resolved.
+
+    Unlike _collect_all_repos, this includes repos with use=false,
+    needed for the interactive selector to show all available repos.
+    """
     repos = []
     for section_key in ("addons", "additional", "special", "customers"):
         section_repos = config.get(section_key, [])
         if section_repos:
             for repo in section_repos:
-                # Support legacy "commented" field (inverted logic)
                 if "use" in repo:
                     use = repo["use"]
                 elif "commented" in repo:
                     use = not repo["commented"]
                 else:
                     use = True
-                if use:
-                    repos.append(repo)
+                repos.append({**repo, "use": use})
     return repos
+
+
+def _interactive_addon_selector(
+    config: dict,
+    repo_metadata: dict[str, dict],
+) -> dict[str, dict]:
+    """Show interactive checkbox to select active addons for config generation.
+
+    Groups repos by section with questionary.Separator headers.
+    Pre-selects repos based on use flag in repo_metadata.
+
+    Args:
+        config: Full repos.yaml config dict.
+        repo_metadata: Current {repo_key: {section, use}} metadata.
+
+    Returns:
+        New repo_metadata dict with updated use flags based on user selection.
+    """
+    import questionary
+
+    from odoodev.output import checkbox_with_separators
+
+    all_repos = _collect_all_repos_with_status(config)
+
+    # Group by section, preserving encounter order
+    seen_sections: list[str] = []
+    by_section: dict[str, list[dict]] = {}
+    for repo in all_repos:
+        section = repo.get("section", "Other")
+        if section not in by_section:
+            by_section[section] = []
+            seen_sections.append(section)
+        by_section[section].append(repo)
+
+    # Build choices list with separators
+    choices: list[questionary.Choice | questionary.Separator] = []
+    for section in seen_sections:
+        choices.append(questionary.Separator(f"── {section} ──"))
+        for repo in by_section[section]:
+            key = repo.get("key", repo.get("path", "unknown"))
+            meta = repo_metadata.get(key, {})
+            use = meta.get("use", repo.get("use", True))
+            label = f"{key} ({repo.get('path', '')})"
+            choices.append(questionary.Choice(title=label, value=key, checked=use))
+
+    selected_keys = checkbox_with_separators(
+        "Select addons for Odoo config:",
+        choices=choices,
+        instruction="(↑/↓ navigate, SPACE toggle, ENTER confirm)",
+    )
+
+    # Build new metadata with updated use flags
+    new_metadata = {}
+    for key, meta in repo_metadata.items():
+        new_metadata[key] = {**meta, "use": key in selected_keys}
+
+    _print_selection_summary(repo_metadata, new_metadata)
+
+    return new_metadata
+
+
+def _print_selection_summary(
+    original: dict[str, dict],
+    updated: dict[str, dict],
+) -> None:
+    """Print a summary of what changed vs. repos.yaml defaults."""
+    enabled = []
+    disabled = []
+    for key in updated:
+        orig_use = original.get(key, {}).get("use", True)
+        new_use = updated[key].get("use", True)
+        if orig_use != new_use:
+            if new_use:
+                enabled.append(key)
+            else:
+                disabled.append(key)
+
+    if not enabled and not disabled:
+        print_info("No changes from repos.yaml defaults.")
+        return
+
+    if enabled:
+        print_success(f"Enabled: {', '.join(enabled)}")
+    if disabled:
+        print_warning(f"Disabled: {', '.join(disabled)}")
 
 
 def _process_repos(
@@ -150,6 +242,7 @@ def _process_repos(
 @click.option("--server-only", is_flag=True, help="Only process Odoo server")
 @click.option("--config-only", is_flag=True, help="Only generate Odoo config (no git operations)")
 @click.option("--skip-access-check", is_flag=True, help="Skip SSH access verification")
+@click.option("--select", "select_addons", is_flag=True, help="Interactive addon selector before config generation")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
 @click.pass_context
 def repos(
@@ -160,6 +253,7 @@ def repos(
     server_only: bool,
     config_only: bool,
     skip_access_check: bool,
+    select_addons: bool,
     verbose: bool,
 ) -> None:
     """Clone/update repositories and generate Odoo configuration.
@@ -168,6 +262,8 @@ def repos(
     all configured repositories, and generates the Odoo config file
     with proper addons_path.
     """
+    from odoodev.cli import resolve_version  # Lazy import to avoid circular dependency
+
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -207,6 +303,11 @@ def repos(
     if config_only:
         print_info("Config-only mode — scanning local repositories...")
         all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
+        if select_addons:
+            if sys.stdin.isatty():
+                repo_metadata = _interactive_addon_selector(config, repo_metadata)
+            else:
+                print_warning("--select requires an interactive terminal, skipping selector")
         _generate_config(config, version_cfg, all_paths, repo_metadata)
         return
 
@@ -254,6 +355,13 @@ def repos(
     # Process all repositories
     print_info("Processing repositories...")
     all_paths, repo_metadata = _process_repos(config, base_path, branch, accessible_paths)
+
+    # Interactive addon selector
+    if select_addons:
+        if sys.stdin.isatty():
+            repo_metadata = _interactive_addon_selector(config, repo_metadata)
+        else:
+            print_warning("--select requires an interactive terminal, skipping selector")
 
     # Generate config
     _generate_config(config, version_cfg, all_paths, repo_metadata)
