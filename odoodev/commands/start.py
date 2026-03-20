@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import os
+import shutil
 import subprocess
 import sys
 
@@ -48,6 +49,41 @@ def _get_config_value(config_path: str, key: str) -> str | None:
     except OSError:
         pass
     return None
+
+
+def _clean_sessions(config_path: str, version: str, force: bool, no_confirm: bool) -> None:
+    """Check for existing Odoo sessions and optionally clean them.
+
+    When *force* is True (``--clean-sessions`` flag), sessions are removed
+    without prompting.  Otherwise an interactive confirmation is shown —
+    unless *no_confirm* is True, in which case nothing happens.
+    """
+    data_dir = _get_config_value(config_path, "data_dir")
+    if not data_dir:
+        return
+
+    data_dir = os.path.expanduser(data_dir)
+    sessions_dir = os.path.join(data_dir, "sessions")
+
+    if not os.path.isdir(sessions_dir):
+        return
+
+    session_files = [f for f in os.listdir(sessions_dir) if os.path.isfile(os.path.join(sessions_dir, f))]
+    if not session_files:
+        return
+
+    count = len(session_files)
+    should_clean = force
+    if not should_clean and not no_confirm:
+        should_clean = confirm(
+            f"v{version}: {count} Session(s) gefunden in {sessions_dir}. Bereinigen?",
+            default=False,
+        )
+
+    if should_clean:
+        shutil.rmtree(sessions_dir)
+        os.makedirs(sessions_dir, exist_ok=True)
+        print_success(f"v{version}: {count} Session(s) bereinigt")
 
 
 def _load_env_file(env_file: str) -> dict[str, str]:
@@ -527,6 +563,7 @@ def _launch_tui(
 @click.option("--tui", is_flag=True, help="Start with Terminal UI (log viewer, filtering, module update)")
 @click.option("--load-language", default=None, help="Load language (e.g. 'de_DE', 'fr_FR', 'all')")
 @click.option("--i18n-overwrite", is_flag=True, help="Overwrite existing translations when loading language")
+@click.option("--clean-sessions", is_flag=True, help="Clear Odoo sessions before starting")
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -538,6 +575,7 @@ def start(
     tui: bool,
     load_language: str | None,
     i18n_overwrite: bool,
+    clean_sessions: bool,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -549,6 +587,10 @@ def start(
     Load translations:
 
         odoodev start 18 --load-language=de_DE --i18n-overwrite -- -d v18_exam
+
+    Clean sessions before starting:
+
+        odoodev start 18 --clean-sessions
     """
     version = resolve_version(ctx, version)
     versions = load_versions()
@@ -565,6 +607,7 @@ def start(
     _check_venv(ctx, version, version_cfg, venv_dir)
     _check_odoo_source(ctx, version, odoo_dir)
     config_path = _check_odoo_config(ctx, version, myconfs_dir)
+    _clean_sessions(config_path, version, clean_sessions, no_confirm)
     _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm)
 
     # Show config info

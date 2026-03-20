@@ -20,6 +20,9 @@ odoodev repos 18 --config-only
 
 # Custom repos.yaml verwenden
 odoodev repos 18 -c /pfad/zu/repos.yaml
+
+# Interaktiver Addon-Selektor — Addons einzeln an-/abwählen vor Config-Generierung
+odoodev repos 18 --select
 ```
 
 ### Schneller Pull aller Repos
@@ -33,9 +36,16 @@ odoodev pull 18 -c /pfad/zu/repos.yaml
 
 # Verbose-Modus (Debug-Logs pro Repository)
 odoodev pull 18 --verbose
+
+# Interaktiver Addon-Selektor nach Pull
+odoodev pull 18 --select
 ```
 
 Der `pull`-Befehl zeigt bei fehlgeschlagenen Repos detaillierte Fehlermeldungen (z.B. Branch nicht gefunden, Merge-Konflikte).
+
+### Interaktiver Addon-Selektor (`--select`)
+
+Mit dem `--select` Flag wird nach dem Clone/Pull eine Checkbox-Oberfläche angezeigt, in der einzelne Addons pro Sektion (OCA, Enterprise, Equitania, Customer, etc.) aktiviert oder deaktiviert werden können. Die Vorauswahl basiert auf dem `use`-Feld in `repos.yaml`. Nach Bestätigung wird die `odoo.conf` entsprechend generiert — deaktivierte Addons erscheinen als Kommentar im `addons_path`.
 
 ### repos.yaml Format
 
@@ -126,6 +136,9 @@ odoodev repos 18 --config-only
 
 # Use custom repos.yaml
 odoodev repos 18 -c /path/to/repos.yaml
+
+# Interactive addon selector — toggle individual addons before config generation
+odoodev repos 18 --select
 ```
 
 ### Quick Pull All Repos
@@ -139,9 +152,16 @@ odoodev pull 18 -c /path/to/repos.yaml
 
 # Verbose mode (debug logs per repository)
 odoodev pull 18 --verbose
+
+# Interactive addon selector after pull
+odoodev pull 18 --select
 ```
 
 The `pull` command shows detailed error messages for failed repos (e.g. branch not found, merge conflicts).
+
+### Interactive Addon Selector (`--select`)
+
+The `--select` flag displays a checkbox UI after clone/pull where individual addons can be enabled or disabled per section (OCA, Enterprise, Equitania, Customer, etc.). Pre-selection is based on the `use` field in `repos.yaml`. After confirmation, `odoo.conf` is generated accordingly — disabled addons appear as comments in `addons_path`.
 
 ### repos.yaml Format
 

@@ -9,6 +9,7 @@ import stat
 import odoodev.cli  # noqa: F401
 from odoodev.commands.start import (
     _add_v19_log_handlers,
+    _clean_sessions,
     _find_odoo_config,
     _get_config_value,
     _load_env_file,
@@ -223,3 +224,105 @@ class TestAddV19LogHandlers:
         cmd = ["python", "odoo-bin"]
         _add_v19_log_handlers(cmd, "")
         assert len(cmd) == 2
+
+
+class TestCleanSessions:
+    """Tests for _clean_sessions() helper."""
+
+    def _write_config(self, tmp_dir, data_dir):
+        """Create a minimal odoo.conf with a data_dir setting."""
+        conf = os.path.join(tmp_dir, "odoo.conf")
+        with open(conf, "w", encoding="utf-8") as f:
+            f.write(f"[options]\ndata_dir = {data_dir}\n")
+        return conf
+
+    def test_no_data_dir(self, tmp_dir):
+        """No data_dir in config → no action."""
+        conf = os.path.join(tmp_dir, "odoo.conf")
+        with open(conf, "w", encoding="utf-8") as f:
+            f.write("[options]\ndb_host = localhost\n")
+        _clean_sessions(conf, "18", force=True, no_confirm=False)
+
+    def test_no_sessions_dir(self, tmp_dir):
+        """data_dir exists but no sessions/ subdirectory → no action."""
+        data_dir = os.path.join(tmp_dir, "odoo-share")
+        os.makedirs(data_dir, exist_ok=True)
+        conf = self._write_config(tmp_dir, data_dir)
+        _clean_sessions(conf, "18", force=True, no_confirm=False)
+        # sessions/ should not have been created
+        assert not os.path.exists(os.path.join(data_dir, "sessions"))
+
+    def test_empty_sessions(self, tmp_dir):
+        """sessions/ exists but is empty → no action, no prompt."""
+        data_dir = os.path.join(tmp_dir, "odoo-share")
+        sessions_dir = os.path.join(data_dir, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        conf = self._write_config(tmp_dir, data_dir)
+        _clean_sessions(conf, "18", force=True, no_confirm=False)
+        # Directory should still exist untouched
+        assert os.path.isdir(sessions_dir)
+
+    def test_force_flag_cleans_without_prompt(self, tmp_dir):
+        """--clean-sessions flag removes sessions without asking."""
+        data_dir = os.path.join(tmp_dir, "odoo-share")
+        sessions_dir = os.path.join(data_dir, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        for i in range(3):
+            open(os.path.join(sessions_dir, f"sess_{i}"), "w").close()
+        conf = self._write_config(tmp_dir, data_dir)
+
+        _clean_sessions(conf, "18", force=True, no_confirm=False)
+
+        # Directory recreated but empty
+        assert os.path.isdir(sessions_dir)
+        assert len(os.listdir(sessions_dir)) == 0
+
+    def test_interactive_yes(self, tmp_dir, monkeypatch):
+        """User confirms → sessions cleaned."""
+        data_dir = os.path.join(tmp_dir, "odoo-share")
+        sessions_dir = os.path.join(data_dir, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        open(os.path.join(sessions_dir, "sess_1"), "w").close()
+        conf = self._write_config(tmp_dir, data_dir)
+
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda msg, default=True: True)
+        _clean_sessions(conf, "18", force=False, no_confirm=False)
+
+        assert os.path.isdir(sessions_dir)
+        assert len(os.listdir(sessions_dir)) == 0
+
+    def test_interactive_no(self, tmp_dir, monkeypatch):
+        """User declines → sessions preserved."""
+        data_dir = os.path.join(tmp_dir, "odoo-share")
+        sessions_dir = os.path.join(data_dir, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        open(os.path.join(sessions_dir, "sess_1"), "w").close()
+        conf = self._write_config(tmp_dir, data_dir)
+
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda msg, default=True: False)
+        _clean_sessions(conf, "18", force=False, no_confirm=False)
+
+        assert len(os.listdir(sessions_dir)) == 1
+
+    def test_no_confirm_skips_prompt(self, tmp_dir):
+        """--no-confirm without --clean-sessions → no cleanup, no prompt."""
+        data_dir = os.path.join(tmp_dir, "odoo-share")
+        sessions_dir = os.path.join(data_dir, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        open(os.path.join(sessions_dir, "sess_1"), "w").close()
+        conf = self._write_config(tmp_dir, data_dir)
+
+        _clean_sessions(conf, "18", force=False, no_confirm=True)
+
+        # Session file should still exist
+        assert len(os.listdir(sessions_dir)) == 1
+
+    def test_cli_flag_exists(self):
+        """--clean-sessions flag is visible in start command."""
+        from click.testing import CliRunner
+
+        from odoodev.commands.start import start
+
+        runner = CliRunner()
+        result = runner.invoke(start, ["--help"], catch_exceptions=False)
+        assert "--clean-sessions" in result.output

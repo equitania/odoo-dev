@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.4.30-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.4.39-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -27,6 +27,9 @@
 - Odoo-Konfigurationsgenerierung mit Template-System
 - TUI-Modus mit Log-Viewer, Level-Filter und Traceback-Kopie
 - Port-Konflikterkennung mit automatischer Prozessbereinigung
+- Interaktiver Addon-Selektor für repos/pull (`--select`)
+- Sprachladen und Übersetzungs-Overwrite (`--load-language`, `--i18n-overwrite`)
+- Session-Bereinigung vor Odoo-Start (`--clean-sessions`)
 - Debian 13 / Python 3.12+ Kompatibilität (setuptools, Build-Dependencies)
 
 ### Schnellstart
@@ -185,6 +188,9 @@ uv build                                # Paket bauen
 - Odoo configuration generation with template system
 - TUI mode with log viewer, level filtering and traceback copy
 - Port conflict detection with automatic process cleanup
+- Interactive addon selector for repos/pull (`--select`)
+- Language loading and translation overwrite (`--load-language`, `--i18n-overwrite`)
+- Session cleanup before Odoo start (`--clean-sessions`)
 - Debian 13 / Python 3.12+ compatibility (setuptools, build dependencies)
 
 ### Quick Start

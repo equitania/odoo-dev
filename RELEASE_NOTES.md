@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.4.39 (20.03.2026)
+
+### Added
+- **start: Session cleanup (`--clean-sessions`)** — New `--clean-sessions` flag for `odoodev start` removes all Odoo session files from `data_dir/sessions/` before starting. Without the flag, an interactive prompt appears when sessions are found (default: No). `--no-confirm` skips the prompt without cleaning. Session directory is recreated empty after cleanup.
+- **README.md updated** — Feature list now includes all features added since v0.4.30 (interactive addon selector, language loading, session cleanup) in both DE and EN sections. Badge version updated.
+- **usage/repos.md updated** — Added `--select` flag documentation with examples for `repos` and `pull` commands in both DE and EN sections.
+- 8 new tests covering session cleanup logic (no data_dir, no sessions dir, empty sessions, force flag, interactive yes/no, no-confirm skip, CLI flag presence)
+
 ## Version 0.4.38 (20.03.2026)
 
 ### Added

@@ -1,9 +1,10 @@
-# odoo-dev | python/uv
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-▸ Setup:    uv venv && venv+ && uv pip install -e ".[dev]"
+# odoodev-equitania v0.4.39 | python/uv
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▸ Setup:    uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Run:      odoodev --help
 ▸ Test:     pytest
 ▸ Lint:     ruff check . && ruff format --check .
 ▸ Format:   ruff check --fix . && ruff format .
 ▸ Types:    mypy odoodev
 ▸ Build:    uv build
+▸ Python:   3.12/3.13 (tested), >=3.12 (pyproject.toml)
