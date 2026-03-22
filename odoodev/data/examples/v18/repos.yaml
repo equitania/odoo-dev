@@ -17,8 +17,30 @@ server:
   path: v18-server
   git_url: https://github.com/odoo/odoo.git
 
+# --- OCA REST-Framework Stack ---
+addons:
+  - key: oca-rest-framework
+    path: v18-oca-rest-framework
+    git_url: https://github.com/OCA/rest-framework.git
+    section: OCA
+    use: true
+    suffix: ""
+
+  - key: oca-web-api
+    path: v18-oca-web-api
+    git_url: https://github.com/OCA/web-api.git
+    section: OCA
+    use: true
+    suffix: ""
+
+  - key: oca-server-auth
+    path: v18-oca-server-auth
+    git_url: https://github.com/OCA/server-auth.git
+    section: OCA
+    use: true
+    suffix: ""
+
 # --- Add your repositories below ---
-addons: []
 #  - path: v18-custom
 #    git_url: git@github.com:your-org/v18-custom.git
 #    key: custom

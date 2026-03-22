@@ -96,3 +96,13 @@ qdrant-client>=1.12.0,<2.0.0
 tiktoken>=0.9.0,<1.0.0
 httpx>=0.27.0,<1.0.0
 pydantic>=2.10.0,<3.0.0
+
+# OCA REST-Framework Stack
+fastapi>=0.110.0
+a2wsgi>=1.10.6
+ujson
+python-multipart
+extendable>=0.0.4
+extendable-pydantic>=1.2.0
+pyjwt
+typing-extensions

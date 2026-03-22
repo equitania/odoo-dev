@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.40 (22.03.2026)
+
+### Added
+- **examples: OCA REST-Framework Stack** — Added 3 OCA repositories (rest-framework, web-api, server-auth) and 8 Python dependencies (fastapi, a2wsgi, ujson, python-multipart, extendable, extendable-pydantic, pyjwt, typing-extensions) to v18 and v19 example templates. Provides FastAPI endpoints, JWT auth, and API key auth for Odoo out of the box.
+
 ## Version 0.4.39 (20.03.2026)
 
 ### Added
