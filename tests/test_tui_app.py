@@ -3,10 +3,10 @@
 import sys
 
 import pytest
-from textual.widgets import Static
 
 from odoodev.tui.app import FILTER_LEVELS, OdooTuiApp
-from odoodev.tui.widgets.log_viewer import LEVEL_STYLES, LogViewer
+from odoodev.tui.widgets.filter_bar import FilterBar, FilterTab, ScrollToggle
+from odoodev.tui.widgets.log_viewer import LEVEL_STYLES, LogViewer, SelectableRichLog
 from odoodev.tui.widgets.status_bar import StatusBar
 
 
@@ -126,7 +126,7 @@ class TestOdooTuiAppIntegration:
         async with app.run_test(size=(120, 30)) as _pilot:
             # Verify core widgets exist
             assert app.query_one("#status-bar", StatusBar) is not None
-            assert app.query_one("#filter-bar", Static) is not None
+            assert app.query_one("#filter-bar", FilterBar) is not None
             assert app.query_one("#log-viewer", LogViewer) is not None
 
     async def test_app_receives_log_output(self, mock_cmd, tmp_path):
@@ -368,6 +368,113 @@ class TestLanguageLoadScreen:
             cancel_btn.press()
             await pilot.pause(0.1)
             assert not any(isinstance(s, LanguageLoadScreen) for s in app.screen_stack)
+
+
+class TestFilterBarClick:
+    """Test clickable filter bar interactions."""
+
+    async def test_filter_tab_click_changes_level(self, mock_cmd, tmp_path):
+        """Clicking a filter tab changes the active log level."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.min_level == "DEBUG"
+
+            # Click the WARNING tab
+            warning_tab = app.query_one("#tab-warning", FilterTab)
+            await pilot.click(warning_tab)
+            assert log_viewer.min_level == "WARNING"
+
+    async def test_filter_tab_click_updates_filter_bar(self, mock_cmd, tmp_path):
+        """Clicking a filter tab updates the filter bar display."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            filter_bar = app.query_one("#filter-bar", FilterBar)
+            assert filter_bar.current_level == "DEBUG"
+
+            error_tab = app.query_one("#tab-error", FilterTab)
+            await pilot.click(error_tab)
+            assert filter_bar.current_level == "ERROR"
+
+    async def test_scroll_toggle_click(self, mock_cmd, tmp_path):
+        """Clicking the scroll toggle changes auto-scroll state."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.auto_scroll is True
+
+            toggle = app.query_one("#scroll-toggle", ScrollToggle)
+            await pilot.click(toggle)
+            assert log_viewer.auto_scroll is False
+
+            await pilot.click(toggle)
+            assert log_viewer.auto_scroll is True
+
+    async def test_filter_tabs_all_present(self, mock_cmd, tmp_path):
+        """All five filter level tabs are rendered."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as _pilot:
+            for level in ("debug", "info", "warning", "error", "critical"):
+                tab = app.query_one(f"#tab-{level}", FilterTab)
+                assert tab is not None
+
+
+class TestSelectableRichLog:
+    """Test SelectableRichLog text selection."""
+
+    def test_get_selection_extracts_text(self):
+        """get_selection extracts plain text from Strip buffer."""
+        from rich.segment import Segment
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        from textual.strip import Strip
+
+        log = SelectableRichLog()
+        # Manually populate the lines buffer with Strip objects
+        log.lines = [
+            Strip([Segment("Line one content")]),
+            Strip([Segment("Line two content")]),
+            Strip([Segment("Line three content")]),
+        ]
+
+        # Selection uses Offset(x=column, y=line)
+        # From line 0, col 0 to line 1, col 16
+        selection = Selection(start=Offset(0, 0), end=Offset(16, 1))
+        result = log.get_selection(selection)
+        assert result is not None
+        text, ending = result
+        assert "Line one content" in text
+        assert "Line two content" in text
+        assert ending == "\n"
+
+    def test_get_selection_empty_lines(self):
+        """get_selection returns None for empty buffer."""
+        from textual.geometry import Offset
+        from textual.selection import Selection
+
+        log = SelectableRichLog()
+        log.lines = []
+        selection = Selection(start=Offset(0, 0), end=Offset(10, 0))
+        result = log.get_selection(selection)
+        assert result is None
+
+    def test_get_selection_single_line_partial(self):
+        """get_selection can extract part of a single line."""
+        from rich.segment import Segment
+        from textual.geometry import Offset
+        from textual.selection import Selection
+        from textual.strip import Strip
+
+        log = SelectableRichLog()
+        log.lines = [
+            Strip([Segment("Hello World")]),
+        ]
+        # Select "World" — Offset(x=column, y=line)
+        selection = Selection(start=Offset(6, 0), end=Offset(11, 0))
+        result = log.get_selection(selection)
+        assert result is not None
+        text, _ = result
+        assert text == "World"
 
 
 class TestClipboard:

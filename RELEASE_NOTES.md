@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.4.43 (26.03.2026)
+
+### Added
+- **TUI: Mouse support** — Full mouse interaction for the TUI log viewer (`odoodev start --tui`):
+  - **Text selection**: Click-drag to select text in the log output, automatically copies to system clipboard via `pbcopy`/`xclip`/`xsel` (OSC 52 fallback)
+  - **Clickable filter tabs**: Click on DEBUG/INFO/WARNING/ERROR/CRITICAL labels to switch log level filter directly
+  - **Clickable auto-scroll toggle**: Click the auto-scroll indicator to toggle between auto-scroll and manual mode
+  - **Clickable footer shortcuts**: All shortcuts in the footer bar are now clickable (built-in Textual 8.1.1)
+- New `SelectableRichLog` widget subclass that overrides `get_selection()` to extract plain text from the internal Strip line buffer
+- New `FilterBar` widget with `FilterTab` and `ScrollToggle` subwidgets replacing the static filter bar
+- 7 new tests covering filter tab clicks, scroll toggle clicks, and text selection extraction
+
 ## Version 0.4.42 (26.03.2026)
 
 ### Changed

@@ -10,12 +10,7 @@ Screen {
     background: $primary-background;
 }
 
-#filter-bar {
-    height: 1;
-    dock: top;
-    padding: 0 1;
-    background: $surface;
-}
+/* FilterBar styles are defined in filter_bar.py DEFAULT_CSS */
 
 #log-viewer {
     height: 1fr;

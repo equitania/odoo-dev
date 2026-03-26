@@ -8,10 +8,11 @@ import subprocess
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Static
+from textual.widgets import Footer
 
 from odoodev.tui.log_parser import LOG_LEVELS
 from odoodev.tui.odoo_process import OdooProcess
+from odoodev.tui.widgets.filter_bar import FilterBar, FilterTab, ScrollToggle
 from odoodev.tui.widgets.log_viewer import LogViewer
 from odoodev.tui.widgets.status_bar import StatusBar
 
@@ -64,7 +65,7 @@ class OdooTuiApp(App):
     def compose(self) -> ComposeResult:
         """Build the TUI layout."""
         yield StatusBar(id="status-bar")
-        yield Static("", id="filter-bar")
+        yield FilterBar(id="filter-bar")
         yield LogViewer(id="log-viewer")
         yield Footer()
 
@@ -116,22 +117,25 @@ class OdooTuiApp(App):
 
     def _update_filter_bar(self) -> None:
         """Update the filter bar display."""
-        filter_bar = self.query_one("#filter-bar", Static)
-        parts = []
-        current = FILTER_LEVELS[self._filter_index]
-        for level in FILTER_LEVELS:
-            if level == current:
-                parts.append(f"[bold reverse green] {level} [/]")
-            else:
-                parts.append(f"[dim] {level} [/]")
-
+        filter_bar = self.query_one("#filter-bar", FilterBar)
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        scroll_indicator = "[green]auto-scroll[/]" if log_viewer.auto_scroll else "[dim]manual[/]"
-        search_info = ""
-        if log_viewer.search_term:
-            search_info = f" | search: [bold]{log_viewer.search_term}[/]"
+        filter_bar.set_level(FILTER_LEVELS[self._filter_index])
+        filter_bar.set_scroll(log_viewer.auto_scroll)
+        filter_bar.set_search(log_viewer.search_term)
 
-        filter_bar.update(f"{'  '.join(parts)}  | {scroll_indicator}{search_info}")
+    def on_filter_tab_selected(self, event: FilterTab.Selected) -> None:
+        """Handle click on a filter level tab."""
+        try:
+            self._filter_index = FILTER_LEVELS.index(event.level)
+        except ValueError:
+            return
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        log_viewer.min_level = event.level
+        self._update_filter_bar()
+
+    def on_scroll_toggle_toggled(self, event: ScrollToggle.Toggled) -> None:
+        """Handle click on the auto-scroll toggle."""
+        self.action_toggle_scroll()
 
     # --- Actions ---
 
@@ -284,3 +288,13 @@ class OdooTuiApp(App):
         log_viewer = self.query_one("#log-viewer", LogViewer)
         log_viewer.auto_scroll = not log_viewer.auto_scroll
         self._update_filter_bar()
+
+    def copy_to_clipboard(self, text: str) -> None:
+        """Copy text using system clipboard tools with OSC 52 fallback.
+
+        Overrides Textual's default copy_to_clipboard to use pbcopy/xclip/xsel
+        which work reliably on macOS Terminal (where OSC 52 may not work).
+        This is called automatically by Textual's text selection system.
+        """
+        if not self._copy_to_clipboard(text):
+            super().copy_to_clipboard(text)

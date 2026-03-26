@@ -25,7 +25,7 @@
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
 - Odoo-Konfigurationsgenerierung mit Template-System
-- TUI-Modus mit Log-Viewer, Level-Filter und Traceback-Kopie
+- TUI-Modus mit Log-Viewer, Level-Filter, Traceback-Kopie und Mausunterstützung (Textauswahl, klickbare Filter-Tabs)
 - Port-Konflikterkennung mit automatischer Prozessbereinigung
 - Interaktiver Addon-Selektor für repos/pull (`--select`)
 - Sprachladen und Übersetzungs-Overwrite (`--load-language`, `--i18n-overwrite`)
@@ -186,7 +186,7 @@ uv build                                # Paket bauen
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
 - Odoo configuration generation with template system
-- TUI mode with log viewer, level filtering and traceback copy
+- TUI mode with log viewer, level filtering, traceback copy and mouse support (text selection, clickable filter tabs)
 - Port conflict detection with automatic process cleanup
 - Interactive addon selector for repos/pull (`--select`)
 - Language loading and translation overwrite (`--load-language`, `--i18n-overwrite`)

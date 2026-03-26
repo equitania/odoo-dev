@@ -6,6 +6,7 @@ from collections import deque
 
 from rich.text import Text
 from textual.reactive import reactive
+from textual.selection import Selection
 from textual.widget import Widget
 from textual.widgets import RichLog
 
@@ -22,6 +23,36 @@ LEVEL_STYLES: dict[str, str] = {
 }
 
 MAX_BUFFER_SIZE = 10_000
+
+
+class SelectableRichLog(RichLog):
+    """RichLog subclass with working mouse text selection.
+
+    The base RichLog inherits get_selection() from Widget, which calls
+    self._render(). For ScrollView this returns a debug Panel, so selection
+    always returns None. This subclass overrides get_selection() to extract
+    plain text directly from the internal Strip line buffer.
+    """
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        """Extract selected text from the Strip-based line buffer.
+
+        Args:
+            selection: Selection coordinates from the screen's mouse tracking.
+
+        Returns:
+            Tuple of (extracted_text, line_ending) or None if no text available.
+        """
+        if not self.lines:
+            return None
+        plain_lines = []
+        for strip in self.lines:
+            plain_lines.append("".join(seg.text for seg in strip if seg.text))
+        full_text = "\n".join(plain_lines)
+        extracted = selection.extract(full_text)
+        if not extracted:
+            return None
+        return extracted, "\n"
 
 
 class LogViewer(Widget):
@@ -44,15 +75,15 @@ class LogViewer(Widget):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._buffer: deque[OdooLogEntry] = deque(maxlen=MAX_BUFFER_SIZE)
-        self._rich_log: RichLog | None = None
+        self._rich_log: SelectableRichLog | None = None
 
     def compose(self):
-        """Create the RichLog widget."""
-        yield RichLog(highlight=False, markup=False, wrap=True, id="log-output")
+        """Create the selectable RichLog widget."""
+        yield SelectableRichLog(highlight=False, markup=False, wrap=True, id="log-output")
 
     def on_mount(self) -> None:
         """Get reference to the RichLog after mounting."""
-        self._rich_log = self.query_one("#log-output", RichLog)
+        self._rich_log = self.query_one("#log-output", SelectableRichLog)
 
     def write_line(self, line: str) -> None:
         """Parse and display a raw log line.
