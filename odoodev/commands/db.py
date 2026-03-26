@@ -281,7 +281,7 @@ def db_restore(
 
     console.print()
     print_info("Next step: Update all modules to match your local Odoo version:")
-    print_info(f"  odoodev start {version} -- -d {name} -u all")
+    print_info(f"  odoodev start {version} -d {name} -u all")
 
 
 def _select_database(params: dict) -> str | None:

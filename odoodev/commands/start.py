@@ -553,6 +553,23 @@ def _launch_tui(
     app._odoo.stop()
 
 
+def _build_odoo_extra_args(
+    database: str | None,
+    update: str | None,
+    init: str | None,
+    extra_args: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Merge explicit Odoo options (-d, -u, -i) into extra_args tuple."""
+    merged = list(extra_args)
+    if database:
+        merged.extend(["-d", database])
+    if update:
+        merged.extend(["-u", update])
+    if init:
+        merged.extend(["-i", init])
+    return tuple(merged)
+
+
 @click.command()
 @click.argument("version", required=False)
 @click.option("--dev", "mode", flag_value="dev", help="Start in development mode (--dev=all)")
@@ -564,6 +581,9 @@ def _launch_tui(
 @click.option("--load-language", default=None, help="Load language (e.g. 'de_DE', 'fr_FR', 'all')")
 @click.option("--i18n-overwrite", is_flag=True, help="Overwrite existing translations when loading language")
 @click.option("--clean-sessions", is_flag=True, help="Clear Odoo sessions before starting")
+@click.option("-d", "--database", default=None, help="Odoo database name")
+@click.option("-u", "--update", default=None, help="Modules to update (comma-separated or 'all')")
+@click.option("-i", "--init", default=None, help="Modules to install (comma-separated)")
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -576,17 +596,25 @@ def start(
     load_language: str | None,
     i18n_overwrite: bool,
     clean_sessions: bool,
+    database: str | None,
+    update: str | None,
+    init: str | None,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
 
-    Pass additional arguments to Odoo after '--':
+    Common Odoo options can be passed directly:
 
-        odoodev start 18 --dev -- -d v18_exam -u eq_sale
+        odoodev start 18 --dev -d v18_exam -u eq_sale
+        odoodev start 18 -d v18_exam -i eq_sale,eq_stock
+
+    For other Odoo arguments, use '--' separator:
+
+        odoodev start 18 -d v18_exam -- --workers=4 --log-level=debug
 
     Load translations:
 
-        odoodev start 18 --load-language=de_DE --i18n-overwrite -- -d v18_exam
+        odoodev start 18 --load-language=de_DE --i18n-overwrite -d v18_exam
 
     Clean sessions before starting:
 
@@ -595,6 +623,9 @@ def start(
     version = resolve_version(ctx, version)
     versions = load_versions()
     version_cfg = get_version(version, versions)
+
+    # Merge explicit Odoo options into extra_args
+    extra_args = _build_odoo_extra_args(database, update, init, extra_args)
 
     native_dir = version_cfg.paths.native_dir
     odoo_dir = version_cfg.paths.server_dir

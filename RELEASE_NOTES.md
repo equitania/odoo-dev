@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.4.42 (26.03.2026)
+
+### Changed
+- **start: Explicit Odoo options `-d`, `-u`, `-i`** — The `--` separator is no longer needed for the most common Odoo flags. `odoodev start 19 --dev -d v19_equitania -u all` now works directly. Less common Odoo flags (`--workers`, `--log-level`, etc.) still use the `--` separator. Typos in odoodev's own flags are still caught by Click. Updated `db restore` hint and documentation accordingly.
+- 16 new tests covering `_build_odoo_extra_args` helper and CLI option parsing
+
 ## Version 0.4.41 (26.03.2026)
 
 ### Fixed

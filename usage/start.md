@@ -27,8 +27,8 @@ odoodev start 18 --test
 # Venv aktivieren ohne Server zu starten
 odoodev start 18 --prepare
 
-# Zusaetzliche Odoo-Argumente uebergeben
-odoodev start 18 -- -d mydb -u my_module
+# Odoo-Argumente direkt uebergeben
+odoodev start 18 -d mydb -u my_module
 ```
 
 ### Start-Modi im Ueberblick
@@ -95,8 +95,8 @@ odoodev start 18 --test
 # Activate venv without starting server
 odoodev start 18 --prepare
 
-# Pass additional Odoo arguments
-odoodev start 18 -- -d mydb -u my_module
+# Pass Odoo arguments directly
+odoodev start 18 -d mydb -u my_module
 ```
 
 ### Start Modes Overview

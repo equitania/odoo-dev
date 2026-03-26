@@ -68,7 +68,7 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
 
 Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis in der Bestaetigungsabfrage).
 
-> **Tipp:** Nach dem Restore empfiehlt odoodev `odoodev start -- -d {name} -u all` um alle Module zu aktualisieren.
+> **Tipp:** Nach dem Restore empfiehlt odoodev `odoodev start -d {name} -u all` um alle Module zu aktualisieren.
 
 ### Standard-Credentials
 
@@ -141,7 +141,7 @@ During `odoodev db restore`, the filestore is managed automatically:
 
 When running `odoodev db drop`, the filestore directory is also removed (with notice in the confirmation prompt).
 
-> **Tip:** After restore, odoodev suggests running `odoodev start -- -d {name} -u all` to update all modules.
+> **Tip:** After restore, odoodev suggests running `odoodev start -d {name} -u all` to update all modules.
 
 ### Default Credentials
 
