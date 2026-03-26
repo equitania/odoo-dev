@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.41 (26.03.2026)
+
+### Fixed
+- **pull: Double git operations eliminated** — `odoodev pull` no longer executes `git checkout` + `git pull` twice on all addon repositories. The config regeneration phase (`_process_repos`) now uses `skip_git=True` to only collect local paths without triggering git operations that were already performed. This fixes `index.lock` errors that occurred when the second git pass overlapped with lingering lock files.
+
 ## Version 0.4.40 (22.03.2026)
 
 ### Added

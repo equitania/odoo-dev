@@ -90,6 +90,37 @@ class TestPullExecution:
         assert result.exit_code == 0
         assert "Updated" in result.output
 
+    def test_pull_config_regen_uses_skip_git(self, tmp_path, monkeypatch):
+        """Config regeneration calls _process_repos with skip_git=True to avoid double git ops."""
+        server_dir = tmp_path / "v18-server"
+        server_dir.mkdir()
+
+        repos_yaml = tmp_path / "repos.yaml"
+        repos_yaml.write_text(f"version: '18'\nbranch: develop\npaths:\n  base: {tmp_path}\n")
+
+        monkeypatch.setattr("odoodev.commands.pull.resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr("odoodev.commands.pull.load_versions", lambda: {})
+        monkeypatch.setattr(
+            "odoodev.commands.pull.get_version",
+            lambda v, vers=None: _make_version_cfg(str(tmp_path)),
+        )
+        monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (True, ""))
+        monkeypatch.setattr("odoodev.commands.pull._generate_config", lambda *a, **kw: None)
+
+        process_repos_calls = []
+
+        def capture_process_repos(*args, **kwargs):
+            process_repos_calls.append(kwargs)
+            return {}, {}
+
+        monkeypatch.setattr("odoodev.commands.pull._process_repos", capture_process_repos)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["pull", "18", "-c", str(repos_yaml)])
+        assert result.exit_code == 0
+        assert len(process_repos_calls) == 1
+        assert process_repos_calls[0].get("skip_git") is True
+
     def test_pull_with_no_config_flag(self, tmp_path, monkeypatch):
         """With --no-config, config regeneration is skipped."""
         server_dir = tmp_path / "v18-server"

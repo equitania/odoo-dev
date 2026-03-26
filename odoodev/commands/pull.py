@@ -155,7 +155,7 @@ def pull(
     # Regenerate Odoo config after pull
     if not no_config and updated:
         print_info("Regenerating Odoo configuration...")
-        all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
+        all_paths, repo_metadata = _process_repos(config, base_path, branch, set(), skip_git=True)
         if select_addons:
             if sys.stdin.isatty():
                 from odoodev.commands.repos import _interactive_addon_selector

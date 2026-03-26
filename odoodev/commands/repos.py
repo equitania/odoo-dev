@@ -171,8 +171,14 @@ def _process_repos(
     base_path: str,
     branch: str,
     accessible_paths: set[str],
+    *,
+    skip_git: bool = False,
 ) -> tuple[dict[str, list[str]], dict[str, dict]]:
     """Process all repositories: clone/update and collect paths.
+
+    Args:
+        skip_git: If True, only collect local paths without any git operations.
+            Used by the pull command which already performed git ops separately.
 
     Returns:
         Tuple of (all_paths, repo_metadata).
@@ -218,8 +224,14 @@ def _process_repos(
                     all_paths[key] = paths
                 continue
 
-            # Check if accessible — always update existing or clone new
-            if repo_path in accessible_paths or not accessible_paths:
+            if skip_git:
+                # Caller already performed git operations — just collect local paths
+                if os.path.isdir(full_path):
+                    paths = get_module_paths(full_path, is_oca)
+                else:
+                    paths = []
+            elif repo_path in accessible_paths or not accessible_paths:
+                # Check if accessible — always update existing or clone new
                 paths = switch_branch_and_update(full_path, git_url, branch, base_path, is_oca)
             elif os.path.isdir(full_path):
                 # Not accessible but exists locally — use existing paths
