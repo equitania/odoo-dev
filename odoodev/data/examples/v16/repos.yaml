@@ -1,8 +1,8 @@
 # Odoo v16 Repository Configuration
 # Customize this file for your project
 version: "16"
-branch: "16.0"
-# ssh_key: "~/.ssh/id_rsa"   # Uncomment for SSH authentication
+branch: "develop"
+ssh_key: "~/.ssh/id_rsa"
 
 paths:
   base: ~/gitbase/v16
@@ -15,12 +15,27 @@ base_addons:
 
 server:
   path: v16-server
-  git_url: https://github.com/odoo/odoo.git
+  git_url: git@gitlab.ownerp.io:v16-odoo/v16-server.git
+
+addons:
+  - key: addons
+    path: v16-addons
+    git_url: git@gitlab.ownerp.io:v16-odoo/v16-addons.git
+    section: Equitania
+    use: true
+    suffix: ""
+
+  - key: oca
+    path: v16-oca
+    git_url: git@gitlab.ownerp.io:v16-odoo/v16-oca.git
+    section: OCA
+    use: true
+    suffix: ""
 
 # --- Add your repositories below ---
-addons: []
-#  - path: v16-custom
-#    git_url: git@github.com:your-org/v16-custom.git
-#    key: custom
-#    section: Other
+#  - key: themes
+#    path: v16-themes
+#    git_url: git@gitlab.ownerp.io:v16-odoo/v16-themes.git
+#    section: Equitania
 #    use: true
+#    suffix: ""

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.44 (27.03.2026)
+
+### Fixed
+- **examples: Internal GitLab URLs** — All example `repos.yaml` files (v16-v19) now use `git@gitlab.ownerp.io` URLs instead of public GitHub URLs. Consistent with `versions.yaml` and production configurations. Replaces 3 separate OCA GitHub repos (rest-framework, web-api, server-auth) with single `vXX-oca` repo. Adds Equitania addons entry to all versions.
+
 ## Version 0.4.43 (26.03.2026)
 
 ### Added

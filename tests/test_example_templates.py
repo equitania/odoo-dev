@@ -245,12 +245,12 @@ class TestTemplateContent:
         assert "proxy_access_token" in content
         assert "server_wide_modules = base,rpc,web" in content
 
-    def test_v19_repos_yaml_uses_master_branch(self) -> None:
-        """v19 repos.yaml uses 'master' branch (Odoo convention for dev)."""
+    def test_v19_repos_yaml_uses_develop_branch(self) -> None:
+        """v19 repos.yaml uses 'develop' branch (internal GitLab convention)."""
         d = get_example_dir("19")
         with open(d / "repos.yaml") as f:
             data = yaml.safe_load(f)
-        assert data["branch"] == "master"
+        assert data["branch"] == "develop"
 
     @pytest.mark.parametrize("version", SUPPORTED_VERSIONS)
     def test_postgresql_conf_valid(self, version: str) -> None:

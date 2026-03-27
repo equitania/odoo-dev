@@ -1,8 +1,8 @@
 # Odoo v18 Repository Configuration
 # Customize this file for your project
 version: "18"
-branch: "18.0"
-# ssh_key: "~/.ssh/id_rsa"   # Uncomment for SSH authentication
+branch: "develop"
+ssh_key: "~/.ssh/id_rsa"
 
 paths:
   base: ~/gitbase/v18
@@ -15,34 +15,27 @@ base_addons:
 
 server:
   path: v18-server
-  git_url: https://github.com/odoo/odoo.git
+  git_url: git@gitlab.ownerp.io:v18/v18-server.git
 
-# --- OCA REST-Framework Stack ---
 addons:
-  - key: oca-rest-framework
-    path: v18-oca-rest-framework
-    git_url: https://github.com/OCA/rest-framework.git
-    section: OCA
+  - key: addons
+    path: v18-addons
+    git_url: git@gitlab.ownerp.io:v18/v18-addons.git
+    section: Equitania
     use: true
     suffix: ""
 
-  - key: oca-web-api
-    path: v18-oca-web-api
-    git_url: https://github.com/OCA/web-api.git
-    section: OCA
-    use: true
-    suffix: ""
-
-  - key: oca-server-auth
-    path: v18-oca-server-auth
-    git_url: https://github.com/OCA/server-auth.git
+  - key: oca
+    path: v18-oca
+    git_url: git@gitlab.ownerp.io:v18/v18-oca.git
     section: OCA
     use: true
     suffix: ""
 
 # --- Add your repositories below ---
-#  - path: v18-custom
-#    git_url: git@github.com:your-org/v18-custom.git
-#    key: custom
-#    section: Other
+#  - key: themes
+#    path: v18-themes
+#    git_url: git@gitlab.ownerp.io:v18/v18-themes.git
+#    section: Equitania
 #    use: true
+#    suffix: ""
