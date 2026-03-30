@@ -38,7 +38,7 @@ versions:
       native_subdir: "dev17_native"
       conf_subdir: "conf"
     git:
-      server_url: "git@gitlab.ownerp.io:v17/v17-server.git"
+      server_url: "git@gitlab.ownerp.io:v17-odoo/v17-server.git"
       branch: "develop"
 
   "18":

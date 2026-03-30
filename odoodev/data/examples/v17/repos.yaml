@@ -15,21 +15,21 @@ base_addons:
 
 server:
   path: v17-server
-  git_url: git@gitlab.ownerp.io:v17/v17-server.git
+  git_url: git@gitlab.ownerp.io:v17-odoo/v17-server.git
 
 addons:
   - key: addons
     path: v17-addons
-    git_url: git@gitlab.ownerp.io:v17/v17-addons.git
+    git_url: git@gitlab.ownerp.io:v17-odoo/v17-addons.git
     section: Equitania
-    use: true
+    use: false
     suffix: ""
 
   - key: oca
     path: v17-oca
-    git_url: git@gitlab.ownerp.io:v17/v17-oca.git
+    git_url: git@gitlab.ownerp.io:v17-odoo/v17-oca.git
     section: OCA
-    use: true
+    use: false
     suffix: ""
 
 # --- Add your repositories below ---

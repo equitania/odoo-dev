@@ -53,7 +53,7 @@ langchain-core>=0.3.61
 langchain-ollama>=0.3.3
 langchain-openai>=0.3.18
 langchain-qdrant>=0.2.0
-msal==1.31.1
+msal>=1.31  # unpinned: msal 1.31.x requires cryptography<46, 1.32+ supports >=46
 nextcloud-api-wrapper
 numpy==1.26.4
 oauthlib==3.2.2

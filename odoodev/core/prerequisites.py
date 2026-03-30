@@ -206,7 +206,9 @@ def check_node() -> str | None:
         if os_name == "macos":
             print_info("Install: brew install node@20")
         else:
-            print_info("Install: sudo apt-get install -y nodejs npm")
+            print_info("Install Node.js 20 via NodeSource:")
+            print_info("  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -")
+            print_info("  sudo apt-get install -y nodejs")
         return None
 
     # Parse version
@@ -221,6 +223,10 @@ def check_node() -> str | None:
             major = int(version_str.split(".")[0])
             if major < 20:
                 print_warning(f"Node.js {version_str} found — version 20+ recommended")
+                if os_name != "macos":
+                    print_info("Upgrade via NodeSource:")
+                    print_info("  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -")
+                    print_info("  sudo apt-get install -y nodejs")
             else:
                 print_success(f"Node.js {version_str} found: {path}")
         except (ValueError, IndexError):
@@ -232,7 +238,9 @@ def check_node() -> str | None:
         if os_name == "macos":
             print_info("Install: brew install node@20 (includes npm)")
         else:
-            print_info("Install: sudo apt-get install -y npm")
+            print_info("Install Node.js 20 (includes npm) via NodeSource:")
+            print_info("  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -")
+            print_info("  sudo apt-get install -y nodejs")
 
     return path
 
@@ -267,7 +275,7 @@ def check_node_packages() -> list[str]:
 
     if missing:
         print_warning(f"Missing Node.js packages: {', '.join(missing)}")
-        print_info("Install: npm install -g rtlcss less less-plugin-clean-css")
+        print_info("Install: sudo npm install -g rtlcss less less-plugin-clean-css")
     else:
         print_success("All required Node.js packages installed")
 
@@ -361,9 +369,10 @@ def check_system_libs() -> list[str]:
                 missing.append(description)
 
         if missing:
-            packages = " ".join(LINUX_LIBS.keys())
+            # Collect only the missing package names (not descriptions)
+            missing_pkgs = [pkg for pkg, desc in LINUX_LIBS.items() if desc in missing]
             print_warning(f"Missing system libraries: {', '.join(missing)}")
-            print_info(f"Install: sudo apt-get install -y {packages}")
+            print_info(f"Install: sudo apt-get install -y \\\n    {' '.join(missing_pkgs)}")
         else:
             print_success("All required system libraries installed")
 
