@@ -290,13 +290,26 @@ LINUX_LIBS: dict[str, str] = {
     "python3-dev": "python3-dev (C extension headers)",
     "build-essential": "build-essential (gcc/g++/make)",
     "pkg-config": "pkg-config (library discovery)",
-    # Library dev packages
-    "libldap2-dev": "libldap-dev (python-ldap)",
-    "libsasl2-dev": "libsasl2-dev (python-ldap)",
+    # Crypto / SSL
+    "libssl-dev": "libssl-dev (cryptography/ssl)",
+    "libffi-dev": "libffi-dev (cffi/cryptography)",
+    # XML / XSLT
     "libxml2-dev": "libxml2-dev (lxml)",
     "libxslt1-dev": "libxslt-dev (lxml)",
+    # Image processing (Pillow)
     "libjpeg-dev": "libjpeg-dev (Pillow)",
-    "libcairo2-dev": "libcairo2-dev (reportlab)",
+    "libpng-dev": "libpng-dev (Pillow)",
+    "libfreetype6-dev": "libfreetype6-dev (Pillow)",
+    # Graphics / PDF
+    "libcairo2-dev": "libcairo2-dev (reportlab/cairosvg)",
+    # Database
+    "libpq-dev": "libpq-dev (psycopg2)",
+    # LDAP
+    "libldap2-dev": "libldap-dev (python-ldap)",
+    "libsasl2-dev": "libsasl2-dev (python-ldap)",
+    # Printing
+    "libcups2-dev": "libcups2-dev (pycups)",
+    # Fonts
     "fontconfig": "fontconfig (wkhtmltopdf)",
     "fonts-dejavu-core": "fonts-dejavu-core",
     "fonts-noto-core": "fonts-noto-core",

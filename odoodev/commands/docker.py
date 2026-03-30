@@ -17,6 +17,23 @@ def _get_compose_dir(version_cfg) -> str:
     return version_cfg.paths.native_dir
 
 
+def _check_migration_redirect(version: str) -> tuple[bool, str | None]:
+    """Check if the version is a migration target and should redirect to source.
+
+    Returns:
+        Tuple of (is_target, source_version).
+    """
+    try:
+        from odoodev.core.migration_config import get_active_group
+
+        group = get_active_group()
+        if group and group.to_version == version:
+            return True, group.from_version
+    except Exception:  # noqa: S110 — intentional safety guard
+        pass
+    return False, None
+
+
 def _run_compose(compose_dir: str, args: list[str], capture: bool = False) -> subprocess.CompletedProcess:
     """Run docker compose command in the given directory."""
     cmd = ["docker", "compose"] + args
@@ -48,6 +65,19 @@ def docker_up(ctx: click.Context, version: str | None, detach: bool) -> None:
         print_info(f"Run: odoodev init {version}")
         raise SystemExit(1)
 
+    is_target, source_version = _check_migration_redirect(version)
+    if is_target:
+        print_warning(
+            f"[MIGRATION] v{version} shares v{source_version}'s PostgreSQL container. "
+            f"Use: odoodev docker up {source_version}"
+        )
+        source_cfg = get_version(source_version)
+        compose_dir = _get_compose_dir(source_cfg)
+        if not os.path.exists(os.path.join(compose_dir, "docker-compose.yml")):
+            print_error(f"No docker-compose.yml found in {compose_dir}")
+            raise SystemExit(1)
+        version = source_version
+
     print_info(f"Starting Docker services for v{version}...")
     args = ["up"]
     if detach:
@@ -68,6 +98,20 @@ def docker_down(ctx: click.Context, version: str | None) -> None:
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     compose_dir = _get_compose_dir(version_cfg)
+
+    # Warn if this is a source container used by a migration target
+    try:
+        from odoodev.core.migration_config import get_active_group
+
+        group = get_active_group()
+        if group and group.from_version == version:
+            print_warning(
+                f"[MIGRATION] v{version}'s PostgreSQL container is shared with "
+                f"v{group.to_version} (active migration: {group.name}). "
+                f"Stopping it will disconnect v{group.to_version}."
+            )
+    except Exception:  # noqa: S110 — intentional safety guard
+        pass
 
     print_info(f"Stopping Docker services for v{version}...")
     result = _run_compose(compose_dir, ["down"])

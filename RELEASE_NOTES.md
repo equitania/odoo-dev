@@ -1,5 +1,25 @@
 # Release Notes
 
+## Version 0.4.45 (30.03.2026)
+
+### Added
+- **migrate: Migration Mode for cross-version database migrations** — New `odoodev migrate` command group for sharing PostgreSQL containers and filestore paths between Odoo versions during database migrations. Supports the full migration workflow (v16→v17→v18→v19):
+  - `odoodev migrate create --from 16 --to 18` — Create a migration group
+  - `odoodev migrate activate 16-to-18` — Activate: target version uses source's DB container and shared filestore
+  - `odoodev migrate deactivate` — Restore normal per-version isolation
+  - `odoodev migrate status` — Show active migration, ports, filestore path, container status
+  - `odoodev migrate list` — List all defined migration groups
+  - `odoodev migrate remove` — Remove a migration group definition
+- **Transparent integration**: Active migration automatically overrides target version's DB port in `load_versions()` and filestore path in `get_filestore_path()` — all existing commands (`start`, `db`, `docker`) work without changes
+- **Safety warnings**: `docker down` on shared source container warns about disconnecting target version; `docker up` on target version redirects to source container
+- **PostgreSQL compatibility check**: Warns when source and target use different PG major versions (e.g., v18 pg16 → v19 pg17)
+- **Persistent config**: Migration state persisted in `~/.config/odoodev/migration.yaml` — survives shell restarts
+- New `docs/migration-mode.md` with complete usage documentation
+- 47 new tests covering migration config, CLI commands, version registry integration, and filestore path resolution
+
+### Fixed
+- **prerequisites: Missing Debian system libraries** — Added 6 missing packages to `LINUX_LIBS` check: `libssl-dev`, `libffi-dev`, `libpng-dev`, `libfreetype6-dev`, `libpq-dev`, `libcups2-dev`. These are required for compiling Python C extensions (cryptography, Pillow, psycopg2, pycups) on fresh Debian/Ubuntu installations.
+
 ## Version 0.4.44 (27.03.2026)
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.4.42-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.4.45-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -69,6 +69,7 @@ odoodev start 18 --dev
 | `odoodev docker [SUB] [VERSION]` | Docker-Services steuern | [docker.md](usage/docker.md) |
 | `odoodev config [SUB]` | Konfiguration und Versionen | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps | [run.md](usage/run.md) |
+| `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migration-mode.md](docs/migration-mode.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
 
 ### Unterstützte Versionen
@@ -230,6 +231,7 @@ odoodev start 18 --dev
 | `odoodev docker [SUB] [VERSION]` | Docker service control | [docker.md](usage/docker.md) |
 | `odoodev config [SUB]` | Configuration and versions | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML playbook or inline steps | [run.md](usage/run.md) |
+| `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migration-mode.md](docs/migration-mode.md) |
 | `odoodev shell-setup` | Install shell completions and wrappers | [shell.md](usage/shell.md) |
 
 ### Supported Versions

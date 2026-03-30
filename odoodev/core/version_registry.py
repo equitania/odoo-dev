@@ -175,6 +175,54 @@ def _apply_global_base_dir(
     return result
 
 
+def _apply_migration_overrides(
+    versions: dict[str, VersionConfig],
+) -> dict[str, VersionConfig]:
+    """Override target version's DB port and postgres image when a migration is active.
+
+    If no migration group is active, returns versions unchanged.
+    Wrapped in try/except to never break normal operation.
+
+    Args:
+        versions: Dict of version configs to potentially override.
+
+    Returns:
+        Dict with overridden target version config if migration is active.
+    """
+    try:
+        from odoodev.core.migration_config import get_active_group
+
+        group = get_active_group()
+    except Exception:
+        return versions
+
+    if group is None:
+        return versions
+
+    target = group.to_version
+    if target not in versions:
+        return versions
+
+    cfg = versions[target]
+    new_ports = PortConfig(
+        db=group.shared_db_port,
+        odoo=cfg.ports.odoo,
+        gevent=cfg.ports.gevent,
+        mailpit=cfg.ports.mailpit,
+        smtp=cfg.ports.smtp,
+    )
+    result = dict(versions)
+    result[target] = VersionConfig(
+        version=cfg.version,
+        python=cfg.python,
+        postgres=group.pg_version,
+        ports=new_ports,
+        paths=cfg.paths,
+        git=cfg.git,
+    )
+    return result
+
+
 def load_versions(override_path: Path | None = None) -> dict[str, VersionConfig]:
     """Load version configurations from bundled YAML and optional user overrides.
 
@@ -208,6 +256,9 @@ def load_versions(override_path: Path | None = None) -> dict[str, VersionConfig]
 
     # Apply global base_dir from config.yaml (respects overrides)
     versions = _apply_global_base_dir(versions, overridden_versions)
+
+    # Apply migration overrides if a migration group is active
+    versions = _apply_migration_overrides(versions)
 
     return versions
 

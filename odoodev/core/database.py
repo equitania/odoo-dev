@@ -343,8 +343,12 @@ def copy_filestore(src: str, dest: str) -> bool:
 def get_filestore_path(odoo_version: str, db_name: str) -> str:
     """Get the filestore path for a database.
 
-    Each Odoo version uses its own subdirectory under ~/odoo-share/vXX/
-    to prevent filestore collisions between different Odoo versions.
+    When a migration group is active and the version is part of it,
+    returns a shared filestore path so both source and target versions
+    access the same files.
+
+    Otherwise, each Odoo version uses its own subdirectory under
+    ~/odoo-share/vXX/ to prevent filestore collisions.
 
     Args:
         odoo_version: Odoo version string (e.g., "18")
@@ -353,6 +357,16 @@ def get_filestore_path(odoo_version: str, db_name: str) -> str:
     Returns:
         Path to filestore directory.
     """
+    try:
+        from odoodev.core.migration_config import get_active_group
+
+        group = get_active_group()
+        if group and odoo_version in (group.from_version, group.to_version):
+            base = os.path.expanduser(group.shared_filestore_base)
+            return os.path.join(base, "filestore", db_name)
+    except Exception:  # noqa: S110 — intentional safety guard
+        pass
+
     return os.path.join(
         os.path.expanduser("~"),
         "odoo-share",
