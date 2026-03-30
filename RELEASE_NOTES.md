@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.4.46 (30.03.2026)
+
+### Fixed
+- **prerequisites: Node.js install hints** — Linux install hints now recommend NodeSource repository for Node.js 20+ instead of `apt install nodejs`. Upgrade hint shown when Node.js < 20 detected. `npm install -g` commands now include `sudo`. System library install command now lists only missing packages instead of all.
+- **examples: v16 requirements.txt** — Unpinned `msal==1.31.1` to `msal>=1.31` to resolve dependency conflict with `cryptography==46.0.0` (msal 1.31.x requires cryptography<46).
+- **examples: v17 repos.yaml** — Fixed server git URL from `v17/v17-server.git` to `v17-odoo/v17-server.git` (matching the actual GitLab namespace).
+- **versions.yaml: v17 server URL** — Same fix applied to bundled version registry.
+
 ## Version 0.4.45 (30.03.2026)
 
 ### Added
@@ -19,10 +27,6 @@
 
 ### Fixed
 - **prerequisites: Missing Debian system libraries** — Added 6 missing packages to `LINUX_LIBS` check: `libssl-dev`, `libffi-dev`, `libpng-dev`, `libfreetype6-dev`, `libpq-dev`, `libcups2-dev`. These are required for compiling Python C extensions (cryptography, Pillow, psycopg2, pycups) on fresh Debian/Ubuntu installations.
-- **prerequisites: Node.js install hints** — Linux install hints now recommend NodeSource repository for Node.js 20+ instead of `apt install nodejs`. Upgrade hint shown when Node.js < 20 detected. `npm install -g` commands now include `sudo`. System library install command now lists only missing packages instead of all.
-- **examples: v16 requirements.txt** — Unpinned `msal==1.31.1` to `msal>=1.31` to resolve dependency conflict with `cryptography==46.0.0` (msal 1.31.x requires cryptography<46).
-- **examples: v17 repos.yaml** — Fixed server git URL from `v17/v17-server.git` to `v17-odoo/v17-server.git` (matching the actual GitLab namespace).
-- **versions.yaml: v17 server URL** — Same fix applied to bundled version registry.
 
 ## Version 0.4.44 (27.03.2026)
 
