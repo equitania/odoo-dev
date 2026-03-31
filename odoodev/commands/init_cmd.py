@@ -108,15 +108,28 @@ def init(
 
     # Step 4: Start Docker services
     if not skip_docker:
-        if non_interactive or confirm("Start Docker services (PostgreSQL)?"):
-            print_info("Starting Docker services...")
-            import subprocess
+        from odoodev.core.migration_config import get_active_group
 
-            result = subprocess.run(["docker", "compose", "up", "-d"], cwd=native_dir)
-            if result.returncode == 0:
-                print_success("Docker services started")
-            else:
-                print_warning("Docker services failed to start — continue manually")
+        _mig = get_active_group()
+        if _mig and _mig.to_version == version:
+            print_warning(
+                f"[MIGRATION] v{version} shares v{_mig.from_version}'s PostgreSQL container "
+                f"(port {_mig.shared_db_port}). Skipping Docker startup for v{version}."
+            )
+            print_info(f"Start the shared container with: odoodev docker up {_mig.from_version}")
+        else:
+            if non_interactive or confirm("Start Docker services (PostgreSQL)?"):
+                print_info("Starting Docker services...")
+                import subprocess
+
+                result = subprocess.run(["docker", "compose", "up", "-d"], cwd=native_dir)
+                if result.returncode == 0:
+                    if _mig and _mig.from_version == version:
+                        print_success(f"Docker services started (shared with migration target v{_mig.to_version})")
+                    else:
+                        print_success("Docker services started")
+                else:
+                    print_warning("Docker services failed to start — continue manually")
 
     # Step 5: Create virtual environment
     venv_dir = os.path.join(native_dir, ".venv")

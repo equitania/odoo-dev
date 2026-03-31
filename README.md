@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.4.46-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.4.47-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -31,6 +31,7 @@
 - Sprachladen und Übersetzungs-Overwrite (`--load-language`, `--i18n-overwrite`)
 - Session-Bereinigung vor Odoo-Start (`--clean-sessions`)
 - Debian 13 / Python 3.12+ Kompatibilität (setuptools, Build-Dependencies)
+- Versionsübergreifender Migrationsmodus (geteilte PostgreSQL-Container und Filestore)
 
 ### Schnellstart
 
@@ -51,7 +52,17 @@ odoodev shell-setup
 odoodev start 18 --dev
 ```
 
-> Detaillierte Installationsanleitung: [usage/setup.md](usage/setup.md)
+> **Dokumentation:**
+> - [Setup & Ersteinrichtung](usage/setup.md) — Setup-Wizard, Init, .env-Verwaltung
+> - [Server Start & Stop](usage/start.md) — Start-Modi, Voraussetzungen, TUI
+> - [Repositories](usage/repos.md) — Klonen, Pull, Addon-Selektor
+> - [Datenbank](usage/db.md) — Backup, Restore, List, Drop
+> - [Virtual Environment](usage/venv.md) — UV-basierte venv-Verwaltung
+> - [Docker](usage/docker.md) — PostgreSQL & Mailpit Services
+> - [Konfiguration](usage/config.md) — Versionen, Plattforminfo
+> - [Playbooks](usage/run.md) — YAML-Automation und Inline-Steps
+> - [Migration](usage/migrate.md) — Versionsuebergreifende DB-Migration
+> - [Shell-Integration](usage/shell.md) — Completions, Wrapper, Aliase
 
 ### Befehle im Überblick
 
@@ -69,7 +80,7 @@ odoodev start 18 --dev
 | `odoodev docker [SUB] [VERSION]` | Docker-Services steuern | [docker.md](usage/docker.md) |
 | `odoodev config [SUB]` | Konfiguration und Versionen | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps | [run.md](usage/run.md) |
-| `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migration-mode.md](docs/migration-mode.md) |
+| `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
 
 ### Unterstützte Versionen
@@ -134,20 +145,6 @@ odoodev/
     └── examples/           # Beispiel-Playbooks und Requirements-Templates
 ```
 
-### Obsolete Komponenten
-
-odoodev ersetzt:
-
-| Alt | Neu |
-|-----|-----|
-| `start-native.sh` | `odoodev start` |
-| `.env.template` | `odoodev env setup` |
-| `docker-compose.yml` (manuell) | `odoodev init` |
-| Fish-Funktionen (`odoo-env`, `odoo-start`) | `odoodev` CLI |
-| Fish-Aliase (`dev16`, `dev18`) | `odoodev-activate` / `oda` |
-| Manuelle `git clone` | `odoodev repos` |
-| `docker-compose-arm64.yml` | `odoodev init` (Plattform-Detection) |
-
 ### Entwicklung
 
 ```bash
@@ -193,6 +190,7 @@ uv build                                # Paket bauen
 - Language loading and translation overwrite (`--load-language`, `--i18n-overwrite`)
 - Session cleanup before Odoo start (`--clean-sessions`)
 - Debian 13 / Python 3.12+ compatibility (setuptools, build dependencies)
+- Cross-version migration mode (shared PostgreSQL container and filestore)
 
 ### Quick Start
 
@@ -213,7 +211,17 @@ odoodev shell-setup
 odoodev start 18 --dev
 ```
 
-> Detailed installation guide: [usage/setup.md](usage/setup.md)
+> **Documentation:**
+> - [Setup & First-Time Configuration](usage/setup.md) — Setup wizard, init, .env management
+> - [Server Start & Stop](usage/start.md) — Start modes, prerequisites, TUI
+> - [Repositories](usage/repos.md) — Clone, pull, addon selector
+> - [Database](usage/db.md) — Backup, restore, list, drop
+> - [Virtual Environment](usage/venv.md) — UV-based venv management
+> - [Docker](usage/docker.md) — PostgreSQL & Mailpit services
+> - [Configuration](usage/config.md) — Versions, platform info
+> - [Playbooks](usage/run.md) — YAML automation and inline steps
+> - [Migration](usage/migrate.md) — Cross-version DB migration
+> - [Shell Integration](usage/shell.md) — Completions, wrappers, aliases
 
 ### Command Reference
 
@@ -231,7 +239,7 @@ odoodev start 18 --dev
 | `odoodev docker [SUB] [VERSION]` | Docker service control | [docker.md](usage/docker.md) |
 | `odoodev config [SUB]` | Configuration and versions | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML playbook or inline steps | [run.md](usage/run.md) |
-| `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migration-mode.md](docs/migration-mode.md) |
+| `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Install shell completions and wrappers | [shell.md](usage/shell.md) |
 
 ### Supported Versions
@@ -295,20 +303,6 @@ odoodev/
     ├── versions.yaml       # Version registry
     └── examples/           # Example playbooks and requirements templates
 ```
-
-### Obsolete Components
-
-odoodev replaces:
-
-| Old | New |
-|-----|-----|
-| `start-native.sh` | `odoodev start` |
-| `.env.template` | `odoodev env setup` |
-| `docker-compose.yml` (manual) | `odoodev init` |
-| Fish functions (`odoo-env`, `odoo-start`) | `odoodev` CLI |
-| Fish aliases (`dev16`, `dev18`) | `odoodev-activate` / `oda` |
-| Manual `git clone` | `odoodev repos` |
-| `docker-compose-arm64.yml` | `odoodev init` (platform detection) |
 
 ### Development
 

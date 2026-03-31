@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.4.47 (31.03.2026)
+
+### Fixed
+- **init: migration-aware Docker startup** — `odoodev init` no longer starts a separate PostgreSQL container when the version is the target of an active migration. Instead, it displays a `[MIGRATION]` hint and refers to the shared source container. When initializing the source version, the success message indicates the container is shared with the migration target.
+
+### Changed
+- **docs: README usage index** — Added complete usage documentation index (10 sections) after Quick Start in both DE and EN, replacing the single setup link.
+- **docs: usage/migrate.md** — New bilingual usage page for the migration command with quick-start workflow, subcommand reference, and link to technical details.
+- **docs: Obsolete Components removed** — Removed the "Obsolete Components" sections from README (both DE and EN) as they are no longer relevant.
+
 ## Version 0.4.46 (30.03.2026)
 
 ### Fixed
