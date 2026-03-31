@@ -48,6 +48,24 @@ def stop(ctx: click.Context, version: str | None, keep_docker: bool, force: bool
     if keep_docker:
         print_info("Keeping Docker services running (--keep-docker)")
     else:
+        # Migration awareness: warn or skip based on role
+        try:
+            from odoodev.core.migration_config import get_active_group
+
+            group = get_active_group()
+            if group and group.to_version == version:
+                print_info(
+                    f"[MIGRATION] v{version} uses v{group.from_version}'s container — skipping docker compose down"
+                )
+                return
+            if group and group.from_version == version:
+                print_warning(
+                    f"[MIGRATION] This stops the shared PostgreSQL container — "
+                    f"v{group.to_version} will lose database access"
+                )
+        except Exception:  # noqa: S110
+            pass
+
         print_info(f"Stopping Docker services for v{version}...")
         result = subprocess.run(
             ["docker", "compose", "down"],

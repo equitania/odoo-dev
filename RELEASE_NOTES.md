@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.4.48 (31.03.2026)
+
+### Fixed
+- **db: migration-aware hints** — All database commands (`list`, `drop`, `backup`, `restore`) now display a `[MIGRATION]` hint when an active migration is detected, showing which PostgreSQL container is being accessed.
+- **start: migration-aware Docker auto-start** — `_check_services()` now redirects the Docker auto-start to the source version's container when the target version is started during an active migration, preventing a wrong container from being launched.
+- **stop: migration-aware Docker shutdown** — `odoodev stop` for the migration source now warns that the shared container will be stopped. For the migration target, `docker compose down` is skipped entirely since it has no own container.
+
 ## Version 0.4.47 (31.03.2026)
 
 ### Fixed

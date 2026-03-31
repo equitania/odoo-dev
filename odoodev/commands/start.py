@@ -465,8 +465,22 @@ def _check_services(
     db_port = int(env_vars.get("DB_PORT", str(ports.db)))
     if not check_port("localhost", db_port):
         print_warning(f"PostgreSQL not accessible on localhost:{db_port}")
+
+        # Migration redirect: start source container instead of target's
+        compose_cwd = native_dir
+        try:
+            from odoodev.core.migration_config import get_active_group
+
+            group = get_active_group()
+            if group and group.to_version == version:
+                source_cfg = get_version(group.from_version)
+                compose_cwd = source_cfg.paths.native_dir
+                print_info(f"[MIGRATION] Starting v{group.from_version}'s PostgreSQL container")
+        except Exception:  # noqa: S110
+            pass
+
         if no_confirm or confirm("Start Docker services now?"):
-            subprocess.run(["docker", "compose", "up", "-d"], cwd=native_dir)
+            subprocess.run(["docker", "compose", "up", "-d"], cwd=compose_cwd)
             import time
 
             time.sleep(5)

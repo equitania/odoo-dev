@@ -99,6 +99,25 @@ def _load_env_vars(version_cfg) -> dict[str, str]:
     return env_vars
 
 
+def _print_migration_hint(version: str) -> None:
+    """Print migration mode hint if version is involved in active migration."""
+    try:
+        from odoodev.core.migration_config import get_active_group
+
+        group = get_active_group()
+        if not group:
+            return
+        if group.to_version == version:
+            print_warning(
+                f"[MIGRATION] v{version} uses v{group.from_version}'s PostgreSQL "
+                f"container (port {group.shared_db_port})"
+            )
+        elif group.from_version == version:
+            print_info(f"[MIGRATION] v{version}'s PostgreSQL is shared with migration target v{group.to_version}")
+    except Exception:  # noqa: S110
+        pass
+
+
 @click.group()
 def db() -> None:
     """Database operations (backup, restore, list, drop)."""
@@ -113,6 +132,7 @@ def db_list(ctx: click.Context, version: str | None) -> None:
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+    _print_migration_hint(version)
 
     databases = list_databases(host=params["host"], port=params["port"], user=params["user"])
     if databases:
@@ -134,6 +154,7 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+    _print_migration_hint(version)
 
     if not name:
         name = _select_database(params)
@@ -201,6 +222,7 @@ def db_restore(
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+    _print_migration_hint(version)
 
     if not backup_file:
         backup_file = path_input("Backup file:")
@@ -346,6 +368,7 @@ def db_backup(
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+    _print_migration_hint(version)
 
     # Check PostgreSQL accessibility
     from odoodev.core.prerequisites import check_port
