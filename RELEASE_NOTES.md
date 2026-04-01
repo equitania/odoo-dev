@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.4.49 (01.04.2026)
+
+### Fixed
+- **security: TAR path traversal protection** — Backup extraction for `.tar`/`.tgz` files now validates all member paths before extraction (CWE-22), consistent with the existing ZIP protection.
+- **security: password masking in CLI output** — `odoodev env show` now masks `PGPASSWORD`/`DB_PASSWORD` as `***` instead of displaying in cleartext. Setup summary also masks the DB password.
+- **quality: coverage threshold raised** — Test coverage threshold increased from 20% to 55% (current coverage: 57.64%).
+
 ## Version 0.4.48 (31.03.2026)
 
 ### Fixed

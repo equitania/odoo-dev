@@ -115,7 +115,7 @@ def _run_interactive_wizard() -> GlobalConfig:
             "Base Directory": config.base_dir,
             "Active Versions": ", ".join(f"v{v}" for v in config.active_versions),
             "DB User": config.database.user,
-            "DB Password": config.database.password,
+            "DB Password": "***",
             "Config File": str(get_config_path()),
         },
     )

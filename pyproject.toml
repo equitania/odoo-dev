@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.4.48"
+version = "0.4.49"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -67,7 +67,7 @@ ignore = [
 "odoodev/commands/env.py" = ["S701"]              # Jinja2 renders config files, not HTML
 "odoodev/commands/start.py" = ["S104", "S606"]    # 0.0.0.0 required for Odoo, execvpe for shell
 "odoodev/core/docker_compose.py" = ["S701"]       # Jinja2 renders config files, not HTML
-"odoodev/core/database.py" = ["S105"]               # Dev tool default credentials, not secrets
+"odoodev/core/database.py" = ["S105", "S202"]        # Dev tool default credentials; tarfile.extractall with path traversal check
 "odoodev/core/global_config.py" = ["S105"]        # Dev tool default password, not a secret
 "odoodev/tui/**" = ["S104", "S606"]              # TUI process management requires these patterns
 "tests/**" = ["S101", "S105", "S106", "S108", "S701", "B011", "E741"]  # test fixtures use hardcoded values and tmp paths
@@ -81,5 +81,5 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --tb=short --cov=odoodev --cov-report=term-missing --cov-fail-under=20"
+addopts = "-v --tb=short --cov=odoodev --cov-report=term-missing --cov-fail-under=55"
 asyncio_mode = "auto"

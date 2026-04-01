@@ -234,12 +234,18 @@ def extract_backup(backup_file: str, extract_path: str) -> bool:
 
         # TAR files
         if ext in (".tar", ".tgz"):
-            result = subprocess.run(
-                ["tar", "-xf", backup_file, "-C", extract_path],
-                capture_output=True,
-                text=True,
-            )
-            return result.returncode == 0
+            import tarfile
+
+            with tarfile.open(backup_file) as tf:
+                # Validate all members before extraction to prevent path traversal (CWE-22)
+                safe_base = os.path.normpath(os.path.abspath(extract_path))
+                for member in tf.getmembers():
+                    member_path = os.path.normpath(os.path.abspath(os.path.join(extract_path, member.name)))
+                    if not member_path.startswith(safe_base + os.sep) and member_path != safe_base:
+                        msg = f"Tar path traversal detected: {member.name}"
+                        raise ValueError(msg)
+                tf.extractall(extract_path)
+            return True
 
         # GZIP files
         if ext == ".gz":
