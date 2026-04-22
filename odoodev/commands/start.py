@@ -106,11 +106,18 @@ def _load_env_file(env_file: str) -> dict[str, str]:
     return env_vars
 
 
-def _set_environment(env_vars: dict[str, str]) -> dict[str, str]:
+def _set_environment(env_vars: dict[str, str], bind_host: str = "127.0.0.1") -> dict[str, str]:
     """Set up environment variables for Odoo execution.
 
     Uses .pgpass file for PostgreSQL authentication instead of
     exposing PGPASSWORD in the process environment.
+
+    Args:
+        env_vars: Parsed .env values.
+        bind_host: Interface Odoo should bind to. Defaults to ``127.0.0.1``
+            (loopback only) to avoid exposing the dev server on all
+            interfaces. Use ``0.0.0.0`` to accept connections from VMs
+            or shared networks.
     """
     env = os.environ.copy()
     # Export .env values
@@ -123,10 +130,15 @@ def _set_environment(env_vars: dict[str, str]) -> dict[str, str]:
     pg_user = env_vars.get("PGUSER", "ownerp")
     pg_password = env_vars.get("PGPASSWORD", "CHANGE_AT_FIRST")
 
+    # Warn once when the placeholder default is still in use
+    from odoodev.core.database import _warn_once_on_placeholder
+
+    _warn_once_on_placeholder(pg_password)
+
     env["PGHOST"] = pg_host
     env["PGPORT"] = pg_port
     env["PGUSER"] = pg_user
-    env["HOST"] = "0.0.0.0"
+    env["HOST"] = bind_host
 
     # Write credentials to .pgpass instead of PGPASSWORD env var
     _write_pgpass(pg_host, pg_port, pg_user, pg_password)
@@ -598,6 +610,13 @@ def _build_odoo_extra_args(
 @click.option("-d", "--database", default=None, help="Odoo database name")
 @click.option("-u", "--update", default=None, help="Modules to update (comma-separated or 'all')")
 @click.option("-i", "--init", default=None, help="Modules to install (comma-separated)")
+@click.option(
+    "--host",
+    "bind_host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Interface Odoo binds to. Use 0.0.0.0 to expose on all interfaces (VMs, shared networks).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -613,6 +632,7 @@ def start(
     database: str | None,
     update: str | None,
     init: str | None,
+    bind_host: str,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -648,7 +668,7 @@ def start(
 
     # Preflight checks
     env_vars = _check_env_file(ctx, version, native_dir)
-    env = _set_environment(env_vars)
+    env = _set_environment(env_vars, bind_host=bind_host)
     _check_venv(ctx, version, version_cfg, venv_dir)
     _check_odoo_source(ctx, version, odoo_dir)
     config_path = _check_odoo_config(ctx, version, myconfs_dir)

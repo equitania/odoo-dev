@@ -14,8 +14,23 @@ logger = logging.getLogger(__name__)
 # Default credentials — kept as module constants for signature defaults.
 # Actual values come from global config at runtime via _get_default_credentials().
 DEFAULT_DB_USER = "ownerp"
-DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
+DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"  # noqa: S105 — placeholder, warned at runtime
 DEFAULT_DB_HOST = "localhost"
+
+_insecure_default_warned = False
+
+
+def _warn_once_on_placeholder(password: str) -> None:
+    """Emit a one-shot warning when the placeholder default password is in use."""
+    global _insecure_default_warned
+    if _insecure_default_warned or password != DEFAULT_DB_PASSWORD:
+        return
+    _insecure_default_warned = True
+    logger.warning(
+        "PostgreSQL credentials fall back to the placeholder password %r — "
+        "run `odoodev setup` to configure a real password.",
+        DEFAULT_DB_PASSWORD,
+    )
 
 
 def _get_default_credentials() -> tuple[str, str]:
@@ -27,9 +42,11 @@ def _get_default_credentials() -> tuple[str, str]:
         from odoodev.core.global_config import load_global_config
 
         cfg = load_global_config()
-        return cfg.database.user, cfg.database.password
+        user, password = cfg.database.user, cfg.database.password
     except (ImportError, AttributeError, KeyError, OSError):
-        return DEFAULT_DB_USER, DEFAULT_DB_PASSWORD
+        user, password = DEFAULT_DB_USER, DEFAULT_DB_PASSWORD
+    _warn_once_on_placeholder(password)
+    return user, password
 
 
 def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 18432) -> dict[str, str]:
@@ -46,7 +63,9 @@ def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 18432) -> dict[str, str
     if not os.path.exists(pgpass_path):
         # Fallback: use PGPASSWORD only when .pgpass is unavailable
         _, default_password = _get_default_credentials()
-        env["PGPASSWORD"] = os.environ.get("PGPASSWORD", default_password)
+        pgpassword = os.environ.get("PGPASSWORD", default_password)
+        _warn_once_on_placeholder(pgpassword)
+        env["PGPASSWORD"] = pgpassword
     else:
         # .pgpass exists — remove PGPASSWORD to let psql use .pgpass
         env.pop("PGPASSWORD", None)
@@ -244,7 +263,8 @@ def extract_backup(backup_file: str, extract_path: str) -> bool:
                     if not member_path.startswith(safe_base + os.sep) and member_path != safe_base:
                         msg = f"Tar path traversal detected: {member.name}"
                         raise ValueError(msg)
-                tf.extractall(extract_path)
+                # filter="data" blocks symlinks, device files and absolute paths (Python 3.12+ stdlib)
+                tf.extractall(extract_path, filter="data")
             return True
 
         # GZIP files

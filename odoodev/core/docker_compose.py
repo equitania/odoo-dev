@@ -16,9 +16,11 @@ def render_compose(version_cfg, user: str, docker_platform: str) -> str:
     Returns:
         Rendered docker-compose.yml content
     """
-    from jinja2 import Environment, PackageLoader
+    from jinja2 import PackageLoader
+    from jinja2.sandbox import SandboxedEnvironment
 
-    jinja_env = Environment(
+    # SandboxedEnvironment prevents SSTI via attacker-influenced config values.
+    jinja_env = SandboxedEnvironment(
         loader=PackageLoader("odoodev", "templates"),
         keep_trailing_newline=True,
     )

@@ -34,8 +34,8 @@ class TestOdooXmlRpcClientInit:
         assert client._base_url == "http://localhost:18069"
 
 
-class TestNonLocalhostWarning:
-    """Test plaintext HTTP warning for non-local hosts."""
+class TestRemoteHostSafety:
+    """Test plaintext HTTP safeguards for non-local hosts."""
 
     def test_no_warning_for_localhost(self, caplog):
         """No warning emitted for localhost connections."""
@@ -53,12 +53,28 @@ class TestNonLocalhostWarning:
             OdooXmlRpcClient(host="127.0.0.1", port=8069, database="test")
         assert "plaintext HTTP" not in caplog.text
 
-    def test_warning_for_remote_host(self, caplog):
-        """Warning emitted for non-local hosts."""
+    def test_remote_plaintext_blocked_by_default(self):
+        """Remote hosts are blocked without explicit TLS or insecure opt-in."""
+        with pytest.raises(ValueError, match="Refusing plaintext XML-RPC"):
+            OdooXmlRpcClient(host="remote-server.example.com", port=8069, database="test")
+
+    def test_remote_https_allowed(self):
+        """use_https=True allows connections to remote hosts."""
+        client = OdooXmlRpcClient(host="odoo.example.com", port=443, database="test", use_https=True)
+        assert client._base_url == "https://odoo.example.com:443"
+
+    def test_remote_insecure_opt_in_warns(self, caplog):
+        """allow_insecure_remote=True connects over plaintext but logs a warning."""
         import logging
 
         with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
-            OdooXmlRpcClient(host="remote-server.example.com", port=8069, database="test")
+            client = OdooXmlRpcClient(
+                host="remote-server.example.com",
+                port=8069,
+                database="test",
+                allow_insecure_remote=True,
+            )
+        assert client._base_url == "http://remote-server.example.com:8069"
         assert "plaintext HTTP" in caplog.text
         assert "remote-server.example.com" in caplog.text
 

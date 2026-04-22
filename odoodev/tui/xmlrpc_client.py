@@ -9,6 +9,8 @@ from __future__ import annotations
 import socket
 import xmlrpc.client
 
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 
 class OdooXmlRpcClient:
     """XML-RPC client for Odoo module operations.
@@ -23,6 +25,12 @@ class OdooXmlRpcClient:
         username: Admin username (default: admin).
         password: Admin password (default: admin).
         timeout: Connection timeout in seconds.
+        use_https: Use https:// scheme instead of http://. Credentials are
+            transmitted in the XML-RPC body, so HTTPS is required for any
+            non-local host to avoid plaintext password leakage.
+        allow_insecure_remote: Explicit opt-in to speak plaintext HTTP to a
+            non-local host. Use only in trusted LANs — otherwise prefer
+            ``use_https=True``.
     """
 
     def __init__(
@@ -33,6 +41,8 @@ class OdooXmlRpcClient:
         username: str = "admin",
         password: str = "admin",  # noqa: S107 — dev tool default, not a real secret
         timeout: int = 10,
+        use_https: bool = False,
+        allow_insecure_remote: bool = False,
     ) -> None:
         self._host = host
         self._port = port
@@ -42,10 +52,21 @@ class OdooXmlRpcClient:
         self._timeout = timeout
         self._uid: int | None = None
 
-        self._base_url = f"http://{host}:{port}"
+        is_local = host in _LOCAL_HOSTS
+        if not is_local and not use_https and not allow_insecure_remote:
+            msg = (
+                f"Refusing plaintext XML-RPC to remote host {host!r} — "
+                f"credentials would travel unencrypted. "
+                f"Pass use_https=True for TLS or allow_insecure_remote=True "
+                f"to override (trusted LAN only)."
+            )
+            raise ValueError(msg)
 
-        # Warn when transmitting credentials over plaintext to non-local hosts
-        if host not in ("localhost", "127.0.0.1", "::1"):
+        scheme = "https" if use_https else "http"
+        self._base_url = f"{scheme}://{host}:{port}"
+
+        # Warn when user explicitly chose plaintext for a remote host
+        if not is_local and not use_https:
             import logging
 
             logging.getLogger(__name__).warning(

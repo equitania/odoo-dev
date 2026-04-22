@@ -1,6 +1,15 @@
 # Release Notes
 
-## Version 0.4.49 (01.04.2026)
+## Version 0.4.50 (22.04.2026)
+
+### Fixed
+- **security: TAR symlink/device-file hardening** — `tarfile.extractall()` now uses the `filter="data"` parameter (Python 3.12+) in addition to the explicit member-path check. This closes a residual gap where a prepared archive containing a relative symlink could redirect extraction outside the target directory despite the path check passing.
+- **security: XML-RPC credential leakage on remote hosts** — `OdooXmlRpcClient` now refuses plaintext HTTP connections to non-local hosts by default (`ValueError` instead of a passive warning). New `use_https=True` parameter enables TLS; `allow_insecure_remote=True` provides an explicit opt-in for trusted LANs.
+- **security: SSTI hardening in Jinja2 templates** — `commands/env.py` and `core/docker_compose.py` now use `jinja2.sandbox.SandboxedEnvironment` instead of the default `Environment`. Prevents template-expression injection via attacker-influenced config values (`db_password`, `dev_user`, etc.).
+- **security: placeholder-password runtime warning** — One-shot warning when PostgreSQL commands fall back to the `CHANGE_AT_FIRST` placeholder (from `global_config.py` defaults, `PGPASSWORD` env, or `.env` file). Hints at `odoodev setup` to configure a real password.
+- **security: Odoo server binds to loopback by default** — `odoodev start` now sets `HOST=127.0.0.1` instead of `0.0.0.0`, keeping the dev server off shared network interfaces. New `--host` option re-exposes the previous behaviour (`--host 0.0.0.0`) for VM-based or multi-host workflows.
+
+
 
 ### Fixed
 - **security: TAR path traversal protection** — Backup extraction for `.tar`/`.tgz` files now validates all member paths before extraction (CWE-22), consistent with the existing ZIP protection.

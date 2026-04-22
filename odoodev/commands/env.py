@@ -6,7 +6,8 @@ import os
 
 import click
 from dotenv import dotenv_values
-from jinja2 import Environment, PackageLoader
+from jinja2 import PackageLoader
+from jinja2.sandbox import SandboxedEnvironment
 
 from odoodev.cli import resolve_version
 from odoodev.core.environment import detect_docker_platform, detect_os, detect_user
@@ -14,9 +15,14 @@ from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import confirm, print_error, print_info, print_success, print_table, print_warning
 
 
-def _get_template_env() -> Environment:
-    """Get Jinja2 environment for templates."""
-    return Environment(
+def _get_template_env() -> SandboxedEnvironment:
+    """Get Jinja2 environment for templates.
+
+    Uses SandboxedEnvironment to prevent SSTI via user-controlled config values
+    (.env variables, global config.yaml) — these may contain attacker-influenced
+    strings on shared systems.
+    """
+    return SandboxedEnvironment(
         loader=PackageLoader("odoodev", "templates"),
         keep_trailing_newline=True,
     )

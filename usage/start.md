@@ -29,6 +29,9 @@ odoodev start 18 --prepare
 
 # Odoo-Argumente direkt uebergeben
 odoodev start 18 -d mydb -u my_module
+
+# Auf allen Interfaces binden (z.B. fuer VM-Zugriff)
+odoodev start 18 --host 0.0.0.0
 ```
 
 ### Start-Modi im Ueberblick
@@ -42,6 +45,14 @@ odoodev start 18 -d mydb -u my_module
 | **Prepare** | `--prepare` | Aktiviert nur die virtuelle Umgebung und oeffnet eine Shell, ohne Odoo zu starten. |
 
 > **Hinweis:** `--dev=all` aktiviert alle Entwickler-Features (XML-Reload, Python Auto-Reload, pdb-Debugger). Einzelne Features koennen kommagetrennt gewaehlt werden, z.B. `--dev=reload,xml`. Niemals in Produktion verwenden!
+
+### Bind-Host (`--host`)
+
+Seit v0.4.50 bindet Odoo standardmaessig nur auf `127.0.0.1` (Loopback), damit der Dev-Server nicht ueber gemeinsame Netzwerk-Interfaces exponiert wird. Wer aus einer VM oder einem anderen Rechner auf Odoo zugreifen moechte, verwendet:
+
+```bash
+odoodev start 18 --host 0.0.0.0
+```
 
 ### Start-Voraussetzungen
 
@@ -97,6 +108,9 @@ odoodev start 18 --prepare
 
 # Pass Odoo arguments directly
 odoodev start 18 -d mydb -u my_module
+
+# Bind to all interfaces (e.g. for VM access)
+odoodev start 18 --host 0.0.0.0
 ```
 
 ### Start Modes Overview
@@ -110,6 +124,14 @@ odoodev start 18 -d mydb -u my_module
 | **Prepare** | `--prepare` | Only activates the virtual environment and opens a shell without starting Odoo. |
 
 > **Note:** `--dev=all` enables all developer features (XML reload, Python auto-reload, pdb debugger). Individual features can be selected comma-separated, e.g. `--dev=reload,xml`. Never use in production!
+
+### Bind Host (`--host`)
+
+Since v0.4.50 Odoo binds to `127.0.0.1` (loopback) only by default, so the dev server is not exposed on shared network interfaces. To reach Odoo from a VM or another machine, use:
+
+```bash
+odoodev start 18 --host 0.0.0.0
+```
 
 ### Start Prerequisites
 
