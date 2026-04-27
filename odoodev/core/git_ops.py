@@ -223,8 +223,17 @@ def update_repo(repo_dir: str, branch: str) -> tuple[bool, str]:
     success, output = run_git_command(["git", "checkout", branch], cwd=repo_dir)
     if not success:
         return False, f"checkout {branch}: {output.strip()}"
-    success, output = run_git_command(["git", "pull"], cwd=repo_dir)
+    success, output = run_git_command(["git", "pull", "--ff-only"], cwd=repo_dir)
     if not success:
+        # --ff-only fails with "Not possible to fast-forward" on divergent branches
+        # or "non-fast-forward" on legacy git versions
+        lowered = output.lower()
+        if "not possible to fast-forward" in lowered or "non-fast-forward" in lowered:
+            return False, (
+                f"pull: branch '{branch}' has diverged from origin. "
+                f"Resolve manually: 'git -C {repo_dir} pull --rebase' "
+                f"or 'git -C {repo_dir} pull --no-rebase'"
+            )
         return False, f"pull: {output.strip()}"
 
     # Clean Python cache

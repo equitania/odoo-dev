@@ -43,6 +43,8 @@ odoodev pull 18 --select
 
 Der `pull`-Befehl zeigt bei fehlgeschlagenen Repos detaillierte Fehlermeldungen (z.B. Branch nicht gefunden, Merge-Konflikte).
 
+`pull` verwendet intern `git pull --ff-only`. Bei divergierenden Branches (lokale Commits, die nicht durch Fast-Forward versöhnt werden können) schlägt der Pull bewusst fehl mit einem klaren Hinweis: `git -C <repo> pull --rebase` oder `--no-rebase`. Das verhindert ungewollte Merge-Commits oder Rebases ohne explizite Entscheidung.
+
 ### Interaktiver Addon-Selektor (`--select`)
 
 Mit dem `--select` Flag wird nach dem Clone/Pull eine Checkbox-Oberfläche angezeigt, in der einzelne Addons pro Sektion (OCA, Enterprise, Equitania, Customer, etc.) aktiviert oder deaktiviert werden können. Die Vorauswahl basiert auf dem `use`-Feld in `repos.yaml`. Nach Bestätigung wird die `odoo.conf` entsprechend generiert — deaktivierte Addons erscheinen als Kommentar im `addons_path`.
@@ -158,6 +160,8 @@ odoodev pull 18 --select
 ```
 
 The `pull` command shows detailed error messages for failed repos (e.g. branch not found, merge conflicts).
+
+`pull` internally uses `git pull --ff-only`. When branches have diverged (local commits that cannot be reconciled via fast-forward) the pull deliberately fails with an actionable hint: `git -C <repo> pull --rebase` or `--no-rebase`. This prevents unintended merge commits or rebases without an explicit decision.
 
 ### Interactive Addon Selector (`--select`)
 

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.51 (27.04.2026)
+
+### Fixed
+- **repos/pull: divergent branch handling** — `update_repo()` now uses `git pull --ff-only` instead of bare `git pull`. When local and remote branches have diverged, the command fails immediately with a clear, actionable hint pointing the user to `git -C <path> pull --rebase` or `--no-rebase`. Previously the failure surfaced as opaque git hint text and depended on the user's global `pull.rebase`/`pull.ff` configuration.
+
 ## Version 0.4.50 (22.04.2026)
 
 ### Fixed
