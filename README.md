@@ -53,6 +53,7 @@ odoodev start 18 --dev
 ```
 
 > **Dokumentation:**
+> - **[Wiki: Odoo-Entwicklungs-Workflow](usage/odoo-development-workflow.md)** — End-to-End-Anleitung mit Hello-World-Modul (zweisprachig DE/EN)
 > - [Setup & Ersteinrichtung](usage/setup.md) — Setup-Wizard, Init, .env-Verwaltung
 > - [Server Start & Stop](usage/start.md) — Start-Modi, Voraussetzungen, TUI
 > - [Repositories](usage/repos.md) — Klonen, Pull, Addon-Selektor
@@ -212,6 +213,7 @@ odoodev start 18 --dev
 ```
 
 > **Documentation:**
+> - **[Wiki: Odoo Development Workflow](usage/odoo-development-workflow.md)** — End-to-end guide with Hello-World module (bilingual DE/EN)
 > - [Setup & First-Time Configuration](usage/setup.md) — Setup wizard, init, .env management
 > - [Server Start & Stop](usage/start.md) — Start modes, prerequisites, TUI
 > - [Repositories](usage/repos.md) — Clone, pull, addon selector
