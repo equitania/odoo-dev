@@ -16,6 +16,7 @@ DEFAULT_BASE_DIR = "~/gitbase"
 DEFAULT_DB_USER = "ownerp"
 DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
 DEFAULT_ACTIVE_VERSIONS = ["16", "17", "18", "19"]
+DEFAULT_LANGUAGE = "en"
 
 # Module-level cache to avoid repeated disk reads
 _cached_config: GlobalConfig | None = None
@@ -30,11 +31,19 @@ class DatabaseConfig:
 
 
 @dataclass(frozen=True)
+class CliConfig:
+    """User-interface configuration for the CLI itself."""
+
+    language: str = DEFAULT_LANGUAGE
+
+
+@dataclass(frozen=True)
 class GlobalConfig:
     """Global odoodev configuration stored in ~/.config/odoodev/config.yaml."""
 
     base_dir: str = DEFAULT_BASE_DIR
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    cli: CliConfig = field(default_factory=CliConfig)
     active_versions: list[str] = field(default_factory=lambda: list(DEFAULT_ACTIVE_VERSIONS))
 
     @property
@@ -89,9 +98,13 @@ def load_global_config() -> GlobalConfig:
         password=db_data.get("password", DEFAULT_DB_PASSWORD),
     )
 
+    cli_data = data.get("cli", {})
+    cli_config = CliConfig(language=cli_data.get("language", DEFAULT_LANGUAGE))
+
     _cached_config = GlobalConfig(
         base_dir=data.get("base_dir", DEFAULT_BASE_DIR),
         database=db_config,
+        cli=cli_config,
         active_versions=data.get("active_versions", list(DEFAULT_ACTIVE_VERSIONS)),
     )
     return _cached_config
@@ -117,6 +130,9 @@ def save_global_config(config: GlobalConfig) -> Path:
         "database": {
             "user": config.database.user,
             "password": config.database.password,
+        },
+        "cli": {
+            "language": config.cli.language,
         },
         "active_versions": config.active_versions,
     }

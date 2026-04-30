@@ -10,6 +10,7 @@ import sys
 
 import click
 
+from odoodev import i18n
 from odoodev.cli import resolve_version
 from odoodev.core.environment import detect_shell
 from odoodev.core.prerequisites import check_port
@@ -228,6 +229,7 @@ def _start_odoo(
     env: dict[str, str],
     venv_dir: str,
     version: str = "",
+    version_cfg: object = None,
     load_language: str | None = None,
     i18n_overwrite: bool = False,
 ) -> None:
@@ -236,6 +238,23 @@ def _start_odoo(
     odoo_bin = os.path.join(odoo_dir, "odoo-bin")
 
     cmd = [python, odoo_bin, "-c", config_path]
+
+    # Always show the URL panel so users get visual confirmation of the port
+    # they should open in the browser — also in --dev/--shell/--test.
+    default_odoo_port = str(version_cfg.ports.odoo) if version_cfg is not None else ""  # type: ignore[attr-defined]
+    default_mailpit_port = str(version_cfg.ports.mailpit) if version_cfg is not None else ""  # type: ignore[attr-defined]
+    odoo_port = env.get("ODOO_PORT") or default_odoo_port
+    mailpit_port = env.get("MAILPIT_PORT") or default_mailpit_port
+    mode_suffix = {"dev": " (--dev)", "shell": " (--shell)", "test": " (--test)"}.get(mode, "")
+    if odoo_port:
+        if mailpit_port and check_port("localhost", int(mailpit_port)):
+            subtitle = i18n.t("start.url_panel_with_mailpit", port=odoo_port, mailpit=mailpit_port)
+        else:
+            subtitle = i18n.t("start.url_panel_subtitle", port=odoo_port)
+        print_header(
+            f"Odoo v{env.get('ODOO_VERSION', version or '?')} — Native Development{mode_suffix}",
+            subtitle,
+        )
 
     if mode == "dev":
         print_info("Starting Odoo in development mode (--dev=all)...")
@@ -246,17 +265,6 @@ def _start_odoo(
     elif mode == "test":
         print_info("Running Odoo tests...")
         cmd.extend(["--test-enable", "--stop-after-init"])
-    else:
-        # Normal mode
-        odoo_port = env.get("ODOO_PORT", "18069")
-        subtitle = f"Web: http://localhost:{odoo_port}"
-        mailpit_port = env.get("MAILPIT_PORT", "18025")
-        if check_port("localhost", int(mailpit_port)):
-            subtitle += f"  |  Mailpit: http://localhost:{mailpit_port}"
-        print_header(
-            f"Odoo v{env.get('ODOO_VERSION', '?')} — Native Development",
-            subtitle,
-        )
 
     # Mute deprecated RPC endpoint warnings for v19+
     _add_v19_log_handlers(cmd, version)
@@ -333,7 +341,8 @@ def _check_env_file(ctx: click.Context, version: str, native_dir: str) -> dict[s
     """
     env_file = os.path.join(native_dir, ".env")
     if not os.path.exists(env_file):
-        print_warning(f"No .env file found at {env_file}")
+        print_warning(i18n.t("start.env_missing", path=env_file))
+        print_info(i18n.t("start.env_missing_hint", version=version))
         if confirm(f"Create .env for v{version} now?"):
             from odoodev.commands.env import env_setup
 
@@ -345,6 +354,47 @@ def _check_env_file(ctx: click.Context, version: str, native_dir: str) -> dict[s
             raise SystemExit(1)
 
     return _load_env_file(env_file)
+
+
+def _check_placeholder_password(
+    env_vars: dict[str, str],
+    version: str,
+    native_dir: str,
+    allow_default: bool,
+) -> None:
+    """Block on the unchanged ``CHANGE_AT_FIRST`` placeholder password.
+
+    Renders a Rich panel with the affected ``.env`` path and an action hint,
+    then — in interactive sessions — prompts a blocking confirmation. CI and
+    scripted runs can pass ``allow_default=True`` (via
+    ``--allow-default-credentials``) to bypass the prompt.
+
+    Raises:
+        SystemExit: If the user declines the placeholder, or if running
+            non-interactively without ``allow_default``.
+    """
+    from odoodev.core.database import DEFAULT_DB_PASSWORD
+
+    pg_password = env_vars.get("PGPASSWORD", "")
+    if pg_password and pg_password != DEFAULT_DB_PASSWORD:
+        return  # configured properly, nothing to do
+
+    env_path = os.path.join(native_dir, ".env")
+
+    print_warning(i18n.t("start.placeholder_password_title"))
+    print_info(i18n.t("start.placeholder_password_body", path=env_path))
+    print_info(i18n.t("start.placeholder_password_action", version=version, path=env_path))
+
+    if allow_default:
+        return
+
+    if not sys.stdin.isatty():
+        print_error(i18n.t("start.placeholder_password_aborted"))
+        raise SystemExit(1)
+
+    if not confirm(i18n.t("start.placeholder_password_continue"), default=False):
+        print_error(i18n.t("start.placeholder_password_aborted"))
+        raise SystemExit(1)
 
 
 def _check_venv(
@@ -617,6 +667,11 @@ def _build_odoo_extra_args(
     show_default=True,
     help="Interface Odoo binds to. Use 0.0.0.0 to expose on all interfaces (VMs, shared networks).",
 )
+@click.option(
+    "--allow-default-credentials",
+    is_flag=True,
+    help="Allow the placeholder password 'CHANGE_AT_FIRST' (development/CI only).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -633,6 +688,7 @@ def start(
     update: str | None,
     init: str | None,
     bind_host: str,
+    allow_default_credentials: bool,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -668,6 +724,7 @@ def start(
 
     # Preflight checks
     env_vars = _check_env_file(ctx, version, native_dir)
+    _check_placeholder_password(env_vars, version, native_dir, allow_default_credentials)
     env = _set_environment(env_vars, bind_host=bind_host)
     _check_venv(ctx, version, version_cfg, venv_dir)
     _check_odoo_source(ctx, version, odoo_dir)
@@ -726,6 +783,7 @@ def start(
             env,
             venv_dir,
             version=version,
+            version_cfg=version_cfg,
             load_language=load_language,
             i18n_overwrite=i18n_overwrite,
         )
@@ -750,6 +808,7 @@ def start(
                 env,
                 venv_dir,
                 version=version,
+                version_cfg=version_cfg,
                 load_language=load_language,
                 i18n_overwrite=i18n_overwrite,
             )

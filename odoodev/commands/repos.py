@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 
 import click
@@ -23,6 +24,9 @@ from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import print_error, print_info, print_success, print_warning
 
 logger = logging.getLogger(__name__)
+
+# Equitania convention: enterprise addon repos are named v16e, v17e, v18e, v19e, ...
+_ENTERPRISE_PATH_RE = re.compile(r"^v\d+e$", re.IGNORECASE)
 
 
 def _find_repos_config(version_cfg) -> str | None:
@@ -79,6 +83,48 @@ def _collect_all_repos_with_status(config: dict) -> list[dict]:
                     use = True
                 repos.append({**repo, "use": use})
     return repos
+
+
+def _is_enterprise_repo(meta: dict) -> bool:
+    """Detect enterprise repos by section tag or Equitania path convention (vNNe)."""
+    if meta.get("section") == "Enterprise":
+        return True
+    path = os.path.basename(str(meta.get("path", "")).rstrip("/"))
+    return bool(_ENTERPRISE_PATH_RE.match(path))
+
+
+def _prompt_enterprise_inclusion(
+    repo_metadata: dict[str, dict],
+) -> dict[str, dict]:
+    """Ask whether enterprise repositories should be included in the config.
+
+    Detects all enterprise repos that are currently set to use=true. An entry
+    counts as enterprise if section == "Enterprise" or its path matches the
+    Equitania convention vNNe (e.g. v16e, v17e, v18e, v19e). Prompts once,
+    and on "no" sets their use flag to false in the returned metadata. The
+    repos.yaml file is left untouched.
+
+    Falls back silently if no enterprise repos are active or no TTY.
+    """
+    enterprise_keys = [
+        key for key, meta in repo_metadata.items() if meta.get("use", True) and _is_enterprise_repo(meta)
+    ]
+    if not enterprise_keys:
+        return repo_metadata
+    if not sys.stdin.isatty():
+        return repo_metadata
+
+    from odoodev.output import confirm
+
+    print_info(f"Enterprise repositories detected: {', '.join(enterprise_keys)}")
+    if confirm("Include enterprise modules in the Odoo config?", default=True):
+        return repo_metadata
+
+    new_metadata = dict(repo_metadata)
+    for key in enterprise_keys:
+        new_metadata[key] = {**repo_metadata[key], "use": False}
+    print_warning(f"Enterprise excluded for this config: {', '.join(enterprise_keys)}")
+    return new_metadata
 
 
 def _interactive_addon_selector(
@@ -213,7 +259,7 @@ def _process_repos(
 
             full_path = os.path.join(base_path, repo_path)
 
-            repo_metadata[key] = {"section": section, "use": use}
+            repo_metadata[key] = {"section": section, "use": use, "path": repo_path}
 
             if not use:
                 # Still collect paths for unused repos (shown as comments in config)
@@ -255,6 +301,11 @@ def _process_repos(
 @click.option("--config-only", is_flag=True, help="Only generate Odoo config (no git operations)")
 @click.option("--skip-access-check", is_flag=True, help="Skip SSH access verification")
 @click.option("--select", "select_addons", is_flag=True, help="Interactive addon selector before config generation")
+@click.option(
+    "--no-enterprise-prompt",
+    is_flag=True,
+    help="Skip the interactive enterprise inclusion prompt",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
 @click.pass_context
 def repos(
@@ -266,6 +317,7 @@ def repos(
     config_only: bool,
     skip_access_check: bool,
     select_addons: bool,
+    no_enterprise_prompt: bool,
     verbose: bool,
 ) -> None:
     """Clone/update repositories and generate Odoo configuration.
@@ -320,6 +372,8 @@ def repos(
                 repo_metadata = _interactive_addon_selector(config, repo_metadata)
             else:
                 print_warning("--select requires an interactive terminal, skipping selector")
+        elif not no_enterprise_prompt:
+            repo_metadata = _prompt_enterprise_inclusion(repo_metadata)
         _generate_config(config, version_cfg, all_paths, repo_metadata)
         return
 
@@ -374,6 +428,8 @@ def repos(
             repo_metadata = _interactive_addon_selector(config, repo_metadata)
         else:
             print_warning("--select requires an interactive terminal, skipping selector")
+    elif not no_enterprise_prompt:
+        repo_metadata = _prompt_enterprise_inclusion(repo_metadata)
 
     # Generate config
     _generate_config(config, version_cfg, all_paths, repo_metadata)

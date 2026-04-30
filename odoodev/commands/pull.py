@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
 @click.option("--no-config", is_flag=True, help="Skip Odoo config regeneration after pull")
 @click.option("--select", "select_addons", is_flag=True, help="Interactive addon selector before config generation")
+@click.option(
+    "--no-enterprise-prompt",
+    is_flag=True,
+    help="Skip the interactive enterprise inclusion prompt",
+)
 @click.pass_context
 def pull(
     ctx: click.Context,
@@ -37,6 +42,7 @@ def pull(
     verbose: bool,
     no_config: bool,
     select_addons: bool,
+    no_enterprise_prompt: bool,
 ) -> None:
     """Pull (update) all existing repositories.
 
@@ -163,4 +169,8 @@ def pull(
                 repo_metadata = _interactive_addon_selector(config, repo_metadata)
             else:
                 print_warning("--select requires an interactive terminal, skipping selector")
+        elif not no_enterprise_prompt:
+            from odoodev.commands.repos import _prompt_enterprise_inclusion
+
+            repo_metadata = _prompt_enterprise_inclusion(repo_metadata)
         _generate_config(config, version_cfg, all_paths, repo_metadata)

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import click
 
+from odoodev import i18n
 from odoodev.core.global_config import (
     DEFAULT_ACTIVE_VERSIONS,
     DEFAULT_BASE_DIR,
     DEFAULT_DB_PASSWORD,
     DEFAULT_DB_USER,
+    CliConfig,
     DatabaseConfig,
     GlobalConfig,
     clear_config_cache,
@@ -43,7 +45,7 @@ def _run_interactive_wizard() -> GlobalConfig:
 
     style = _ownerp_style()
 
-    print_header("odoodev Setup", "Interactive configuration wizard")
+    print_header(i18n.t("setup.welcome"), "Interactive configuration wizard")
 
     # Show current config if it exists
     if config_exists():
@@ -51,10 +53,26 @@ def _run_interactive_wizard() -> GlobalConfig:
         print_info(f"Current config: base_dir={current.base_dir}, db_user={current.database.user}")
         print_info("Values in brackets are current settings.\n")
 
+    # Step 0: Preferred CLI language (applies to subsequent prompts immediately)
+    default_lang = load_global_config().cli.language if config_exists() else i18n.get_language()
+    lang_choices = [
+        questionary.Choice("English", value="en", checked=default_lang == "en"),
+        questionary.Choice("Deutsch", value="de", checked=default_lang == "de"),
+    ]
+    lang = questionary.select(
+        i18n.t("setup.lang_question"),
+        choices=lang_choices,
+        default=default_lang,
+        style=style,
+    ).ask()
+    if lang is None:
+        raise SystemExit(0)
+    i18n.set_language(lang)
+
     # Step 1: Base Directory
     default_base = load_global_config().base_dir if config_exists() else DEFAULT_BASE_DIR
     base_dir = questionary.text(
-        "Base directory for Odoo projects:",
+        i18n.t("setup.base_dir_question"),
         default=default_base,
         style=style,
     ).ask()
@@ -68,7 +86,7 @@ def _run_interactive_wizard() -> GlobalConfig:
     version_choices = [questionary.Choice(f"v{v}", value=v, checked=v in default_versions) for v in all_versions]
     with _patch_checkbox_indicators():
         active_versions = questionary.checkbox(
-            "Active Odoo versions:",
+            i18n.t("setup.versions_question"),
             choices=version_choices,
             style=style,
         ).ask()
@@ -85,7 +103,7 @@ def _run_interactive_wizard() -> GlobalConfig:
     default_pass = load_global_config().database.password if config_exists() else DEFAULT_DB_PASSWORD
 
     db_user = questionary.text(
-        "PostgreSQL user:",
+        i18n.t("setup.db_user_question"),
         default=default_user,
         style=style,
     ).ask()
@@ -94,7 +112,7 @@ def _run_interactive_wizard() -> GlobalConfig:
         raise SystemExit(0)
 
     db_password = questionary.text(
-        "PostgreSQL password:",
+        i18n.t("setup.db_password_question"),
         default=default_pass,
         style=style,
     ).ask()
@@ -105,6 +123,7 @@ def _run_interactive_wizard() -> GlobalConfig:
     config = GlobalConfig(
         base_dir=base_dir,
         database=DatabaseConfig(user=db_user, password=db_password),
+        cli=CliConfig(language=lang),
         active_versions=sorted(active_versions),
     )
 
@@ -158,4 +177,4 @@ def setup(non_interactive: bool, reset: bool) -> None:
     config = _run_interactive_wizard()
     clear_config_cache()
     path = save_global_config(config)
-    print_success(f"Configuration saved: {path}")
+    print_success(i18n.t("setup.saved", path=str(path)))

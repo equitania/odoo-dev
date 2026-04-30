@@ -21,15 +21,21 @@ _insecure_default_warned = False
 
 
 def _warn_once_on_placeholder(password: str) -> None:
-    """Emit a one-shot warning when the placeholder default password is in use."""
+    """Emit a one-shot Rich-panel warning when the placeholder password is in use.
+
+    Non-blocking. ``odoodev start`` performs an additional, blocking check via
+    ``_check_placeholder_password`` so the user cannot miss it.
+    """
     global _insecure_default_warned
     if _insecure_default_warned or password != DEFAULT_DB_PASSWORD:
         return
     _insecure_default_warned = True
-    logger.warning(
-        "PostgreSQL credentials fall back to the placeholder password %r — "
-        "run `odoodev setup` to configure a real password.",
-        DEFAULT_DB_PASSWORD,
+
+    from odoodev.output import print_warning
+
+    print_warning(
+        f"PostgreSQL credentials fall back to the placeholder password {DEFAULT_DB_PASSWORD!r} — "
+        "run 'odoodev setup' to configure a real password."
     )
 
 

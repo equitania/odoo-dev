@@ -90,6 +90,19 @@ Der gesamte Ablauf vom ersten Setup bis zum Merge-Request:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+#### Port-Übersicht aller Versionen
+
+Jede Odoo-Version verwendet einen eigenen Port-Bereich. **Im Browser exakt den Port der gestarteten Version öffnen — Verwechslung führt zu „Connection refused".**
+
+| Version | Web | DB | Mailpit Web | Gevent |
+|---|---|---|---|---|
+| v16 | `16069` | `16432` | `16025` | `16072` |
+| v17 | `17069` | `17432` | `17025` | `17072` |
+| v18 | `18069` | `18432` | `18025` | `18072` |
+| v19 | `19069` | `19432` | `19025` | `19072` |
+
+> **Pflichtschritt vor dem ersten `odoodev start`:** Nach `odoodev init` enthält die generierte `.env` (`~/gitbase/v{N}/v{N}-dev/dev{N}_native/.env`) das Placeholder-Passwort `CHANGE_AT_FIRST`. Dieses Passwort muss durch ein echtes ersetzt werden — entweder zentral via `odoodev setup` (vor `init`) oder direkt durch Editieren der `.env`. `odoodev start` erkennt den Placeholder und blockt mit Hinweis, der Flag `--allow-default-credentials` ist ausschließlich für Entwicklungs-/CI-Sessions gedacht.
+
 ### 3. Odoo-Dev-Server einrichten
 
 #### 3.1 Voraussetzungen installieren
@@ -197,7 +210,7 @@ Erzeugt:
 | Mailpit Web-UI | `18025` |
 | Mailpit SMTP | `1025` |
 
-Komplette Port-Tabelle aller Versionen: siehe [`config.md`](config.md).
+Komplette Port-Tabelle aller Versionen: siehe [`usage/config.md`](config.md).
 
 ### 4. Git-Repositories klonen
 
@@ -383,7 +396,7 @@ Das macht:
 odoodev pull 18
 ```
 
-Nutzt `git pull --ff-only` und schlägt bei divergierenden Branches mit klarem Hinweis fehl — kein versehentlicher Merge-Commit. Details zur `repos.yaml`: siehe [`repos.md`](repos.md).
+Nutzt `git pull --ff-only` und schlägt bei divergierenden Branches mit klarem Hinweis fehl — kein versehentlicher Merge-Commit. Details zur `repos.yaml`: siehe [`usage/repos.md`](repos.md).
 
 ### 5. Odoo-Backup einspielen
 
@@ -415,7 +428,7 @@ odoodev db restore 18 -n v18_devcopy -z ~/odoo-share/backups/<dateiname>.zip
 - ausgehende Mail-Server (`ir_mail_server.active = false`)
 - Fetchmail-Server, Nextcloud-, Office365-Konfiguration
 
-So ist sichergestellt, dass aus deiner Dev-Kopie keine Mails oder Cloud-Aktionen gegen Fremdsysteme laufen. Weitere Backup-Formate (7z, tar, gz, SQL) und Optionen: siehe [`db.md`](db.md).
+So ist sichergestellt, dass aus deiner Dev-Kopie keine Mails oder Cloud-Aktionen gegen Fremdsysteme laufen. Weitere Backup-Formate (7z, tar, gz, SQL) und Optionen: siehe [`usage/db.md`](db.md).
 
 ### 6. Odoo-Server starten
 
@@ -466,7 +479,7 @@ odoodev stop 18              # Odoo + Docker stoppen
 odoodev stop 18 --keep-docker  # nur Odoo, Docker weiterlaufen lassen
 ```
 
-Vollständige Optionsliste: siehe [`start.md`](start.md).
+Vollständige Optionsliste: siehe [`usage/start.md`](start.md).
 
 ### 7. Hello-World-Modul anlegen
 
@@ -656,6 +669,8 @@ Damit endet der Entwickler-Workflow. Die Promotion auf weitere Stages erfolgt an
 | Symptom | Ursache | Lösung |
 |---|---|---|
 | `odoodev: command not found` | UV-Tools nicht im PATH | `uv tool update-shell` oder Shell neu laden |
+| Browser zeigt „Connection refused" / weiße Seite | Falscher Port aufgerufen oder Server nicht lokal erreichbar | Port aus dem Start-Panel des CLI verwenden (Port-Tabelle s. Abschnitt 2). Falls auf Remote/Terminal-Server gestartet: dortigen Hostname statt `localhost` öffnen |
+| `Insecure default credentials` blockt `odoodev start` | `.env` enthält Placeholder `CHANGE_AT_FIRST` | `odoodev setup` ausführen oder `PGPASSWORD` in `~/gitbase/v{N}/v{N}-dev/dev{N}_native/.env` direkt setzen |
 | `[ERROR] PostgreSQL port 18432 not reachable` | Docker nicht gestartet | `odoodev docker up 18` |
 | `[ERROR] No odoo-bin found` | Server-Repo fehlt | `odoodev repos 18 --server-only` |
 | `[ERROR] requirements.txt changed` | Abhängigkeiten geändert | `odoodev venv setup 18 --force` |
@@ -674,16 +689,16 @@ Damit endet der Entwickler-Workflow. Die Promotion auf weitere Stages erfolgt an
 
 | Thema | Datei |
 |---|---|
-| odoodev-Installation, Setup-Wizard | [`setup.md`](setup.md) |
-| Konfiguration & Versionen | [`config.md`](config.md) |
-| Repository-Management & `repos.yaml` | [`repos.md`](repos.md) |
-| Server starten/stoppen, alle Modi | [`start.md`](start.md) |
-| Datenbank-Operationen, Backup-Formate | [`db.md`](db.md) |
-| Docker-Services | [`docker.md`](docker.md) |
-| Virtual-Environment-Verwaltung | [`venv.md`](venv.md) |
-| Shell-Integration & Completions | [`shell.md`](shell.md) |
-| Migrationsmodus (versionsübergreifend) | [`migrate.md`](migrate.md) |
-| Playbook-Automation (`run`) | [`run.md`](run.md) |
+| odoodev-Installation, Setup-Wizard | [`usage/setup.md`](setup.md) |
+| Konfiguration & Versionen | [`usage/config.md`](config.md) |
+| Repository-Management & `repos.yaml` | [`usage/repos.md`](repos.md) |
+| Server starten/stoppen, alle Modi | [`usage/start.md`](start.md) |
+| Datenbank-Operationen, Backup-Formate | [`usage/db.md`](db.md) |
+| Docker-Services | [`usage/docker.md`](docker.md) |
+| Virtual-Environment-Verwaltung | [`usage/venv.md`](venv.md) |
+| Shell-Integration & Completions | [`usage/shell.md`](shell.md) |
+| Migrationsmodus (versionsübergreifend) | [`usage/migrate.md`](migrate.md) |
+| Playbook-Automation (`run`) | [`usage/run.md`](run.md) |
 
 ### Quellcode
 
@@ -780,6 +795,19 @@ End-to-end flow from the initial setup to the merge request:
 │ 10. Merge request against develop                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+#### Port overview across versions
+
+Each Odoo version uses its own port range. **Open exactly the port of the version you started — mixing them up results in „Connection refused".**
+
+| Version | Web | DB | Mailpit Web | Gevent |
+|---|---|---|---|---|
+| v16 | `16069` | `16432` | `16025` | `16072` |
+| v17 | `17069` | `17432` | `17025` | `17072` |
+| v18 | `18069` | `18432` | `18025` | `18072` |
+| v19 | `19069` | `19432` | `19025` | `19072` |
+
+> **Mandatory step before the first `odoodev start`:** After `odoodev init` the generated `.env` (`~/gitbase/v{N}/v{N}-dev/dev{N}_native/.env`) contains the placeholder password `CHANGE_AT_FIRST`. Replace it with a real password — either centrally via `odoodev setup` (before `init`) or by editing the `.env` directly. `odoodev start` detects the placeholder and blocks with a clear hint; `--allow-default-credentials` is for development/CI sessions only.
 
 ### 3. Setting Up the Odoo Dev Server
 
@@ -888,7 +916,7 @@ Creates:
 | Mailpit Web UI | `18025` |
 | Mailpit SMTP | `1025` |
 
-Full port table for all versions: see [`config.md`](config.md).
+Full port table for all versions: see [`usage/config.md`](config.md).
 
 ### 4. Cloning Git Repositories
 
@@ -1074,7 +1102,7 @@ It performs:
 odoodev pull 18
 ```
 
-Uses `git pull --ff-only` and fails on diverged branches with a clear hint — no accidental merge commits. Details on `repos.yaml`: see [`repos.md`](repos.md).
+Uses `git pull --ff-only` and fails on diverged branches with a clear hint — no accidental merge commits. Details on `repos.yaml`: see [`usage/repos.md`](repos.md).
 
 ### 5. Restoring an Odoo Backup
 
@@ -1106,7 +1134,7 @@ After the restore, `odoodev db restore` automatically deactivates:
 - outgoing mail servers (`ir_mail_server.active = false`)
 - fetchmail servers, Nextcloud and Office365 configuration
 
-This guarantees that your dev copy cannot trigger mails or cloud actions against external systems. Other backup formats (7z, tar, gz, SQL) and options: see [`db.md`](db.md).
+This guarantees that your dev copy cannot trigger mails or cloud actions against external systems. Other backup formats (7z, tar, gz, SQL) and options: see [`usage/db.md`](db.md).
 
 ### 6. Starting the Odoo Server
 
@@ -1157,7 +1185,7 @@ odoodev stop 18              # stop Odoo + Docker
 odoodev stop 18 --keep-docker  # only Odoo, keep Docker running
 ```
 
-Full option list: see [`start.md`](start.md).
+Full option list: see [`usage/start.md`](start.md).
 
 ### 7. Creating the Hello-World Module
 
@@ -1347,6 +1375,8 @@ This concludes the developer workflow. Promotion to further stages is then handl
 | Symptom | Cause | Fix |
 |---|---|---|
 | `odoodev: command not found` | UV tools not on PATH | `uv tool update-shell` or reload shell |
+| Browser shows „Connection refused" / blank page | Wrong port called or server not reachable locally | Use the port shown in the CLI start panel (port table in section 2). If you started on a remote/terminal server: open the remote hostname instead of `localhost` |
+| `Insecure default credentials` blocks `odoodev start` | `.env` still has placeholder `CHANGE_AT_FIRST` | Run `odoodev setup` or set `PGPASSWORD` directly in `~/gitbase/v{N}/v{N}-dev/dev{N}_native/.env` |
 | `[ERROR] PostgreSQL port 18432 not reachable` | Docker not running | `odoodev docker up 18` |
 | `[ERROR] No odoo-bin found` | Server repo missing | `odoodev repos 18 --server-only` |
 | `[ERROR] requirements.txt changed` | Dependencies changed | `odoodev venv setup 18 --force` |
@@ -1365,16 +1395,16 @@ This concludes the developer workflow. Promotion to further stages is then handl
 
 | Topic | File |
 |---|---|
-| odoodev installation, setup wizard | [`setup.md`](setup.md) |
-| Configuration & versions | [`config.md`](config.md) |
-| Repository management & `repos.yaml` | [`repos.md`](repos.md) |
-| Server start/stop, all modes | [`start.md`](start.md) |
-| Database operations, backup formats | [`db.md`](db.md) |
-| Docker services | [`docker.md`](docker.md) |
-| Virtual environment management | [`venv.md`](venv.md) |
-| Shell integration & completions | [`shell.md`](shell.md) |
-| Migration mode (cross-version) | [`migrate.md`](migrate.md) |
-| Playbook automation (`run`) | [`run.md`](run.md) |
+| odoodev installation, setup wizard | [`usage/setup.md`](setup.md) |
+| Configuration & versions | [`usage/config.md`](config.md) |
+| Repository management & `repos.yaml` | [`usage/repos.md`](repos.md) |
+| Server start/stop, all modes | [`usage/start.md`](start.md) |
+| Database operations, backup formats | [`usage/db.md`](db.md) |
+| Docker services | [`usage/docker.md`](docker.md) |
+| Virtual environment management | [`usage/venv.md`](venv.md) |
+| Shell integration & completions | [`usage/shell.md`](shell.md) |
+| Migration mode (cross-version) | [`usage/migrate.md`](migrate.md) |
+| Playbook automation (`run`) | [`usage/run.md`](run.md) |
 
 ### Source Code
 

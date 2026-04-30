@@ -1,5 +1,21 @@
 # Release Notes
 
+## Version 0.4.52 (30.04.2026)
+
+### Added
+- **i18n: DE/EN localization for CLI guidance** — New `odoodev/i18n.py` module with flat dict-of-dicts MESSAGES, `t(key, **kwargs)` translator, and 5-tier precedence detection (`--lang` flag → `ODOODEV_LANG` env → `cli.language` in config → system locale → `en`). Phase-1 strings cover the setup wizard, `start` preflight, placeholder-password panel, and DB-restore hints. New global `--lang en|de` flag (`odoodev --lang de start 18`).
+- **setup: language preference in wizard** — First wizard step now asks for the preferred CLI language and persists it to `~/.config/odoodev/config.yaml` under `cli.language`. New `CliConfig` dataclass in `core/global_config.py`.
+- **start: blocking placeholder-password preflight** — New `_check_placeholder_password` preflight renders a Rich panel with the affected `.env` path and aborts unless the user explicitly confirms (TTY) or passes the new `--allow-default-credentials` flag (CI/scripts). Replaces the easily overlooked single-line `logger.warning`.
+- **repos/pull: enterprise inclusion prompt** — `_prompt_enterprise_inclusion` detects repositories tagged `section: Enterprise` or matching the `vNNe` path convention (`v16e`, `v17e`, `v18e`, `v19e`) and offers to exclude them in this run. New `--no-enterprise-prompt` flag for non-interactive use. The `repos.yaml` is never modified.
+
+### Fixed
+- **start: hardcoded port fallback in URL panel** — `env.get("ODOO_PORT", "18069")` was a v18-only constant regardless of the version actually starting. Now falls back to `version_cfg.ports.odoo`, so `odoodev start 16` shows port `16069` instead of misleading users into typing `18069` in the browser.
+- **start: URL panel hidden in --dev/--shell/--test** — The `Web: http://localhost:PORT` panel only rendered in normal mode. It now renders in every mode with the active mode annotated in the title (`Odoo v18 — Native Development (--dev)`).
+- **database: placeholder warning visibility** — `_warn_once_on_placeholder` now uses `print_warning` (Rich panel) instead of `logger.warning`, so the warning is no longer drowned in standard log output.
+
+### Changed
+- **docs: workflow wiki hardening** — Port-overview table for all four versions added directly after the workflow diagram, plus a prominent `.env`-edit reminder. Cross-references rewritten to `usage/<file>.md` so paths stay readable without a Markdown renderer. Two new troubleshooting entries: "Connection refused" (port mix-ups) and "Insecure default credentials" (placeholder password). DE and EN sections kept symmetric.
+
 ## Version 0.4.51 (27.04.2026)
 
 ### Fixed

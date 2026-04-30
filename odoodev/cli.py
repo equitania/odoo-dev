@@ -49,14 +49,28 @@ def resolve_version(ctx: click.Context, version: str | None) -> str:
 
 @click.group()
 @click.version_option(version=__version__, prog_name="odoodev")
+@click.option(
+    "--lang",
+    "lang",
+    type=click.Choice(["en", "de"]),
+    default=None,
+    help="Language for CLI messages (overrides ODOODEV_LANG and config).",
+)
 @click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli(ctx: click.Context, lang: str | None) -> None:
     """Unified CLI for native Odoo development environment management.
 
     Manages Odoo development environments across versions (v16-v19).
     Supports auto-detection of version from current working directory.
     """
     ctx.ensure_object(dict)
+
+    # Resolve and activate UI language as early as possible so subsequent
+    # imports (which may emit translated messages) see the right locale.
+    from odoodev import i18n
+
+    i18n.set_language(i18n.detect_language(cli_flag=lang))
+    ctx.obj["lang"] = i18n.get_language()
 
     # Check interpreter health early — broken UV tool environments
     # produce cryptic errors; this gives a clear fix instruction.
