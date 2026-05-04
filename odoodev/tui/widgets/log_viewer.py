@@ -10,7 +10,7 @@ from textual.selection import Selection
 from textual.widget import Widget
 from textual.widgets import RichLog
 
-from odoodev.tui.log_parser import OdooLogEntry, level_ge, parse_line
+from odoodev.tui.log_parser import OdooLogEntry, parse_line
 
 # Color mapping for log levels
 LEVEL_STYLES: dict[str, str] = {
@@ -21,6 +21,12 @@ LEVEL_STYLES: dict[str, str] = {
     "DEBUG": "dim",
     "RAW": "dim italic",
 }
+
+# All filterable levels (non-RAW). RAW lines inherit the previous entry's level.
+FILTERABLE_LEVELS: frozenset[str] = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+# Default fallback when a RAW line appears before any structured log entry
+DEFAULT_RAW_LEVEL = "INFO"
 
 MAX_BUFFER_SIZE = 10_000
 
@@ -56,10 +62,12 @@ class SelectableRichLog(RichLog):
 
 
 class LogViewer(Widget):
-    """Log viewer with level filtering, search highlighting, and auto-scroll.
+    """Log viewer with multi-toggle level filtering, search highlighting, and auto-scroll.
 
-    Wraps a RichLog widget with an internal buffer of parsed entries.
-    Supports filtering by minimum log level and highlighting search terms.
+    Wraps a RichLog widget with an internal buffer of (entry, effective_level)
+    tuples. Each level can be independently enabled or disabled. RAW lines
+    (tracebacks, stdout) inherit the level of the preceding structured log
+    entry, so a traceback after an ERROR is shown together with that ERROR.
     """
 
     DEFAULT_CSS = """
@@ -68,13 +76,17 @@ class LogViewer(Widget):
     }
     """
 
-    min_level: reactive[str] = reactive("DEBUG")
+    active_levels: reactive[frozenset[str]] = reactive(FILTERABLE_LEVELS)
     search_term: reactive[str] = reactive("")
     auto_scroll: reactive[bool] = reactive(True)
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._buffer: deque[OdooLogEntry] = deque(maxlen=MAX_BUFFER_SIZE)
+        # Buffer stores parsed entries with their effective filter level.
+        # For non-RAW entries, effective_level == entry.level.
+        # For RAW entries, effective_level inherits the previous structured level.
+        self._buffer: deque[tuple[OdooLogEntry, str]] = deque(maxlen=MAX_BUFFER_SIZE)
+        self._last_real_level: str = DEFAULT_RAW_LEVEL
         self._rich_log: SelectableRichLog | None = None
 
     def compose(self):
@@ -88,18 +100,28 @@ class LogViewer(Widget):
     def write_line(self, line: str) -> None:
         """Parse and display a raw log line.
 
+        Tracks the last structured log level so RAW continuation lines
+        (tracebacks, stack traces, plain stdout) are filtered alongside
+        their triggering log entry.
+
         Args:
             line: Raw log line from Odoo stdout/stderr.
         """
         entry = parse_line(line)
-        self._buffer.append(entry)
+        if entry.level == "RAW":
+            effective_level = self._last_real_level
+        else:
+            effective_level = entry.level
+            self._last_real_level = entry.level
 
-        if self._should_show(entry):
+        self._buffer.append((entry, effective_level))
+
+        if self._should_show(entry, effective_level):
             self._render_entry(entry)
 
-    def _should_show(self, entry: OdooLogEntry) -> bool:
+    def _should_show(self, entry: OdooLogEntry, effective_level: str) -> bool:
         """Check if an entry passes the current filter."""
-        if not level_ge(entry.level, self.min_level):
+        if effective_level not in self.active_levels:
             return False
         if self.search_term and self.search_term.lower() not in entry.raw.lower():
             return False
@@ -126,17 +148,42 @@ class LogViewer(Widget):
         if self._rich_log is None:
             return
         self._rich_log.clear()
-        for entry in self._buffer:
-            if self._should_show(entry):
+        for entry, effective_level in self._buffer:
+            if self._should_show(entry, effective_level):
                 self._render_entry(entry)
 
-    def watch_min_level(self) -> None:
-        """React to filter level changes."""
+    def watch_active_levels(self) -> None:
+        """React to filter set changes."""
         self._rebuild_display()
 
     def watch_search_term(self) -> None:
         """React to search term changes."""
         self._rebuild_display()
+
+    def toggle_level(self, level: str) -> None:
+        """Toggle a single level on/off.
+
+        Args:
+            level: Level name (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        """
+        if level not in FILTERABLE_LEVELS:
+            return
+        if level in self.active_levels:
+            self.active_levels = self.active_levels - {level}
+        else:
+            self.active_levels = self.active_levels | {level}
+
+    def is_level_active(self, level: str) -> bool:
+        """Check if a level is currently shown."""
+        return level in self.active_levels
+
+    def show_all_levels(self) -> None:
+        """Activate all levels (default state)."""
+        self.active_levels = FILTERABLE_LEVELS
+
+    def show_issues_only(self) -> None:
+        """Show only WARNING, ERROR, and CRITICAL levels."""
+        self.active_levels = frozenset({"WARNING", "ERROR", "CRITICAL"})
 
     def clear_log(self) -> None:
         """Clear the display (buffer is preserved)."""
@@ -146,6 +193,7 @@ class LogViewer(Widget):
     def clear_all(self) -> None:
         """Clear both display and buffer."""
         self._buffer.clear()
+        self._last_real_level = DEFAULT_RAW_LEVEL
         if self._rich_log is not None:
             self._rich_log.clear()
 
@@ -157,11 +205,11 @@ class LogViewer(Widget):
     @property
     def visible_count(self) -> int:
         """Number of entries passing the current filter."""
-        return sum(1 for e in self._buffer if self._should_show(e))
+        return sum(1 for entry, eff in self._buffer if self._should_show(entry, eff))
 
     def get_visible_text(self) -> str:
         """Return all currently visible log lines as plain text."""
-        return "\n".join(e.raw for e in self._buffer if self._should_show(e))
+        return "\n".join(entry.raw for entry, eff in self._buffer if self._should_show(entry, eff))
 
     def _collect_with_tracebacks(self, trigger_levels: set[str]) -> str:
         """Collect log lines at trigger levels including their traceback continuation.
@@ -177,7 +225,7 @@ class LogViewer(Widget):
         """
         lines: list[str] = []
         collecting = False
-        for entry in self._buffer:
+        for entry, _eff in self._buffer:
             if entry.level in trigger_levels:
                 collecting = True
                 lines.append(entry.raw)

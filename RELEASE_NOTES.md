@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.4.53 (04.05.2026)
+
+### Fixed
+- **tui: per-level filter was cumulative and leaked RAW lines** — The TUI filter was a *minimum-level* filter (`level_ge`), so picking "WARNING" still showed ERROR and CRITICAL, and RAW lines (Odoo stdout, tracebacks, startup output) were always rendered regardless of the active level. Selecting "WARNING" therefore appeared to also show INFO-style output via these RAW lines. The filter is now a **multi-toggle**: each level (DEBUG, INFO, WARNING, ERROR, CRITICAL) is independently on/off. RAW continuation lines now inherit the level of the preceding structured log entry, so a traceback after an ERROR is filtered alongside that ERROR.
+
+### Changed
+- **tui: footer now exposes filter hotkeys** — Replaced the single `f` cycle binding with explicit per-level hotkeys: `0` activates all levels, `1`–`5` toggle DEBUG/INFO/WARNING/ERROR/CRITICAL individually, `f` jumps to "issues only" (WARNING + ERROR + CRITICAL). All filter bindings are visible in the footer with short labels. Copy bindings (`c`/`e`/`w`) moved to `show=False` to keep the footer focused on common actions.
+- **tui: filter bar tabs are now toggle controls** — Each level tab independently shows active (bold green reverse) or inactive (dim) state. Clicking a tab toggles only that level instead of replacing the entire filter selection. Added a leading "Levels:" label for clarity.
+
 ## Version 0.4.52 (30.04.2026)
 
 ### Added

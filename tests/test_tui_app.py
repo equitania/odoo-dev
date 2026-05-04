@@ -137,17 +137,51 @@ class TestOdooTuiAppIntegration:
             log_viewer = app.query_one("#log-viewer", LogViewer)
             assert log_viewer.entry_count > 0
 
-    async def test_cycle_filter(self, mock_cmd, tmp_path):
+    async def test_toggle_individual_levels_via_keyboard(self, mock_cmd, tmp_path):
+        """Hotkeys 1-5 toggle individual levels independently."""
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             log_viewer = app.query_one("#log-viewer", LogViewer)
-            assert log_viewer.min_level == "DEBUG"
+            # All levels active by default
+            assert "DEBUG" in log_viewer.active_levels
+            assert "INFO" in log_viewer.active_levels
+            assert "WARNING" in log_viewer.active_levels
+            assert "ERROR" in log_viewer.active_levels
+            assert "CRITICAL" in log_viewer.active_levels
 
-            await pilot.press("f")
-            assert log_viewer.min_level == "INFO"
+            # "1" toggles DEBUG off
+            await pilot.press("1")
+            assert "DEBUG" not in log_viewer.active_levels
+            assert "INFO" in log_viewer.active_levels  # others untouched
 
+            # "1" again toggles DEBUG back on
+            await pilot.press("1")
+            assert "DEBUG" in log_viewer.active_levels
+
+            # "2" toggles INFO off
+            await pilot.press("2")
+            assert "INFO" not in log_viewer.active_levels
+
+    async def test_filter_all_hotkey(self, mock_cmd, tmp_path):
+        """'0' restores all levels active."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            await pilot.press("1")  # disable DEBUG
+            await pilot.press("2")  # disable INFO
+            assert "DEBUG" not in log_viewer.active_levels
+            assert "INFO" not in log_viewer.active_levels
+
+            await pilot.press("0")
+            assert log_viewer.active_levels == frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+    async def test_filter_issues_hotkey(self, mock_cmd, tmp_path):
+        """'f' shows only WARNING, ERROR, CRITICAL."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            log_viewer = app.query_one("#log-viewer", LogViewer)
             await pilot.press("f")
-            assert log_viewer.min_level == "WARNING"
+            assert log_viewer.active_levels == frozenset({"WARNING", "ERROR", "CRITICAL"})
 
     async def test_toggle_auto_scroll(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
@@ -188,10 +222,10 @@ class TestOdooTuiAppIntegration:
             assert log_viewer.entry_count > 0
             await pilot.press("ctrl+l")
             assert log_viewer.entry_count == 0
-            # Cycling filter should NOT bring back cleared entries
-            await pilot.press("f")  # INFO
+            # Changing filter should NOT bring back cleared entries
+            await pilot.press("f")  # Issues only
             assert log_viewer.entry_count == 0
-            await pilot.press("f")  # WARNING
+            await pilot.press("0")  # All levels
             assert log_viewer.entry_count == 0
 
     async def test_quit_stops_process(self, mock_cmd, tmp_path):
@@ -264,10 +298,7 @@ class TestTracebackCollection:
     """Test that error/warning copy includes traceback continuation lines."""
 
     def test_errors_include_traceback(self):
-        from odoodev.tui.log_parser import parse_line
-
         viewer = LogViewer()
-        # Simulate buffer directly
         lines = [
             "2025-03-15 10:00:00,000 999 INFO db odoo.modules: Starting",
             "2025-03-15 10:00:01,000 999 ERROR db odoo.http: Exception during request handling.",
@@ -278,7 +309,7 @@ class TestTracebackCollection:
             "2025-03-15 10:00:02,000 999 INFO db odoo.modules: Loaded",
         ]
         for line in lines:
-            viewer._buffer.append(parse_line(line))
+            viewer.write_line(line)
 
         errors = viewer.get_errors_text()
         assert "Exception during request handling" in errors
@@ -288,8 +319,6 @@ class TestTracebackCollection:
         assert "Loaded" not in errors
 
     def test_warnings_include_traceback(self):
-        from odoodev.tui.log_parser import parse_line
-
         viewer = LogViewer()
         lines = [
             "2025-03-15 10:00:00,000 999 WARNING db odoo.models: Deprecated field usage",
@@ -297,7 +326,7 @@ class TestTracebackCollection:
             "2025-03-15 10:00:01,000 999 INFO db odoo.modules: Done",
         ]
         for line in lines:
-            viewer._buffer.append(parse_line(line))
+            viewer.write_line(line)
 
         text = viewer.get_warnings_and_errors_text()
         assert "Deprecated field usage" in text
@@ -305,8 +334,6 @@ class TestTracebackCollection:
         assert "Done" not in text
 
     def test_no_traceback_between_separate_errors(self):
-        from odoodev.tui.log_parser import parse_line
-
         viewer = LogViewer()
         lines = [
             "2025-03-15 10:00:00,000 999 ERROR db odoo.http: First error",
@@ -315,13 +342,35 @@ class TestTracebackCollection:
             "Traceback for second error",
         ]
         for line in lines:
-            viewer._buffer.append(parse_line(line))
+            viewer.write_line(line)
 
         errors = viewer.get_errors_text()
         assert "First error" in errors
         assert "Info between" not in errors
         assert "Second error" in errors
         assert "Traceback for second error" in errors
+
+    def test_raw_lines_inherit_previous_level(self):
+        """RAW continuation lines after an ERROR are filtered with the ERROR."""
+        viewer = LogViewer()
+        lines = [
+            "2025-03-15 10:00:00,000 999 INFO db odoo.modules: Starting",
+            "2025-03-15 10:00:01,000 999 ERROR db odoo.http: Boom",
+            "Traceback line 1",
+            "Traceback line 2",
+            "2025-03-15 10:00:02,000 999 INFO db odoo.modules: Done",
+        ]
+        for line in lines:
+            viewer.write_line(line)
+
+        # Filter to ERROR only — Traceback lines should still appear (inherited level)
+        viewer.active_levels = frozenset({"ERROR"})
+        visible = viewer.get_visible_text()
+        assert "Boom" in visible
+        assert "Traceback line 1" in visible
+        assert "Traceback line 2" in visible
+        assert "Starting" not in visible
+        assert "Done" not in visible
 
 
 class TestLanguageLoadScreen:
@@ -373,28 +422,36 @@ class TestLanguageLoadScreen:
 class TestFilterBarClick:
     """Test clickable filter bar interactions."""
 
-    async def test_filter_tab_click_changes_level(self, mock_cmd, tmp_path):
-        """Clicking a filter tab changes the active log level."""
+    async def test_filter_tab_click_toggles_level(self, mock_cmd, tmp_path):
+        """Clicking a filter tab toggles that level on/off."""
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             log_viewer = app.query_one("#log-viewer", LogViewer)
-            assert log_viewer.min_level == "DEBUG"
+            # All levels active by default
+            assert "WARNING" in log_viewer.active_levels
 
-            # Click the WARNING tab
+            # Click the WARNING tab — toggles it off
             warning_tab = app.query_one("#tab-warning", FilterTab)
             await pilot.click(warning_tab)
-            assert log_viewer.min_level == "WARNING"
+            assert "WARNING" not in log_viewer.active_levels
+            # Other levels untouched
+            assert "ERROR" in log_viewer.active_levels
+
+            # Click again — toggles WARNING back on
+            await pilot.click(warning_tab)
+            assert "WARNING" in log_viewer.active_levels
 
     async def test_filter_tab_click_updates_filter_bar(self, mock_cmd, tmp_path):
         """Clicking a filter tab updates the filter bar display."""
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             filter_bar = app.query_one("#filter-bar", FilterBar)
-            assert filter_bar.current_level == "DEBUG"
+            # All levels active by default
+            assert "ERROR" in filter_bar.active_levels
 
             error_tab = app.query_one("#tab-error", FilterTab)
             await pilot.click(error_tab)
-            assert filter_bar.current_level == "ERROR"
+            assert "ERROR" not in filter_bar.active_levels
 
     async def test_scroll_toggle_click(self, mock_cmd, tmp_path):
         """Clicking the scroll toggle changes auto-scroll state."""

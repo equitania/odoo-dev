@@ -16,15 +16,15 @@ from odoodev.tui.widgets.filter_bar import FilterBar, FilterTab, ScrollToggle
 from odoodev.tui.widgets.log_viewer import LogViewer
 from odoodev.tui.widgets.status_bar import StatusBar
 
-# Filter levels users can cycle through (excludes RAW)
+# Filter levels users can toggle (excludes RAW — RAW inherits the previous entry's level)
 FILTER_LEVELS = [level for level in LOG_LEVELS if level != "RAW"]
 
 
 class OdooTuiApp(App):
     """Terminal UI for running and monitoring an Odoo server.
 
-    Provides scrollable log output with level filtering, reliable
-    process termination, and keyboard shortcuts for common operations.
+    Provides scrollable log output with independent per-level filtering,
+    reliable process termination, and keyboard shortcuts for common operations.
     """
 
     CSS_PATH = "app.tcss"
@@ -35,12 +35,19 @@ class OdooTuiApp(App):
         Binding("r", "restart", "Restart"),
         Binding("u", "update", "Update Module"),
         Binding("l", "load_language", "Load Language"),
-        Binding("f", "cycle_filter", "Filter Level"),
+        # Per-level toggles (multi-toggle filter)
+        Binding("0", "filter_all", "All Levels"),
+        Binding("1", "toggle_debug", "DEBUG"),
+        Binding("2", "toggle_info", "INFO"),
+        Binding("3", "toggle_warning", "WARN"),
+        Binding("4", "toggle_error", "ERROR"),
+        Binding("5", "toggle_critical", "CRIT"),
+        Binding("f", "filter_issues", "Issues only"),
         Binding("slash", "search", "Search"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
-        Binding("c", "copy_visible", "Copy Visible"),
-        Binding("e", "copy_errors", "Copy Errors"),
-        Binding("w", "copy_warnings", "Copy Warn+Err"),
+        Binding("c", "copy_visible", "Copy Visible", show=False),
+        Binding("e", "copy_errors", "Copy Errors", show=False),
+        Binding("w", "copy_warnings", "Copy Warn+Err", show=False),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
     ]
@@ -59,7 +66,6 @@ class OdooTuiApp(App):
         self._version_info = version_info
         self._odoo_port = odoo_port
         self._db_name = db_name
-        self._filter_index = 0  # Index into FILTER_LEVELS
         self._search_active = False
 
     def compose(self) -> ComposeResult:
@@ -116,21 +122,17 @@ class OdooTuiApp(App):
                     log_viewer.write_line("\n--- Odoo server stopped ---\n")
 
     def _update_filter_bar(self) -> None:
-        """Update the filter bar display."""
+        """Synchronize filter bar display with log viewer state."""
         filter_bar = self.query_one("#filter-bar", FilterBar)
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        filter_bar.set_level(FILTER_LEVELS[self._filter_index])
+        filter_bar.set_active_levels(log_viewer.active_levels)
         filter_bar.set_scroll(log_viewer.auto_scroll)
         filter_bar.set_search(log_viewer.search_term)
 
     def on_filter_tab_selected(self, event: FilterTab.Selected) -> None:
-        """Handle click on a filter level tab."""
-        try:
-            self._filter_index = FILTER_LEVELS.index(event.level)
-        except ValueError:
-            return
+        """Handle click on a filter level tab — toggle that level."""
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        log_viewer.min_level = event.level
+        log_viewer.toggle_level(event.level)
         self._update_filter_bar()
 
     def on_scroll_toggle_toggled(self, event: ScrollToggle.Toggled) -> None:
@@ -172,12 +174,42 @@ class OdooTuiApp(App):
 
         self.push_screen(LanguageLoadScreen(self._odoo))
 
-    def action_cycle_filter(self) -> None:
-        """Cycle through log level filters."""
-        self._filter_index = (self._filter_index + 1) % len(FILTER_LEVELS)
-        level = FILTER_LEVELS[self._filter_index]
+    def _toggle_level(self, level: str) -> None:
+        """Toggle a single log level on/off."""
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        log_viewer.min_level = level
+        log_viewer.toggle_level(level)
+        self._update_filter_bar()
+
+    def action_toggle_debug(self) -> None:
+        """Toggle DEBUG level visibility."""
+        self._toggle_level("DEBUG")
+
+    def action_toggle_info(self) -> None:
+        """Toggle INFO level visibility."""
+        self._toggle_level("INFO")
+
+    def action_toggle_warning(self) -> None:
+        """Toggle WARNING level visibility."""
+        self._toggle_level("WARNING")
+
+    def action_toggle_error(self) -> None:
+        """Toggle ERROR level visibility."""
+        self._toggle_level("ERROR")
+
+    def action_toggle_critical(self) -> None:
+        """Toggle CRITICAL level visibility."""
+        self._toggle_level("CRITICAL")
+
+    def action_filter_all(self) -> None:
+        """Activate all log levels (default state)."""
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        log_viewer.show_all_levels()
+        self._update_filter_bar()
+
+    def action_filter_issues(self) -> None:
+        """Show only WARNING, ERROR, and CRITICAL."""
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        log_viewer.show_issues_only()
         self._update_filter_bar()
 
     def action_search(self) -> None:

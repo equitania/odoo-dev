@@ -1,4 +1,4 @@
-"""Clickable filter bar widget with level tabs and auto-scroll toggle."""
+"""Clickable filter bar widget with level toggles and auto-scroll toggle."""
 
 from __future__ import annotations
 
@@ -11,12 +11,19 @@ from textual.widgets import Static
 
 
 class FilterTab(Static):
-    """Clickable log level filter tab."""
+    """Clickable log level toggle tab.
+
+    Each tab toggles a single log level on or off independently of the others.
+    """
 
     ALLOW_SELECT = False
 
     class Selected(Message):
-        """Posted when a filter tab is clicked."""
+        """Posted when a filter tab is clicked.
+
+        The receiver should toggle the level — not switch to a single
+        active level.
+        """
 
         def __init__(self, level: str) -> None:
             super().__init__()
@@ -46,9 +53,11 @@ class ScrollToggle(Static):
 
 
 class FilterBar(Widget):
-    """Clickable filter bar with level tabs, auto-scroll toggle, and search indicator.
+    """Clickable filter bar with independent level toggles, auto-scroll toggle, and search indicator.
 
-    Replaces the plain Static filter bar with interactive elements.
+    Each level (DEBUG, INFO, WARNING, ERROR, CRITICAL) can be enabled or
+    disabled independently. Active tabs are highlighted in green, inactive
+    tabs are dimmed.
     """
 
     DEFAULT_CSS = """
@@ -91,6 +100,12 @@ class FilterBar(Widget):
         color: $text-muted;
     }
 
+    .label {
+        width: auto;
+        height: 1;
+        color: $text-muted;
+    }
+
     ScrollToggle {
         width: auto;
         height: 1;
@@ -116,15 +131,17 @@ class FilterBar(Widget):
     }
     """
 
-    current_level: reactive[str] = reactive("DEBUG")
+    LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+    DEFAULT_ACTIVE: frozenset[str] = frozenset(LEVELS)
+
+    active_levels: reactive[frozenset[str]] = reactive(DEFAULT_ACTIVE)
     auto_scroll: reactive[bool] = reactive(True)
     search_term: reactive[str] = reactive("")
 
-    LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
-
     def compose(self) -> ComposeResult:
-        """Build the filter bar with clickable tabs."""
+        """Build the filter bar with clickable toggle tabs."""
         with Horizontal():
+            yield Static("Levels:", classes="label")
             for level in self.LEVELS:
                 yield FilterTab(level, id=f"tab-{level.lower()}")
             yield Static(" | ", classes="separator")
@@ -136,8 +153,8 @@ class FilterBar(Widget):
         self._update_tab_styles()
         self._update_scroll_style()
 
-    def watch_current_level(self) -> None:
-        """Update tab styles when level changes."""
+    def watch_active_levels(self) -> None:
+        """Update tab styles when active set changes."""
         self._update_tab_styles()
 
     def watch_auto_scroll(self) -> None:
@@ -148,9 +165,9 @@ class FilterBar(Widget):
         """Update search indicator."""
         self._update_search_indicator()
 
-    def set_level(self, level: str) -> None:
-        """Set the active filter level."""
-        self.current_level = level
+    def set_active_levels(self, levels: frozenset[str]) -> None:
+        """Set the full set of active filter levels."""
+        self.active_levels = levels
 
     def set_scroll(self, enabled: bool) -> None:
         """Set the auto-scroll state."""
@@ -167,7 +184,7 @@ class FilterBar(Widget):
             if not tabs:
                 continue
             tab = tabs.first(FilterTab)
-            if level == self.current_level:
+            if level in self.active_levels:
                 tab.update(f"[bold reverse green] {level} [/]")
                 tab.remove_class("inactive")
                 tab.add_class("active")
