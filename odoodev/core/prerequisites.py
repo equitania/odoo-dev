@@ -292,35 +292,38 @@ MACOS_LIBS: dict[str, str] = {
     "fontconfig": "fontconfig (wkhtmltopdf)",
 }
 
-# Linux Debian/Ubuntu packages → description
-LINUX_LIBS: dict[str, str] = {
+# Linux Debian/Ubuntu packages: description → candidate apt package names (modern first).
+# Multiple candidates handle distro renames (e.g. Debian 13 dropped the "6"/"1"/"2"
+# suffix from libfreetype6-dev → libfreetype-dev, libxslt1-dev → libxslt-dev,
+# libldap2-dev → libldap-dev). The first name is used in the install hint.
+LINUX_LIBS: dict[str, list[str]] = {
     # Build tools (C compiler, Python headers)
-    "python3-dev": "python3-dev (C extension headers)",
-    "build-essential": "build-essential (gcc/g++/make)",
-    "pkg-config": "pkg-config (library discovery)",
+    "python3-dev (C extension headers)": ["python3-dev"],
+    "build-essential (gcc/g++/make)": ["build-essential"],
+    "pkg-config (library discovery)": ["pkg-config"],
     # Crypto / SSL
-    "libssl-dev": "libssl-dev (cryptography/ssl)",
-    "libffi-dev": "libffi-dev (cffi/cryptography)",
+    "libssl-dev (cryptography/ssl)": ["libssl-dev"],
+    "libffi-dev (cffi/cryptography)": ["libffi-dev"],
     # XML / XSLT
-    "libxml2-dev": "libxml2-dev (lxml)",
-    "libxslt1-dev": "libxslt-dev (lxml)",
+    "libxml2-dev (lxml)": ["libxml2-dev"],
+    "libxslt-dev (lxml)": ["libxslt-dev", "libxslt1-dev"],
     # Image processing (Pillow)
-    "libjpeg-dev": "libjpeg-dev (Pillow)",
-    "libpng-dev": "libpng-dev (Pillow)",
-    "libfreetype6-dev": "libfreetype6-dev (Pillow)",
+    "libjpeg-dev (Pillow)": ["libjpeg-dev"],
+    "libpng-dev (Pillow)": ["libpng-dev"],
+    "libfreetype-dev (Pillow)": ["libfreetype-dev", "libfreetype6-dev"],
     # Graphics / PDF
-    "libcairo2-dev": "libcairo2-dev (reportlab/cairosvg)",
+    "libcairo2-dev (reportlab/cairosvg)": ["libcairo2-dev"],
     # Database
-    "libpq-dev": "libpq-dev (psycopg2)",
+    "libpq-dev (psycopg2)": ["libpq-dev"],
     # LDAP
-    "libldap2-dev": "libldap-dev (python-ldap)",
-    "libsasl2-dev": "libsasl2-dev (python-ldap)",
+    "libldap-dev (python-ldap)": ["libldap-dev", "libldap2-dev"],
+    "libsasl2-dev (python-ldap)": ["libsasl2-dev"],
     # Printing
-    "libcups2-dev": "libcups2-dev (pycups)",
+    "libcups2-dev (pycups)": ["libcups2-dev"],
     # Fonts
-    "fontconfig": "fontconfig (wkhtmltopdf)",
-    "fonts-dejavu-core": "fonts-dejavu-core",
-    "fonts-noto-core": "fonts-noto-core",
+    "fontconfig (wkhtmltopdf)": ["fontconfig"],
+    "fonts-dejavu-core": ["fonts-dejavu-core"],
+    "fonts-noto-core": ["fonts-noto-core"],
 }
 
 
@@ -330,7 +333,7 @@ def check_system_libs() -> list[str]:
     Returns:
         List of missing library descriptions.
     """
-    missing = []
+    missing: list[str] = []
     os_name = detect_os()
 
     if os_name == "macos":
@@ -359,18 +362,23 @@ def check_system_libs() -> list[str]:
             print_info("dpkg not found — skipping system library checks (non-Debian system?)")
             return missing
 
-        for package, description in LINUX_LIBS.items():
-            result = subprocess.run(
-                ["dpkg", "-l", package],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0 or "ii" not in result.stdout:
+        for description, packages in LINUX_LIBS.items():
+            found = False
+            for package in packages:
+                result = subprocess.run(
+                    ["dpkg", "-l", package],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0 and "ii" in result.stdout:
+                    found = True
+                    break
+            if not found:
                 missing.append(description)
 
         if missing:
-            # Collect only the missing package names (not descriptions)
-            missing_pkgs = [pkg for pkg, desc in LINUX_LIBS.items() if desc in missing]
+            # Recommend the first (modern) candidate per missing entry.
+            missing_pkgs = [pkgs[0] for desc, pkgs in LINUX_LIBS.items() if desc in missing]
             print_warning(f"Missing system libraries: {', '.join(missing)}")
             print_info(f"Install: sudo apt-get install -y \\\n    {' '.join(missing_pkgs)}")
         else:

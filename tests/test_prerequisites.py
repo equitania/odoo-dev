@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from odoodev.core.prerequisites import (
-    LINUX_LIBS,
     MACOS_LIBS,
     check_node,
     check_node_packages,
@@ -173,13 +172,54 @@ class TestCheckSystemLibs:
         mock_run.side_effect = side_effect
         result = check_system_libs()
         assert len(result) == 1
-        assert LINUX_LIBS["libsasl2-dev"] in result
+        assert "libsasl2-dev (python-ldap)" in result
 
     @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
     @patch("odoodev.core.prerequisites.command_exists", return_value=False)
     def test_linux_no_dpkg(self, _cmd, _os):
         result = check_system_libs()
         assert result == []
+
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    @patch("odoodev.core.prerequisites.command_exists", return_value=True)
+    @patch("subprocess.run")
+    def test_linux_alias_fallback_debian13(self, mock_run, _cmd, _os):
+        # Debian 13: libfreetype6-dev removed, only libfreetype-dev exists.
+        # Same for libxslt-dev (formerly libxslt1-dev) and libldap-dev (formerly libldap2-dev).
+        legacy_aliases = {"libfreetype6-dev", "libxslt1-dev", "libldap2-dev"}
+
+        def side_effect(args, **kwargs):
+            pkg = args[2]
+            if pkg in legacy_aliases:
+                return MagicMock(returncode=1, stdout="")
+            return MagicMock(returncode=0, stdout=f"ii  {pkg}  1.0\n")
+
+        mock_run.side_effect = side_effect
+        result = check_system_libs()
+        assert result == []
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    @patch("odoodev.core.prerequisites.command_exists", return_value=True)
+    @patch("subprocess.run")
+    def test_linux_install_hint_uses_modern_name(self, mock_run, _cmd, _os, mock_info):
+        # All freetype candidates missing → install hint must recommend modern name.
+        freetype_candidates = {"libfreetype-dev", "libfreetype6-dev"}
+
+        def side_effect(args, **kwargs):
+            pkg = args[2]
+            if pkg in freetype_candidates:
+                return MagicMock(returncode=1, stdout="")
+            return MagicMock(returncode=0, stdout=f"ii  {pkg}  1.0\n")
+
+        mock_run.side_effect = side_effect
+        check_system_libs()
+
+        install_calls = [c.args[0] for c in mock_info.call_args_list if "Install:" in c.args[0]]
+        assert install_calls, "expected an Install: hint to be printed"
+        hint = install_calls[0]
+        assert "libfreetype-dev" in hint
+        assert "libfreetype6-dev" not in hint
 
 
 # ---------------------------------------------------------------------------

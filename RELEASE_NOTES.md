@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.4.54 (05.05.2026)
+
+### Fixed
+- **prereq: false positive for `libfreetype6-dev` on Debian 13** — `check_system_libs()` did a pure `dpkg -l <name>` lookup and hardcoded the legacy package names `libfreetype6-dev`, `libxslt1-dev`, and `libldap2-dev`. Debian 13 dropped these in favor of `libfreetype-dev`, `libxslt-dev`, and `libldap-dev`, so `odoodev init` warned about missing libraries that were actually installed and printed an apt install hint that no longer resolves. `LINUX_LIBS` is now a `dict[str, list[str]]` mapping each description to a list of candidate package names (modern first); the probe accepts the entry as soon as any candidate is installed, and the install hint always recommends the modern name.
+
 ## Version 0.4.53 (04.05.2026)
 
 ### Fixed
