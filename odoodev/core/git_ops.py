@@ -240,9 +240,9 @@ def update_repo(repo_dir: str, branch: str) -> tuple[bool, str]:
             )
         return False, f"pull: {output.strip()}"
 
-    # Clean Python cache
-    run_git_command(["find", ".", "-name", "*.pyc", "-type", "f", "-delete"], cwd=repo_dir)
-    run_git_command(["find", ".", "-type", "d", "-empty", "-delete"], cwd=repo_dir)
+    # Clean Python cache (non-fatal; use subprocess directly, not run_git_command)
+    subprocess.run(["find", ".", "-name", "*.pyc", "-type", "f", "-delete"], cwd=repo_dir, capture_output=True)
+    subprocess.run(["find", ".", "-type", "d", "-empty", "-delete"], cwd=repo_dir, capture_output=True)
 
     return True, ""
 
