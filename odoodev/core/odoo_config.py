@@ -77,6 +77,8 @@ def create_odoo_config(
     db_user: str | None = None,
     db_password: str | None = None,
     admin_passwd: str | None = None,
+    http_port: int | None = None,
+    gevent_port: int | None = None,
 ) -> str | None:
     """Generate Odoo configuration from template.
 
@@ -92,6 +94,8 @@ def create_odoo_config(
         db_user: Database user (overrides template default)
         db_password: Database password (overrides template default)
         admin_passwd: Odoo admin master password (overrides template default)
+        http_port: Odoo HTTP port (overrides template default)
+        gevent_port: Odoo gevent (longpolling) port (overrides template default)
 
     Returns:
         Path to generated config file, or None on error.
@@ -138,6 +142,12 @@ def create_odoo_config(
         content = re.sub(r"db_password\s*=\s*\S+", f"db_password = {db_password}", content)
     if admin_passwd:
         content = re.sub(r"admin_passwd\s*=\s*\S+", f"admin_passwd = {admin_passwd}", content)
+
+    # Replace Odoo runtime ports if provided (overrides template defaults from .env)
+    if http_port is not None:
+        content = re.sub(r"http_port\s*=\s*\S+", f"http_port = {http_port}", content)
+    if gevent_port is not None:
+        content = re.sub(r"gevent_port\s*=\s*\S+", f"gevent_port = {gevent_port}", content)
 
     # Save generated config
     os.makedirs(config_dir, exist_ok=True)
