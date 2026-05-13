@@ -298,23 +298,27 @@ def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env
         activate = f"source '{venv_dir}/bin/activate.fish'"
         cmd = ["fish", "-C", f"{activate}; cd '{odoo_dir}'"]
     elif shell == "zsh":
-        import tempfile
-
-        tmpdir = tempfile.mkdtemp(prefix="odoodev_")
-        zshrc = os.path.join(tmpdir, ".zshrc")
-        # Create file with correct permissions from the start (no race condition)
+        # Use a fixed cache directory instead of mkdtemp so execvpe never
+        # leaves orphaned temp directories behind.
+        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "odoodev")
+        os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+        zshrc = os.path.join(cache_dir, ".zshrc")
+        # Overwrite atomically with correct permissions
         fd = os.open(zshrc, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write("[[ -f ~/.zshrc ]] && source ~/.zshrc\n")
             f.write(f'source "{venv_dir}/bin/activate"\n')
             f.write(f'cd "{odoo_dir}"\n')
             f.write(f'export ODOO_CONF="{config_path}"\n')
-        env["ZDOTDIR"] = tmpdir
+        env["ZDOTDIR"] = cache_dir
         cmd = ["zsh"]
     else:
         import tempfile
 
-        # Create temp file with correct permissions atomically
+        # Create temp file with correct permissions atomically.
+        # Unlink the file before execvpe: on POSIX the shell already receives
+        # the path via --rcfile and holds an open fd, so the file stays
+        # accessible but is removed from the directory immediately — no leak.
         tmpdir = tempfile.mkdtemp(prefix="odoodev_")
         bashrc_path = os.path.join(tmpdir, "odoodev.bashrc")
         fd = os.open(bashrc_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -324,6 +328,13 @@ def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env
             f.write(f'cd "{odoo_dir}"\n')
             f.write(f'export ODOO_CONF="{config_path}"\n')
         cmd = ["bash", "--rcfile", bashrc_path]
+        # Unlink before exec so the file disappears from the filesystem even
+        # though execvpe replaces this process (no Python finally/atexit runs).
+        try:
+            os.unlink(bashrc_path)
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
 
     print_info(f"Opening {shell} shell with venv activated...")
     print_info(f"ODOO_CONF={config_path}")
