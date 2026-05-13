@@ -289,11 +289,13 @@ def db_restore(
     # Post-restore operations
     if deactivate_cron:
         print_info("Deactivating cron jobs and mail servers...")
-        deactivate_cronjobs(name, **params)
+        if not deactivate_cronjobs(name, **params):
+            print_warning("Cron/mail deactivation failed — some tables may be missing (non-fatal)")
 
     if deactivate_cloud_flag:
         print_info("Deactivating cloud integrations...")
-        deactivate_cloud(name, **params)
+        if not deactivate_cloud(name, **params):
+            print_warning("Cloud integration deactivation failed — tables may be missing (non-fatal)")
 
     # Cleanup
     if not keep_temp:
