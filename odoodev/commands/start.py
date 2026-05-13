@@ -559,7 +559,10 @@ def _check_services(
             pass
 
         if no_confirm or confirm("Start Docker services now?"):
-            subprocess.run(["docker", "compose", "up", "-d"], cwd=compose_cwd)
+            docker_result = subprocess.run(["docker", "compose", "up", "-d"], cwd=compose_cwd)
+            if docker_result.returncode != 0:
+                print_error("'docker compose up -d' failed — check Docker daemon and compose file")
+                raise SystemExit(1)
             import time
 
             time.sleep(5)
