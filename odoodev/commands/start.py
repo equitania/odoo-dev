@@ -101,8 +101,12 @@ def _load_env_file(env_file: str) -> dict[str, str]:
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
-                # Expand ${USER}
+                # Strip surrounding quotes (single or double) — e.g. PASSWORD="my pass"
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                # Expand ${USER} and $USER
                 value = value.replace("${USER}", os.environ.get("USER", "odoo"))
+                value = value.replace("$USER", os.environ.get("USER", "odoo"))
                 env_vars[key] = value
     return env_vars
 
