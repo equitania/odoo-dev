@@ -196,9 +196,16 @@ def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             f.write("\n".join(new_lines) + "\n")
+        fd = -1  # fdopen consumed the fd; mark as closed
         os.chmod(tmp_path, 0o600)
         os.rename(tmp_path, pgpass_path)
     except Exception:
+        # Close fd if os.fdopen never consumed it
+        if fd != -1:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         # Clean up temp file on failure
         try:
             os.unlink(tmp_path)
