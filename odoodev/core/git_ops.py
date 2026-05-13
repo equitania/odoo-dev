@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import shutil
 import subprocess
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -53,18 +55,20 @@ def _get_ssh_config_path() -> str | None:
     """Create a temporary SSH config file referencing the SSH key.
 
     Returns path to the config file, or None on failure.
-    The file is placed in ~/.ssh/ so it persists for the session.
+    The file is created via mkstemp (atomic, mode 0o600) and an atexit
+    handler is registered to delete it when the process exits.
     """
     if not _ssh_key_path:
         return None
     try:
         config_dir = os.path.join(os.path.expanduser("~"), ".ssh")
         os.makedirs(config_dir, mode=0o700, exist_ok=True)
-        config_path = os.path.join(config_dir, "odoodev_config")
-        fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd, config_path = tempfile.mkstemp(prefix="odoodev_ssh_", dir=config_dir)
+        os.chmod(config_path, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(f"IdentityFile {_ssh_key_path}\n")
             f.write("IdentitiesOnly yes\n")
+        atexit.register(lambda p=config_path: os.unlink(p) if os.path.exists(p) else None)
         return config_path
     except OSError:
         logger.warning("Could not create SSH config file, using direct key reference")
