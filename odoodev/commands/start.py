@@ -282,9 +282,8 @@ def _start_odoo(
     cmd.extend(extra_args)
 
     # Execute Odoo
-    os.chdir(odoo_dir)
     try:
-        result = subprocess.run(cmd, env=env)
+        result = subprocess.run(cmd, env=env, cwd=odoo_dir)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
         print_info("Odoo server stopped.")
