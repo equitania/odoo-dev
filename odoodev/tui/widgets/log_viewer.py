@@ -185,6 +185,16 @@ class LogViewer(Widget):
         """Show only WARNING, ERROR, and CRITICAL levels."""
         self.active_levels = frozenset({"WARNING", "ERROR", "CRITICAL"})
 
+    def show_only_level(self, level: str) -> None:
+        """Activate exactly one level (radio-style filter).
+
+        Press ``0`` to restore all levels; press a number key to focus on
+        a single level. No-op when ``level`` is not a filterable level.
+        """
+        if level not in FILTERABLE_LEVELS:
+            return
+        self.active_levels = frozenset({level})
+
     def clear_log(self) -> None:
         """Clear the display (buffer is preserved)."""
         if self._rich_log is not None:

@@ -37,17 +37,17 @@ class OdooTuiApp(App):
         Binding("l", "load_language", "Load Language"),
         # Per-level toggles (multi-toggle filter)
         Binding("0", "filter_all", "All Levels"),
-        Binding("1", "toggle_debug", "DEBUG"),
-        Binding("2", "toggle_info", "INFO"),
-        Binding("3", "toggle_warning", "WARN"),
-        Binding("4", "toggle_error", "ERROR"),
-        Binding("5", "toggle_critical", "CRIT"),
+        Binding("1", "show_only_debug", "DEBUG"),
+        Binding("2", "show_only_info", "INFO"),
+        Binding("3", "show_only_warning", "WARN"),
+        Binding("4", "show_only_error", "ERROR"),
+        Binding("5", "show_only_critical", "CRIT"),
         Binding("f", "filter_issues", "Issues only"),
         Binding("slash", "search", "Search"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
-        Binding("c", "copy_visible", "Copy Visible", show=False),
-        Binding("e", "copy_errors", "Copy Errors", show=False),
-        Binding("w", "copy_warnings", "Copy Warn+Err", show=False),
+        Binding("c", "copy_visible", "Copy"),
+        Binding("e", "copy_errors", "Copy Errors"),
+        Binding("w", "copy_warnings", "Copy Warn+Err"),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
     ]
@@ -174,31 +174,34 @@ class OdooTuiApp(App):
 
         self.push_screen(LanguageLoadScreen(self._odoo))
 
-    def _toggle_level(self, level: str) -> None:
-        """Toggle a single log level on/off."""
+    def _show_only_level(self, level: str) -> None:
+        """Activate exactly one log level (radio-style filter).
+
+        Press ``0`` to restore all levels.
+        """
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        log_viewer.toggle_level(level)
+        log_viewer.show_only_level(level)
         self._update_filter_bar()
 
-    def action_toggle_debug(self) -> None:
-        """Toggle DEBUG level visibility."""
-        self._toggle_level("DEBUG")
+    def action_show_only_debug(self) -> None:
+        """Show only DEBUG entries."""
+        self._show_only_level("DEBUG")
 
-    def action_toggle_info(self) -> None:
-        """Toggle INFO level visibility."""
-        self._toggle_level("INFO")
+    def action_show_only_info(self) -> None:
+        """Show only INFO entries."""
+        self._show_only_level("INFO")
 
-    def action_toggle_warning(self) -> None:
-        """Toggle WARNING level visibility."""
-        self._toggle_level("WARNING")
+    def action_show_only_warning(self) -> None:
+        """Show only WARNING entries."""
+        self._show_only_level("WARNING")
 
-    def action_toggle_error(self) -> None:
-        """Toggle ERROR level visibility."""
-        self._toggle_level("ERROR")
+    def action_show_only_error(self) -> None:
+        """Show only ERROR entries."""
+        self._show_only_level("ERROR")
 
-    def action_toggle_critical(self) -> None:
-        """Toggle CRITICAL level visibility."""
-        self._toggle_level("CRITICAL")
+    def action_show_only_critical(self) -> None:
+        """Show only CRITICAL entries."""
+        self._show_only_level("CRITICAL")
 
     def action_filter_all(self) -> None:
         """Activate all log levels (default state)."""

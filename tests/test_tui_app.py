@@ -137,40 +137,37 @@ class TestOdooTuiAppIntegration:
             log_viewer = app.query_one("#log-viewer", LogViewer)
             assert log_viewer.entry_count > 0
 
-    async def test_toggle_individual_levels_via_keyboard(self, mock_cmd, tmp_path):
-        """Hotkeys 1-5 toggle individual levels independently."""
+    async def test_level_keys_exclusive_filter(self, mock_cmd, tmp_path):
+        """Hotkeys 1-5 activate exactly one level (radio-style)."""
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             log_viewer = app.query_one("#log-viewer", LogViewer)
             # All levels active by default
-            assert "DEBUG" in log_viewer.active_levels
-            assert "INFO" in log_viewer.active_levels
-            assert "WARNING" in log_viewer.active_levels
-            assert "ERROR" in log_viewer.active_levels
-            assert "CRITICAL" in log_viewer.active_levels
+            assert log_viewer.active_levels == frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
-            # "1" toggles DEBUG off
+            # "5" → only CRITICAL
+            await pilot.press("5")
+            assert log_viewer.active_levels == frozenset({"CRITICAL"})
+
+            # "3" → only WARNING (replaces, not adds)
+            await pilot.press("3")
+            assert log_viewer.active_levels == frozenset({"WARNING"})
+
+            # "5" again → still only CRITICAL (idempotent)
+            await pilot.press("5")
+            assert log_viewer.active_levels == frozenset({"CRITICAL"})
+
+            # "1" → only DEBUG
             await pilot.press("1")
-            assert "DEBUG" not in log_viewer.active_levels
-            assert "INFO" in log_viewer.active_levels  # others untouched
-
-            # "1" again toggles DEBUG back on
-            await pilot.press("1")
-            assert "DEBUG" in log_viewer.active_levels
-
-            # "2" toggles INFO off
-            await pilot.press("2")
-            assert "INFO" not in log_viewer.active_levels
+            assert log_viewer.active_levels == frozenset({"DEBUG"})
 
     async def test_filter_all_hotkey(self, mock_cmd, tmp_path):
         """'0' restores all levels active."""
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             log_viewer = app.query_one("#log-viewer", LogViewer)
-            await pilot.press("1")  # disable DEBUG
-            await pilot.press("2")  # disable INFO
-            assert "DEBUG" not in log_viewer.active_levels
-            assert "INFO" not in log_viewer.active_levels
+            await pilot.press("5")  # narrow to CRITICAL only
+            assert log_viewer.active_levels == frozenset({"CRITICAL"})
 
             await pilot.press("0")
             assert log_viewer.active_levels == frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
