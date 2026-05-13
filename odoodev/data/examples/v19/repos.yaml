@@ -1,41 +1,71 @@
-# Odoo v19 Repository Configuration
+# Odoo v19 Repository Configuration — Schema Skeleton
 # Customize this file for your project
+#
+# Sections:
+#   addons      — main addon repositories (Equitania, OCA, themes, ...)
+#   additional  — third-party / helper repositories
+#   special     — enterprise / cloud / account / microsoft365
+#   customers   — per-customer wrapper repositories
+#
+# Per-entry fields:
+#   path     — relative path under paths.base (required)
+#   git_url  — SSH/HTTPS clone URL (required)
+#   key      — short identifier used in odoo.conf (defaults to path)
+#   section  — group label in generated odoo.conf header
+#   use      — true: included in addons_path, false: commented out
+#   suffix   — optional path suffix (e.g. /modules) for wrapper repos
+
 version: "19"
 branch: "develop"
-ssh_key: "~/.ssh/id_rsa"
+
+# SSH key for git operations (optional, uses default if not set)
+ssh_key: ~/.ssh/id_rsa
 
 paths:
   base: ~/gitbase/v19
+  server: ~/gitbase/v19/v19-server
   template: ~/gitbase/v19/v19-dev/conf/odoo19_template.conf
   config_dir: ~/gitbase/v19/myconfs
 
+# Base addons paths (always included)
 base_addons:
   - $HOME/gitbase/v19/v19-server/odoo/addons
   - $HOME/gitbase/v19/v19-server/addons
 
+# Odoo Server
 server:
   path: v19-server
-  git_url: git@gitlab.ownerp.io:v19/v19-server.git
+  git_url: git@<your-git-host>:<your-namespace>/v19-server.git
 
-addons:
-  - key: addons
-    path: v19-addons
-    git_url: git@gitlab.ownerp.io:v19/v19-addons.git
-    section: Equitania
-    use: true
-    suffix: ""
-
-  - key: oca
-    path: v19-oca
-    git_url: git@gitlab.ownerp.io:v19/v19-oca.git
-    section: OCA
-    use: true
-    suffix: ""
-
-# --- Add your repositories below ---
-#  - key: themes
-#    path: v19-themes
-#    git_url: git@gitlab.ownerp.io:v19/v19-themes.git
+# Main addon repositories
+addons: []
+#  - path: v19-<repo-name>
+#    git_url: git@<your-git-host>:<your-namespace>/v19-<repo-name>.git
+#    key: <repo-name>
 #    section: Equitania
 #    use: true
-#    suffix: ""
+
+# Additional repositories (3rd-party, helpers)
+additional: []
+#  - path: v19-<repo-name>
+#    git_url: git@<your-git-host>:<your-namespace>/v19-<repo-name>.git
+#    key: <repo-name>
+#    section: 3rd-party
+#    use: true
+
+# Special repositories (enterprise, cloud, account, microsoft365)
+special: []
+#  - path: v19e
+#    git_url: git@<your-git-host>:<your-namespace>/v19e.git
+#    key: enterprise
+#    section: Enterprise
+#    use: true
+
+# Customer repositories
+customers: []
+#  - path: v19-<your-customer>
+#    git_url: git@<your-git-host>:<your-customer>/v19-<your-customer>.git
+#    key: v19-<your-customer>
+#    section: Customer
+#    use: false
+#    suffix: /modules  # only if customer repo uses wrapper layout
