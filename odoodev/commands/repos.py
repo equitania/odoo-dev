@@ -438,7 +438,11 @@ def repos(
 
 
 def _parse_env_file(env_path: str) -> dict[str, str]:
-    """Parse key=value pairs from a .env file."""
+    """Parse key=value pairs from a .env file.
+
+    Strips surrounding single or double quotes from values so that
+    ``DB_PORT="16432"`` and ``DB_PORT=16432`` are equivalent.
+    """
     result = {}
     with open(env_path, encoding="utf-8") as f:
         for line in f:
@@ -447,7 +451,10 @@ def _parse_env_file(env_path: str) -> dict[str, str]:
                 continue
             if "=" in line:
                 key, _, value = line.partition("=")
-                result[key.strip()] = value.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                result[key.strip()] = value
     return result
 
 
@@ -475,6 +482,8 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
     db_config = config.get("database", {}).get("native", {})
     db_host = db_config.get("host", "localhost")
     db_port = db_config.get("port", version_cfg.ports.db)
+    http_port = version_cfg.ports.odoo
+    gevent_port = version_cfg.ports.gevent
 
     # Load global config for database credentials (fallback)
     global_cfg = load_global_config()
@@ -489,6 +498,23 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
             db_user = env_vars["PGUSER"]
         if "PGPASSWORD" in env_vars:
             db_password = env_vars["PGPASSWORD"]
+        if "DB_PORT" in env_vars:
+            try:
+                db_port = int(env_vars["DB_PORT"])
+            except ValueError:
+                print_warning(f"Invalid DB_PORT in .env: {env_vars['DB_PORT']!r}, falling back to {db_port}")
+        if "ODOO_PORT" in env_vars:
+            try:
+                http_port = int(env_vars["ODOO_PORT"])
+            except ValueError:
+                print_warning(f"Invalid ODOO_PORT in .env: {env_vars['ODOO_PORT']!r}, falling back to {http_port}")
+        if "GEVENT_PORT" in env_vars:
+            try:
+                gevent_port = int(env_vars["GEVENT_PORT"])
+            except ValueError:
+                print_warning(
+                    f"Invalid GEVENT_PORT in .env: {env_vars['GEVENT_PORT']!r}, falling back to {gevent_port}"
+                )
 
     output = create_odoo_config(
         template_path=template_path,
@@ -501,6 +527,8 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
         db_user=db_user,
         db_password=db_password,
         admin_passwd=db_password,
+        http_port=http_port,
+        gevent_port=gevent_port,
     )
 
     if output:
