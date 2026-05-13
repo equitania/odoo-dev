@@ -717,21 +717,26 @@ def start(
 ) -> None:
     """Start Odoo server for the given version.
 
+    \b
     Common Odoo options can be passed directly:
-
         odoodev start 18 --dev -d v18_exam -u eq_sale
         odoodev start 18 -d v18_exam -i eq_sale,eq_stock
 
-    For other Odoo arguments, use '--' separator:
+    \b
+    Start with the Terminal UI (log viewer, filtering, module update):
+        odoodev start 18 --tui
+        odoodev start 18 --dev --tui -d v18_exam
 
+    \b
+    For other Odoo arguments, use '--' separator:
         odoodev start 18 -d v18_exam -- --workers=4 --log-level=debug
 
+    \b
     Load translations:
-
         odoodev start 18 --load-language=de_DE --i18n-overwrite -d v18_exam
 
+    \b
     Clean sessions before starting:
-
         odoodev start 18 --clean-sessions
     """
     version = resolve_version(ctx, version)
