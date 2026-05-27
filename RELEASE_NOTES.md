@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.6.0 (27.05.2026)
+
+### Added
+- **db restore: native Odoo neutralization** — After the import, `odoodev db restore` now runs Odoo's built-in `odoo-bin neutralize` (new `run_neutralize()` core executor), which executes each installed module's `data/neutralize.sql`. This covers far more than the previous hand-picked SQL: payment providers, IAP accounts, webhooks, mass-mailing, OAuth tokens, the "NEUTRALIZED" banner, and any custom module shipping a `neutralize.sql` (including the in-house Nextcloud/Office365 modules). New `--neutralize/--no-neutralize` flag, **on by default** with graceful skip: if venv/odoo-bin/generated `odoo_*.conf` are not ready, the step is skipped with a warning (non-fatal) instead of failing. Neutralize is a standalone Odoo CLI subcommand — it connects directly to PostgreSQL and does not boot a server.
+- **`odoodev db neutralize [VERSION] -n <db>`** — New standalone command to (re-)neutralize a database on demand, e.g. after `repos` + `start -u all` have populated the addons path. Supports `--stdout` to print the neutralization SQL instead of applying it (dry run). Available in playbooks via the `neutralize` arg on the `db.restore` step.
+
+### Changed
+- **db restore: replaced custom cloud deactivation with native neutralize** — Removed `deactivate_cloud()` and the `--deactivate-cloud-integrations/--no-deactivate-cloud-integrations` flag (and the `deactivate-cloud-integrations` playbook arg). Nextcloud/Office365 are now neutralized through their modules' own `data/neutralize.sql` via `odoo-bin neutralize`. The psql-only `deactivate_cronjobs()` remains as an always-available baseline (no running Odoo required).
+
 ## Version 0.5.0 (27.05.2026)
 
 ### Added

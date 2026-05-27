@@ -14,7 +14,7 @@ steps:
       backup-file: /path/to/backup.zip
       drop: true
       deactivate-cron: true
-      deactivate-cloud-integrations: true
+      neutralize: true
 
   - name: "Start Odoo dev server"
     command: start

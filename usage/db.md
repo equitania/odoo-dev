@@ -59,12 +59,36 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
 2. SQL-Dump wird in neue Datenbank eingespielt
 3. Filestore wird nach `~/odoo-share/filestore/{db_name}/` kopiert
 
-**Post-Restore Deaktivierungen:**
+**Post-Restore Deaktivierungen (psql-Baseline):**
 - Cron-Jobs (`ir_cron.active = false`)
 - Mail-Server (`ir_mail_server.active = false`)
 - Fetchmail-Server (`fetchmail_server.active = false`)
-- Nextcloud-Integration (Config-Parameter geleert)
-- Office365-Integration (Config-Parameter geleert)
+
+Diese psql-Baseline laeuft immer (kein lauffaehiges Odoo noetig) und stellt sicher, dass eine
+restored Prod-Kopie keine Crons/Mails ausloest.
+
+### Native Neutralisierung (`odoo-bin neutralize`, standardmaessig aktiv)
+
+Zusaetzlich ruft `odoodev db restore` nach dem Import Odoos eingebautes `odoo-bin neutralize`
+auf. Das fuehrt pro installiertem Modul dessen `data/neutralize.sql` aus und deckt damit weit
+mehr ab als die psql-Baseline: **Payment-Provider, IAP-Accounts, Webhooks, Mass-Mailing,
+OAuth-Tokens, das „NEUTRALIZED"-Banner** sowie jedes Custom-Modul mit eigener `neutralize.sql`
+(inkl. der hauseigenen Nextcloud-/Office365-Module — daher gibt es keine separate
+Cloud-Deaktivierung mehr).
+
+- **Standardmaessig an** (`--no-neutralize` zum Abschalten).
+- **Graceful-skip:** Fehlen venv, `odoo-bin` oder die generierte `odoo_*.conf`, wird der Schritt
+  mit Warnung uebersprungen (non-fatal) — die psql-Baseline greift trotzdem.
+- `neutralize` bootet **keinen** Server; es verbindet sich direkt auf PostgreSQL.
+
+**Eigenstaendiger Befehl** (z.B. nachdem `repos` + `start -u all` die Module bereitgestellt haben):
+
+```bash
+odoodev db neutralize 18 -n v18_test            # neutralisieren
+odoodev db neutralize 18 -n v18_test --stdout   # nur SQL ausgeben (Dry-Run, nichts anwenden)
+```
+
+Verifikation: `ir_config_parameter` enthaelt danach `database.is_neutralized = true`.
 
 ### DSGVO-Anonymisierung (standardmaessig aktiv)
 
@@ -160,12 +184,36 @@ During `odoodev db restore`, the filestore is managed automatically:
 2. SQL dump is imported into new database
 3. Filestore is copied to `~/odoo-share/filestore/{db_name}/`
 
-**Post-restore deactivations:**
+**Post-restore deactivations (psql baseline):**
 - Cron jobs (`ir_cron.active = false`)
 - Mail servers (`ir_mail_server.active = false`)
 - Fetchmail servers (`fetchmail_server.active = false`)
-- Nextcloud integration (config parameters cleared)
-- Office365 integration (config parameters cleared)
+
+This psql baseline always runs (no running Odoo required) and guarantees a restored
+production copy fires no crons/mails.
+
+### Native neutralization (`odoo-bin neutralize`, on by default)
+
+After the import, `odoodev db restore` additionally runs Odoo's built-in `odoo-bin neutralize`.
+It executes each installed module's `data/neutralize.sql`, covering far more than the psql
+baseline: **payment providers, IAP accounts, webhooks, mass mailing, OAuth tokens, the
+"NEUTRALIZED" banner**, and any custom module shipping its own `neutralize.sql` (including the
+in-house Nextcloud/Office365 modules — which is why there is no separate cloud deactivation
+anymore).
+
+- **On by default** (`--no-neutralize` to disable).
+- **Graceful skip:** if venv, `odoo-bin` or the generated `odoo_*.conf` are missing, the step is
+  skipped with a warning (non-fatal) — the psql baseline still applies.
+- `neutralize` boots **no** server; it connects to PostgreSQL directly.
+
+**Standalone command** (e.g. once `repos` + `start -u all` have populated the addons path):
+
+```bash
+odoodev db neutralize 18 -n v18_test            # neutralize
+odoodev db neutralize 18 -n v18_test --stdout   # print SQL only (dry run, applies nothing)
+```
+
+Verification: afterwards `ir_config_parameter` holds `database.is_neutralized = true`.
 
 ### GDPR anonymization (on by default)
 

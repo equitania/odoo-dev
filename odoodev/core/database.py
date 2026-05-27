@@ -498,23 +498,38 @@ def deactivate_cronjobs(
     return success
 
 
-def deactivate_cloud(
+def run_neutralize(
     db_name: str,
-    host: str = DEFAULT_DB_HOST,
-    port: int = 18432,
-    user: str = DEFAULT_DB_USER,
-) -> bool:
-    """Deactivate Nextcloud/Office365 integration."""
-    queries = [
-        "UPDATE ir_config_parameter SET value = '' WHERE key LIKE '%nextcloud%';",
-        "UPDATE ir_config_parameter SET value = '' WHERE key LIKE '%office365%';",
-    ]
-    success = True
-    for query in queries:
-        ok, _ = _run_psql(query, db=db_name, host=host, port=port, user=user)
-        if not ok:
-            success = False
-    return success
+    venv_python: str,
+    odoo_bin: str,
+    config_path: str,
+    env: dict[str, str],
+    cwd: str,
+    extra: list[str] | None = None,
+) -> tuple[bool, str]:
+    """Run Odoo's native ``odoo-bin neutralize`` on a database.
+
+    Executes ``<venv_python> odoo-bin neutralize -c <conf> -d <db>``. This is a
+    standalone Odoo CLI subcommand that connects directly to PostgreSQL and runs
+    each installed module's ``data/neutralize.sql`` — it does NOT boot a server,
+    so no ``--stop-after-init`` is needed. Missing module SQL files are skipped
+    by Odoo itself (``suppress(FileNotFoundError)``).
+
+    Args:
+        extra: Additional odoo-bin args (e.g. ``["--stdout"]`` to print the
+            neutralization SQL instead of applying it).
+
+    Returns:
+        Tuple of (success, output_or_error).
+    """
+    cmd = [venv_python, odoo_bin, "neutralize", "-c", config_path, "-d", db_name]
+    if extra:
+        cmd.extend(extra)
+    try:
+        result = subprocess.run(cmd, env=env, cwd=cwd, check=True, capture_output=True, text=True)
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        return False, e.stderr
 
 
 # --------------------------------------------------------------------------- #

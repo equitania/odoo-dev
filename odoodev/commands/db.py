@@ -19,7 +19,6 @@ from odoodev.core.database import (
     create_backup_zip,
     create_database,
     database_exists,
-    deactivate_cloud,
     deactivate_cronjobs,
     detect_backup_type,
     drop_database,
@@ -29,6 +28,7 @@ from odoodev.core.database import (
     get_restore_temp_dir,
     list_databases,
     restore_database,
+    run_neutralize,
 )
 from odoodev.core.version_registry import get_version
 from odoodev.output import (
@@ -197,10 +197,9 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
 @click.option("--drop/--no-drop", default=True, help="Drop existing database first")
 @click.option("--deactivate-cron/--no-deactivate-cron", default=True, help="Deactivate cron jobs after restore")
 @click.option(
-    "--deactivate-cloud-integrations/--no-deactivate-cloud-integrations",
-    "deactivate_cloud_flag",
+    "--neutralize/--no-neutralize",
     default=True,
-    help="Deactivate cloud integrations",
+    help="Run native 'odoo-bin neutralize' after restore — on by default",
 )
 @click.option(
     "--anonymize/--no-anonymize",
@@ -216,7 +215,7 @@ def db_restore(
     backup_file: str | None,
     drop: bool,
     deactivate_cron: bool,
-    deactivate_cloud_flag: bool,
+    neutralize: bool,
     anonymize: bool,
     keep_temp: bool,
 ) -> None:
@@ -299,10 +298,22 @@ def db_restore(
         if not deactivate_cronjobs(name, **params):
             print_warning("Cron/mail deactivation failed — some tables may be missing (non-fatal)")
 
-    if deactivate_cloud_flag:
-        print_info("Deactivating cloud integrations...")
-        if not deactivate_cloud(name, **params):
-            print_warning("Cloud integration deactivation failed — tables may be missing (non-fatal)")
+    if neutralize:
+        from odoodev.commands.start import resolve_odoo_invocation
+
+        inv = resolve_odoo_invocation(version_cfg, env_vars)
+        if inv is None:
+            print_warning(
+                "Neutralize skipped — venv/odoo-bin/odoo_*.conf not ready "
+                f"(run 'odoodev db neutralize {version} -n {name}' after setup)"
+            )
+        else:
+            print_info("Neutralizing database (odoo-bin neutralize)...")
+            ok, msg = run_neutralize(name, **inv)
+            if ok:
+                print_success("Database neutralized")
+            else:
+                print_warning(f"Neutralize failed (non-fatal): {msg.strip()}")
 
     if anonymize:
         print_info("Anonymizing personal data (GDPR)...")
@@ -320,6 +331,59 @@ def db_restore(
     console.print()
     print_info("Next step: Update all modules to match your local Odoo version:")
     print_info(f"  odoodev start {version} -d {name} -u all")
+
+
+@db.command("neutralize")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option("--stdout", "to_stdout", is_flag=True, help="Print neutralization SQL instead of applying it")
+@click.pass_context
+def db_neutralize(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+    to_stdout: bool,
+) -> None:
+    """Neutralize a database via Odoo's native 'odoo-bin neutralize'.
+
+    Disables crons, mail servers, payment providers, IAP, webhooks and more by
+    running each installed module's data/neutralize.sql. Requires a ready dev
+    environment (venv, server checkout, generated odoo_*.conf).
+    """
+    from odoodev.commands.start import resolve_odoo_invocation
+
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    inv = resolve_odoo_invocation(version_cfg, env_vars)
+    if inv is None:
+        print_error(
+            "Cannot neutralize — venv, odoo-bin or odoo_*.conf not found. Run 'odoodev init' / 'odoodev repos' first."
+        )
+        raise SystemExit(1)
+
+    extra = ["--stdout"] if to_stdout else None
+    print_info(f"Neutralizing database '{name}' (odoo-bin neutralize)...")
+    ok, output = run_neutralize(name, **inv, extra=extra)
+    if not ok:
+        print_error(f"Neutralization failed: {output.strip()}")
+        raise SystemExit(1)
+
+    if to_stdout:
+        console.print(output)
+    else:
+        print_success(f"Database '{name}' neutralized")
 
 
 def _select_database(params: dict) -> str | None:

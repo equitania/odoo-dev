@@ -489,13 +489,13 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
     from odoodev.core.database import (
         copy_filestore,
         create_database,
-        deactivate_cloud,
         deactivate_cronjobs,
         detect_backup_type,
         drop_database,
         extract_backup,
         get_filestore_path,
         restore_database,
+        run_neutralize,
     )
 
     name = args.get("name")
@@ -509,7 +509,7 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
 
     do_drop = args.get("drop", True)
     deactivate_cron_flag = args.get("deactivate-cron", args.get("deactivate_cron", True))
-    deactivate_cloud_flag = args.get("deactivate-cloud-integrations", args.get("deactivate_cloud_integrations", True))
+    neutralize_flag = args.get("neutralize", True)
 
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
@@ -545,8 +545,16 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         # Post-restore
         if deactivate_cron_flag:
             deactivate_cronjobs(name, **params)
-        if deactivate_cloud_flag:
-            deactivate_cloud(name, **params)
+        if neutralize_flag:
+            from odoodev.commands.start import resolve_odoo_invocation
+
+            inv = resolve_odoo_invocation(version_cfg, env_vars)
+            if inv is None:
+                logger.warning("Neutralize skipped — venv/odoo-bin/odoo_*.conf not ready (non-fatal)")
+            else:
+                ok, msg = run_neutralize(name, **inv)
+                if not ok:
+                    logger.warning("Neutralize failed (non-fatal): %s", msg.strip())
 
         return _step_ok("db.restore", "db.restore", f"Database '{name}' restored", 0)
 

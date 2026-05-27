@@ -153,6 +153,30 @@ def _set_environment(env_vars: dict[str, str], bind_host: str = "127.0.0.1") -> 
     return env
 
 
+def resolve_odoo_invocation(version_cfg, env_vars: dict[str, str]) -> dict | None:
+    """Resolve the building blocks for a one-shot odoo-bin invocation.
+
+    Returns a kwargs dict for callers that run odoo-bin (e.g. ``run_neutralize``),
+    or ``None`` when prerequisites are missing (venv, odoo-bin, generated config).
+
+    Returns:
+        ``{venv_python, odoo_bin, config_path, env, cwd}`` or ``None``.
+    """
+    venv_dir = os.path.join(version_cfg.paths.native_dir, ".venv")
+    venv_python = get_venv_python(venv_dir)
+    odoo_bin = os.path.join(version_cfg.paths.server_dir, "odoo-bin")
+    config_path = _find_odoo_config(version_cfg.paths.myconfs_dir)
+    if not (os.path.exists(venv_python) and os.path.exists(odoo_bin) and config_path):
+        return None
+    return {
+        "venv_python": venv_python,
+        "odoo_bin": odoo_bin,
+        "config_path": config_path,
+        "env": _set_environment(env_vars),
+        "cwd": version_cfg.paths.server_dir,
+    }
+
+
 def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
     """Write PostgreSQL credentials to ~/.pgpass file.
 

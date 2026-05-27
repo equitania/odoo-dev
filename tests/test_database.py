@@ -24,6 +24,7 @@ from odoodev.core.database import (
     format_size,
     get_filestore_path,
     get_restore_temp_dir,
+    run_neutralize,
 )
 
 
@@ -343,15 +344,78 @@ class TestAnonymizeDatabase:
         assert anonymize_database("mydb") is False
 
 
-class TestRestoreCliAnonymizeFlag:
-    """The restore command must anonymize by default (opt-out)."""
+class TestRunNeutralize:
+    def test_builds_neutralize_command(self, monkeypatch):
+        captured = {}
 
-    def _patch_flow(self, monkeypatch, tmp_path, calls):
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["cwd"] = kwargs.get("cwd")
+            return types.SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, out = run_neutralize(
+            "mydb",
+            venv_python="/venv/bin/python3",
+            odoo_bin="/srv/odoo-bin",
+            config_path="/conf/odoo_250101.conf",
+            env={"PGHOST": "localhost"},
+            cwd="/srv",
+        )
+        assert ok is True
+        assert captured["cmd"] == [
+            "/venv/bin/python3",
+            "/srv/odoo-bin",
+            "neutralize",
+            "-c",
+            "/conf/odoo_250101.conf",
+            "-d",
+            "mydb",
+        ]
+        assert captured["cwd"] == "/srv"
+
+    def test_stdout_extra_arg_appended(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            "odoodev.core.database.subprocess.run",
+            lambda cmd, **k: (captured.update(cmd=cmd), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1],
+        )
+        run_neutralize("db", "/p", "/b", "/c.conf", {}, "/cwd", extra=["--stdout"])
+        assert captured["cmd"][-1] == "--stdout"
+
+    def test_returns_false_on_error(self, monkeypatch):
+        import subprocess as sp
+
+        def fake_run(cmd, **kwargs):
+            raise sp.CalledProcessError(1, cmd, stderr="boom")
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, out = run_neutralize("db", "/p", "/b", "/c.conf", {}, "/cwd")
+        assert ok is False
+        assert "boom" in out
+
+
+class TestResolveOdooInvocation:
+    def test_returns_none_when_prereqs_missing(self, monkeypatch, tmp_path):
+        from odoodev.commands.start import resolve_odoo_invocation
+
+        cfg = types.SimpleNamespace(
+            paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path))
+        )
+        # No .venv/odoo-bin/odoo_*.conf present in tmp_path → None
+        assert resolve_odoo_invocation(cfg, {}) is None
+
+
+class TestRestoreCliFlags:
+    """The restore command runs neutralize + anonymize by default (opt-out)."""
+
+    def _patch_flow(self, monkeypatch, tmp_path, anon_calls, neut_calls, inv=None):
         from odoodev.commands import db as db_cmd
+        from odoodev.commands import start as start_cmd
 
         cfg = types.SimpleNamespace(
             ports=types.SimpleNamespace(db=18432),
-            paths=types.SimpleNamespace(native_dir=str(tmp_path)),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
         )
         monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
         monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
@@ -363,29 +427,73 @@ class TestRestoreCliAnonymizeFlag:
         monkeypatch.setattr(db_cmd, "create_database", lambda name, **k: True)
         monkeypatch.setattr(db_cmd, "restore_database", lambda name, sql, **k: True)
         monkeypatch.setattr(db_cmd, "deactivate_cronjobs", lambda name, **k: True)
-        monkeypatch.setattr(db_cmd, "deactivate_cloud", lambda name, **k: True)
         monkeypatch.setattr(db_cmd, "cleanup_restore_temp", lambda e: None)
-        monkeypatch.setattr(db_cmd, "anonymize_database", lambda name, **k: (calls.append(name), True)[1])
+        # resolve_odoo_invocation is imported inside db_restore from the start module
+        monkeypatch.setattr(start_cmd, "resolve_odoo_invocation", lambda vc, ev: inv)
+        monkeypatch.setattr(db_cmd, "run_neutralize", lambda name, **k: (neut_calls.append(name), (True, ""))[1])
+        monkeypatch.setattr(db_cmd, "anonymize_database", lambda name, **k: (anon_calls.append(name), True)[1])
 
-    def test_help_lists_anonymize_flag(self):
+    def test_help_lists_neutralize_and_anonymize_flags(self):
         result = CliRunner().invoke(cli, ["db", "restore", "--help"])
+        assert "--neutralize" in result.output
+        assert "--no-neutralize" in result.output
         assert "--anonymize" in result.output
-        assert "--no-anonymize" in result.output
+        # removed cloud-integrations flag must be gone
+        assert "deactivate-cloud-integrations" not in result.output
 
     def test_anonymize_runs_by_default(self, monkeypatch, tmp_path):
-        calls: list[str] = []
+        anon: list[str] = []
+        neut: list[str] = []
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, calls)
+        self._patch_flow(monkeypatch, tmp_path, anon, neut)
         result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
         assert result.exit_code == 0, result.output
-        assert calls == ["testdb"]
+        assert anon == ["testdb"]
 
     def test_no_anonymize_skips(self, monkeypatch, tmp_path):
-        calls: list[str] = []
+        anon: list[str] = []
+        neut: list[str] = []
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, calls)
+        self._patch_flow(monkeypatch, tmp_path, anon, neut)
         result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--no-anonymize"])
         assert result.exit_code == 0, result.output
-        assert calls == []
+        assert anon == []
+
+    def test_neutralize_runs_by_default_when_env_ready(self, monkeypatch, tmp_path):
+        anon: list[str] = []
+        neut: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        # inv={} → env ready → run_neutralize called
+        self._patch_flow(monkeypatch, tmp_path, anon, neut, inv={})
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        assert result.exit_code == 0, result.output
+        assert neut == ["testdb"]
+
+    def test_no_neutralize_skips(self, monkeypatch, tmp_path):
+        anon: list[str] = []
+        neut: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, anon, neut, inv={})
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--no-neutralize"])
+        assert result.exit_code == 0, result.output
+        assert neut == []
+
+    def test_neutralize_graceful_skip_when_env_missing(self, monkeypatch, tmp_path):
+        anon: list[str] = []
+        neut: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        # inv=None → env not ready → restore still succeeds, run_neutralize not called
+        self._patch_flow(monkeypatch, tmp_path, anon, neut, inv=None)
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        assert result.exit_code == 0, result.output
+        assert neut == []
+
+    def test_neutralize_command_help(self):
+        result = CliRunner().invoke(cli, ["db", "neutralize", "--help"])
+        assert result.exit_code == 0
+        assert "--stdout" in result.output

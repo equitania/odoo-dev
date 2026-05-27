@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -22,6 +22,7 @@
 - Repository-Management mit frei benennbaren Sections in repos.yaml
 - Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, SQL)
 - DSGVO-Anonymisierung beim Restore (standardmäßig aktiv, Faker-basiert, `--no-anonymize` zum Abschalten)
+- Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, standardmäßig aktiv) + eigenständiger Befehl `db neutralize`
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
@@ -76,7 +77,7 @@ odoodev start 18 --dev
 | `odoodev stop [VERSION]` | Odoo-Server und Docker stoppen | [start.md](usage/start.md) |
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Schneller `git pull` aller Repos | [repos.md](usage/repos.md) |
-| `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, list, drop) | [db.md](usage/db.md) |
+| `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, neutralize, list, drop) | [db.md](usage/db.md) |
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Docker-Services steuern | [docker.md](usage/docker.md) |
@@ -183,6 +184,7 @@ uv build                                # Paket bauen
 - Repository management with freely nameable sections in repos.yaml
 - Database backup & restoration (ZIP, 7z, tar, SQL)
 - GDPR anonymization on restore (on by default, Faker-based, `--no-anonymize` to disable)
+- Native Odoo neutralization on restore (`odoo-bin neutralize`, on by default) + standalone `db neutralize` command
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
@@ -237,7 +239,7 @@ odoodev start 18 --dev
 | `odoodev stop [VERSION]` | Stop Odoo server and Docker | [start.md](usage/start.md) |
 | `odoodev repos [VERSION]` | Clone/update repositories | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Quick `git pull` across all repos | [repos.md](usage/repos.md) |
-| `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, list, drop) | [db.md](usage/db.md) |
+| `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, neutralize, list, drop) | [db.md](usage/db.md) |
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Docker service control | [docker.md](usage/docker.md) |
