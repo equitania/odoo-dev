@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.4.58"
+version = "0.5.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -30,6 +30,7 @@ dependencies = [
     "Jinja2>=3.1.6",
     "questionary>=2.0.0",
     "textual>=1.0.0",
+    "Faker>=20.0.0",
 ]
 
 [project.scripts]
@@ -67,7 +68,7 @@ ignore = [
 "odoodev/commands/env.py" = ["S701"]              # Jinja2 renders config files, not HTML
 "odoodev/commands/start.py" = ["S104", "S606"]    # 0.0.0.0 required for Odoo, execvpe for shell
 "odoodev/core/docker_compose.py" = ["S701"]       # Jinja2 renders config files, not HTML
-"odoodev/core/database.py" = ["S105", "S202"]        # Dev tool default credentials; tarfile.extractall with path traversal check
+"odoodev/core/database.py" = ["S105", "S202", "S608"]  # Default creds; tarfile path-traversal check; anonymization SQL built from hardcoded identifiers + escaped/int values
 "odoodev/core/global_config.py" = ["S105"]        # Dev tool default password, not a secret
 "odoodev/tui/**" = ["S104", "S606"]              # TUI process management requires these patterns
 "tests/**" = ["S101", "S105", "S106", "S108", "S701", "B011", "E741"]  # test fixtures use hardcoded values and tmp paths

@@ -66,6 +66,34 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
 - Nextcloud-Integration (Config-Parameter geleert)
 - Office365-Integration (Config-Parameter geleert)
 
+### DSGVO-Anonymisierung (standardmaessig aktiv)
+
+`odoodev db restore` anonymisiert personenbezogene Daten **standardmaessig** direkt nach dem
+Import (DSGVO Art. 5 Datenminimierung, Art. 25 Privacy by Default). Mit `--no-anonymize`
+laesst sich dies fuer Sonderfaelle deaktivieren.
+
+Die Ersatzwerte werden mit **Faker** (`de_DE`, pro Datensatz-ID geseedet → reproduzierbar)
+erzeugt. E-Mail- und Login-Felder werden bewusst **nicht** aus Faker generiert, sondern auf
+reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}`).
+
+| Tabelle | Anonymisierte Felder |
+|---------|----------------------|
+| `res_partner` | Name (Firmen → `fake.company()`, Personen → `fake.name()`), E-Mail, Telefon/Mobil, Adresse, USt-IdNr., Website, Notiz, Funktion (nur Personen) |
+| `res_users` | Login (`user{id}`), Passwort (geleert) — **System/Admin bleiben unveraendert** |
+| `crm_lead` | Kontakt-/Firmenname, E-Mail, Telefon/Mobil, Adresse, Beschreibung |
+| `res_partner_bank` | Kontonummer (Fake-IBAN), bereinigte Kontonummer |
+| `mail_message` | `email_from`, Betreff (geleert), Body (Platzhalter) |
+| `ir_attachment` | `index_content` (Volltext-Index geleert) |
+
+> **Hinweis:** Nicht-System-Benutzer haben danach kein Passwort und den Login `user{id}`.
+> Der `admin`-Login bleibt nutzbar. Nicht installierte Module (fehlende Tabellen) werden
+> uebersprungen (non-fatal).
+
+```bash
+odoodev db restore 18 -n v18_test -z prod_backup.zip          # anonymisiert (Default)
+odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # Rohdaten behalten
+```
+
 Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis in der Bestaetigungsabfrage).
 
 > **Tipp:** Nach dem Restore empfiehlt odoodev `odoodev start -d {name} -u all` um alle Module zu aktualisieren.
@@ -138,6 +166,33 @@ During `odoodev db restore`, the filestore is managed automatically:
 - Fetchmail servers (`fetchmail_server.active = false`)
 - Nextcloud integration (config parameters cleared)
 - Office365 integration (config parameters cleared)
+
+### GDPR anonymization (on by default)
+
+`odoodev db restore` anonymizes personal data **by default** right after the import
+(GDPR Art. 5 data minimization, Art. 25 privacy by default). Use `--no-anonymize` to disable
+it for special cases.
+
+Replacement values are generated with **Faker** (`de_DE`, seeded per row id → reproducible).
+E-mail and login columns are deliberately **not** taken from Faker but forced onto reserved,
+non-deliverable values (`p{id}@example.invalid`, `user{id}`).
+
+| Table | Anonymized fields |
+|-------|-------------------|
+| `res_partner` | name (companies → `fake.company()`, persons → `fake.name()`), email, phone/mobile, address, VAT, website, comment, function (persons only) |
+| `res_users` | login (`user{id}`), password (cleared) — **system/admin left untouched** |
+| `crm_lead` | contact/company name, email, phone/mobile, address, description |
+| `res_partner_bank` | account number (fake IBAN), sanitized account number |
+| `mail_message` | `email_from`, subject (cleared), body (placeholder) |
+| `ir_attachment` | `index_content` (full-text index cleared) |
+
+> **Note:** Non-system users end up with no password and the login `user{id}`. The `admin`
+> login stays usable. Tables of uninstalled modules are skipped (non-fatal).
+
+```bash
+odoodev db restore 18 -n v18_test -z prod_backup.zip          # anonymized (default)
+odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # keep raw data
+```
 
 When running `odoodev db drop`, the filestore directory is also removed (with notice in the confirmation prompt).
 

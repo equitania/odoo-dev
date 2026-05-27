@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.4.54-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -21,6 +21,7 @@
 - Native Entwicklung mit UV Virtual Environments
 - Repository-Management mit frei benennbaren Sections in repos.yaml
 - Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, SQL)
+- DSGVO-Anonymisierung beim Restore (standardmäßig aktiv, Faker-basiert, `--no-anonymize` zum Abschalten)
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
@@ -181,6 +182,7 @@ uv build                                # Paket bauen
 - Native development with UV virtual environments
 - Repository management with freely nameable sections in repos.yaml
 - Database backup & restoration (ZIP, 7z, tar, SQL)
+- GDPR anonymization on restore (on by default, Faker-based, `--no-anonymize` to disable)
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows

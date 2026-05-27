@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.5.0 (27.05.2026)
+
+### Added
+- **db restore: GDPR data anonymization** — `odoodev db restore` now anonymizes personal data after the import via a new `anonymize_database()` post-restore step (GDPR Art. 5 data minimization, Art. 25 privacy by default). Replacement values are generated with **Faker** (`de_DE`, seeded per row id so results are deterministic/reproducible) and applied as one bundled, chunked `UPDATE ... FROM (VALUES ...)` per table via `psql -f`. Covered: `res_partner` (split by `is_company` — companies get `fake.company()` names, persons get `fake.name()` plus a job title), `res_users` (system/admin accounts excluded), `crm_lead`, `res_partner_bank` (per-row Faker), plus `mail_message` and `ir_attachment` (whole-table wipes). E-mail and login columns are never Faker-generated but forced onto RFC 2606 reserved targets (`p{id}@example.invalid`, `user{id}`) so no real address is reachable and unique constraints hold. Missing tables (uninstalled modules) are skipped (non-fatal). New `Faker>=20.0.0` runtime dependency.
+
+### Changed
+- **db restore: anonymization is on by default (opt-out)** — The new `--anonymize/--no-anonymize` flag defaults to `--anonymize`. Restoring a production dump into the local dev environment now strips personal data unless `--no-anonymize` is passed. Non-system users end up with login `user{id}` and no password; the `admin` login stays usable.
+
 ## Version 0.4.54 (05.05.2026)
 
 ### Fixed

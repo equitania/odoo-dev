@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import os
+import types
 import zipfile
 
 import pytest
+from click.testing import CliRunner
+from faker import Faker
 
+from odoodev.cli import cli
 from odoodev.core.database import (
+    ANONYMIZE_STATIC_QUERIES,
+    ANONYMIZE_TABLES,
+    _build_anonymize_sql,
+    _sql_literal,
+    anonymize_database,
     cleanup_restore_temp,
     copy_filestore,
     detect_backup_type,
@@ -16,6 +25,11 @@ from odoodev.core.database import (
     get_filestore_path,
     get_restore_temp_dir,
 )
+
+
+def _table_spec(name: str):
+    """Return the AnonTable spec for a table name."""
+    return next(spec for spec in ANONYMIZE_TABLES if spec.table == name)
 
 
 class TestExtractBackup:
@@ -216,3 +230,162 @@ class TestCleanupRestoreTemp:
     def test_handles_nonexistent_dir(self, tmp_dir):
         """Does not raise for missing directory."""
         cleanup_restore_temp(os.path.join(tmp_dir, "nonexistent"))
+
+
+class TestSqlLiteral:
+    def test_none_becomes_null(self):
+        assert _sql_literal(None) == "NULL"
+
+    def test_plain_string_is_quoted(self):
+        assert _sql_literal("hello") == "'hello'"
+
+    def test_single_quote_is_escaped(self):
+        assert _sql_literal("O'Brien") == "'O''Brien'"
+
+
+class TestBuildAnonymizeSql:
+    def test_emits_update_from_values(self):
+        sql = _build_anonymize_sql(_table_spec("res_partner"), [1, 2], Faker("de_DE"))
+        assert "UPDATE res_partner AS t SET" in sql
+        assert "FROM (VALUES" in sql
+        assert "WHERE t.id = v.id" in sql
+
+    def test_email_forced_to_invalid_tld(self):
+        """Emails must never be Faker-generated (could be deliverable)."""
+        sql = _build_anonymize_sql(_table_spec("res_partner"), [42], Faker("de_DE"))
+        assert "p42@example.invalid" in sql
+
+    def test_deterministic_across_instances(self):
+        """Same ids + fresh seeded Faker → identical SQL (reproducible)."""
+        sql_a = _build_anonymize_sql(_table_spec("res_partner"), [1, 2, 3], Faker("de_DE"))
+        sql_b = _build_anonymize_sql(_table_spec("res_partner"), [1, 2, 3], Faker("de_DE"))
+        assert sql_a == sql_b
+
+    def test_chunking_splits_statements(self):
+        ids = list(range(1, 11))  # 10 ids, chunk_size 4 → 3 statements
+        sql = _build_anonymize_sql(_table_spec("res_partner"), ids, Faker("de_DE"), chunk_size=4)
+        assert sql.count("UPDATE res_partner AS t SET") == 3
+
+    def test_empty_ids_yields_empty_sql(self):
+        assert _build_anonymize_sql(_table_spec("res_partner"), [], Faker("de_DE")) == ""
+
+
+class TestAnonymizeSpecs:
+    def test_res_users_excludes_system_accounts(self):
+        spec = _table_spec("res_users")
+        assert "id > 1" in spec.where
+        assert "admin" in spec.where
+
+    def test_res_users_login_and_password(self):
+        spec = _table_spec("res_users")
+        sql = _build_anonymize_sql(spec, [5], Faker("de_DE"))
+        assert "user5" in sql  # login forced, not Faker
+        assert "NULL" in sql  # password cleared
+
+    def test_static_queries_cover_mail_and_attachments(self):
+        joined = " ".join(ANONYMIZE_STATIC_QUERIES)
+        assert "mail_message" in joined
+        assert "ir_attachment" in joined
+
+    def test_res_partner_split_by_is_company(self):
+        """res_partner is split into a company spec and a person spec."""
+        partner_specs = [s for s in ANONYMIZE_TABLES if s.table == "res_partner"]
+        assert len(partner_specs) == 2
+        wheres = [s.where for s in partner_specs]
+        assert any("is_company = true" in w for w in wheres)
+        assert any("is_company = false" in w for w in wheres)
+
+    def test_company_spec_has_no_job_title(self):
+        """Companies get a company name but no person-only job title."""
+        company_spec = next(s for s in ANONYMIZE_TABLES if s.table == "res_partner" and "true" in s.where)
+        person_spec = next(s for s in ANONYMIZE_TABLES if s.table == "res_partner" and "false" in s.where)
+        company_cols = [f.column for f in company_spec.fields]
+        person_cols = [f.column for f in person_spec.fields]
+        assert "function" not in company_cols
+        assert "function" in person_cols
+        assert "name" in company_cols and "name" in person_cols
+
+
+class TestAnonymizeDatabase:
+    def test_runs_all_tables_and_static_queries(self, monkeypatch):
+        file_sql: list[str] = []
+        static_queries: list[str] = []
+
+        monkeypatch.setattr("odoodev.core.database._fetch_ids", lambda spec, *a, **k: [1])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_file",
+            lambda sql, **k: (file_sql.append(sql), (True, ""))[1],
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (static_queries.append(query), (True, ""))[1],
+        )
+
+        assert anonymize_database("mydb") is True
+        assert len(file_sql) == len(ANONYMIZE_TABLES)
+        assert len(static_queries) == len(ANONYMIZE_STATIC_QUERIES)
+
+    def test_skips_tables_without_rows(self, monkeypatch):
+        file_sql: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._fetch_ids", lambda spec, *a, **k: [])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_file",
+            lambda sql, **k: (file_sql.append(sql), (True, ""))[1],
+        )
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda query, **k: (True, ""))
+        assert anonymize_database("mydb") is True
+        assert file_sql == []  # nothing to anonymize → no file updates
+
+    def test_returns_false_on_failure(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.database._fetch_ids", lambda spec, *a, **k: [1])
+        monkeypatch.setattr("odoodev.core.database._run_psql_file", lambda sql, **k: (False, "boom"))
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda query, **k: (True, ""))
+        assert anonymize_database("mydb") is False
+
+
+class TestRestoreCliAnonymizeFlag:
+    """The restore command must anonymize by default (opt-out)."""
+
+    def _patch_flow(self, monkeypatch, tmp_path, calls):
+        from odoodev.commands import db as db_cmd
+
+        cfg = types.SimpleNamespace(
+            ports=types.SimpleNamespace(db=18432),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+        monkeypatch.setattr(db_cmd, "_print_migration_hint", lambda v: None)
+        monkeypatch.setattr(db_cmd, "drop_database", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "get_restore_temp_dir", lambda b: str(tmp_path))
+        monkeypatch.setattr(db_cmd, "extract_backup", lambda b, e: True)
+        monkeypatch.setattr(db_cmd, "detect_backup_type", lambda e: {"sql_file": "/x", "filestore": None})
+        monkeypatch.setattr(db_cmd, "create_database", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "restore_database", lambda name, sql, **k: True)
+        monkeypatch.setattr(db_cmd, "deactivate_cronjobs", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "deactivate_cloud", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "cleanup_restore_temp", lambda e: None)
+        monkeypatch.setattr(db_cmd, "anonymize_database", lambda name, **k: (calls.append(name), True)[1])
+
+    def test_help_lists_anonymize_flag(self):
+        result = CliRunner().invoke(cli, ["db", "restore", "--help"])
+        assert "--anonymize" in result.output
+        assert "--no-anonymize" in result.output
+
+    def test_anonymize_runs_by_default(self, monkeypatch, tmp_path):
+        calls: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        assert result.exit_code == 0, result.output
+        assert calls == ["testdb"]
+
+    def test_no_anonymize_skips(self, monkeypatch, tmp_path):
+        calls: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--no-anonymize"])
+        assert result.exit_code == 0, result.output
+        assert calls == []

@@ -8,6 +8,12 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from faker import Faker
 
 logger = logging.getLogger(__name__)
 
@@ -508,6 +514,241 @@ def deactivate_cloud(
         ok, _ = _run_psql(query, db=db_name, host=host, port=port, user=user)
         if not ok:
             success = False
+    return success
+
+
+# --------------------------------------------------------------------------- #
+# GDPR data anonymization (post-restore)
+#
+# Replaces personal data with Faker-generated, deterministic values after a
+# production database has been restored into the local dev environment
+# (GDPR Art. 5 data minimization, Art. 25 privacy by default).
+#
+# Strategy: per personal-data table, fetch row ids, generate per-id seeded
+# Faker values in Python, then apply one bundled "UPDATE ... FROM (VALUES ...)"
+# via "psql -f". E-mail and login columns are NOT taken from Faker but forced
+# onto RFC 2606 reserved targets (@example.invalid / user{id}) so no real
+# address can ever be reached and unique constraints are preserved.
+# --------------------------------------------------------------------------- #
+
+# Chunk size for bundled VALUES updates (guards against ARG_MAX / statement size).
+ANONYMIZE_CHUNK_SIZE = 2000
+
+
+@dataclass(frozen=True)
+class AnonField:
+    """A single column to anonymize with a Faker-based value generator.
+
+    The generator receives a seeded ``Faker`` instance and the row id and
+    returns a Python value (``str`` or ``None``) that is rendered to a SQL
+    literal.
+    """
+
+    column: str
+    generator: Callable[[Faker, int], str | None]
+
+
+@dataclass(frozen=True)
+class AnonTable:
+    """A table whose personal-data columns are anonymized row by row."""
+
+    table: str
+    fields: tuple[AnonField, ...]
+    where: str = ""  # extra WHERE clause to restrict / exclude rows (e.g. system users)
+
+
+# Shared res_partner fields (everything except name/function, which differ for companies).
+_PARTNER_COMMON_FIELDS: tuple[AnonField, ...] = (
+    AnonField("email", lambda f, i: f"p{i}@example.invalid"),
+    AnonField("phone", lambda f, i: f.phone_number()),
+    AnonField("mobile", lambda f, i: f.phone_number()),
+    AnonField("street", lambda f, i: f.street_address()),
+    AnonField("street2", lambda f, i: None),
+    AnonField("city", lambda f, i: f.city()),
+    AnonField("zip", lambda f, i: f.postcode()),
+    AnonField("vat", lambda f, i: None),
+    AnonField("website", lambda f, i: None),
+    AnonField("comment", lambda f, i: None),
+)
+
+# Per-row Faker tables. Field order is stable so seeded generation is reproducible.
+# res_partner is split by is_company: companies get a company name (and no job title),
+# persons get a personal name and a job title.
+ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
+    AnonTable(
+        table="res_partner",
+        fields=(AnonField("name", lambda f, i: f.company()),) + _PARTNER_COMMON_FIELDS,
+        where="is_company = true",
+    ),
+    AnonTable(
+        table="res_partner",
+        fields=(AnonField("name", lambda f, i: f.name()),)
+        + _PARTNER_COMMON_FIELDS
+        + (AnonField("function", lambda f, i: f.job()),),
+        where="is_company = false OR is_company IS NULL",
+    ),
+    AnonTable(
+        table="res_users",
+        fields=(
+            AnonField("login", lambda f, i: f"user{i}"),
+            AnonField("password", lambda f, i: None),
+        ),
+        # Keep system / technical accounts usable (admin login + password untouched).
+        where="id > 1 AND login NOT IN ('admin', '__system__', 'default', 'public', 'portaltemplate')",
+    ),
+    AnonTable(
+        table="crm_lead",
+        fields=(
+            AnonField("contact_name", lambda f, i: f.name()),
+            AnonField("partner_name", lambda f, i: f.company()),
+            AnonField("email_from", lambda f, i: f"lead{i}@example.invalid"),
+            AnonField("phone", lambda f, i: f.phone_number()),
+            AnonField("mobile", lambda f, i: f.phone_number()),
+            AnonField("street", lambda f, i: f.street_address()),
+            AnonField("city", lambda f, i: f.city()),
+            AnonField("zip", lambda f, i: f.postcode()),
+            AnonField("description", lambda f, i: None),
+        ),
+    ),
+    AnonTable(
+        table="res_partner_bank",
+        fields=(
+            AnonField("acc_number", lambda f, i: f.iban()),
+            AnonField("sanitized_acc_number", lambda f, i: None),
+        ),
+    ),
+)
+
+# Whole-table updates that need no per-row Faker values (often huge tables).
+ANONYMIZE_STATIC_QUERIES: tuple[str, ...] = (
+    "UPDATE mail_message SET email_from = NULL, subject = NULL, body = '<p>[anonymized]</p>';",
+    "UPDATE ir_attachment SET index_content = NULL;",
+)
+
+
+def _sql_literal(value: str | None) -> str:
+    """Render a Python value as a safe single-quoted SQL literal (or NULL)."""
+    if value is None:
+        return "NULL"
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _fetch_ids(
+    spec: AnonTable,
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> list[int]:
+    """Fetch row ids for a table, applying the spec's optional WHERE filter.
+
+    Returns an empty list on any error (e.g. table missing because the module
+    is not installed) so anonymization stays non-fatal.
+    """
+    where = f" WHERE {spec.where}" if spec.where else ""
+    query = f"SELECT id FROM {spec.table}{where} ORDER BY id;"
+    ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return []
+    ids = []
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.isdigit():
+            ids.append(int(stripped))
+    return ids
+
+
+def _build_anonymize_sql(
+    spec: AnonTable,
+    ids: list[int],
+    fake: Faker,
+    chunk_size: int = ANONYMIZE_CHUNK_SIZE,
+) -> str:
+    """Build chunked ``UPDATE ... FROM (VALUES ...)`` statements for a table.
+
+    Faker is seeded per row id so the result is deterministic / reproducible.
+    """
+    columns = [f.column for f in spec.fields]
+    col_list = ", ".join(columns)
+    set_clause = ", ".join(f"{c} = v.{c}" for c in columns)
+    statements = []
+    for start in range(0, len(ids), chunk_size):
+        chunk = ids[start : start + chunk_size]
+        rows = []
+        for row_id in chunk:
+            fake.seed_instance(row_id)
+            values = [str(row_id)] + [_sql_literal(f.generator(fake, row_id)) for f in spec.fields]
+            rows.append("(" + ", ".join(values) + ")")
+        values_block = ",\n".join(rows)
+        statements.append(
+            f"UPDATE {spec.table} AS t SET {set_clause}\n"
+            f"FROM (VALUES\n{values_block}\n) AS v(id, {col_list})\n"
+            f"WHERE t.id = v.id;"
+        )
+    return "\n\n".join(statements)
+
+
+def _run_psql_file(
+    sql: str,
+    db: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, str]:
+    """Write SQL to a temp file and execute it via ``psql -f`` (ON_ERROR_STOP)."""
+    env = _get_pg_env(host, port)
+    fd, path = tempfile.mkstemp(suffix=".sql", prefix="odoodev_anon_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(sql)
+        cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-d", db, "-v", "ON_ERROR_STOP=1", "-f", path]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        return False, e.stderr
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def anonymize_database(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+    locale: str = "de_DE",
+) -> bool:
+    """Anonymize personal data after a restore using Faker (GDPR Art. 5, 25).
+
+    Covers res_partner, res_users, crm_lead, res_partner_bank (per-row Faker
+    values) plus mail_message and ir_attachment (whole-table wipes). System
+    accounts are preserved so the dev login keeps working. Non-fatal: missing
+    tables (uninstalled modules) are skipped.
+
+    Returns:
+        True if every applicable statement succeeded.
+    """
+    from faker import Faker
+
+    fake = Faker(locale)
+    success = True
+
+    for spec in ANONYMIZE_TABLES:
+        ids = _fetch_ids(spec, db_name, host=host, port=port, user=user)
+        if not ids:
+            continue
+        sql = _build_anonymize_sql(spec, ids, fake)
+        ok, _ = _run_psql_file(sql, db=db_name, host=host, port=port, user=user)
+        if not ok:
+            success = False
+
+    for query in ANONYMIZE_STATIC_QUERIES:
+        ok, _ = _run_psql(query, db=db_name, host=host, port=port, user=user)
+        if not ok:
+            success = False
+
     return success
 
 

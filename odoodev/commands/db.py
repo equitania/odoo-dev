@@ -12,6 +12,7 @@ import questionary
 
 from odoodev.cli import resolve_version
 from odoodev.core.database import (
+    anonymize_database,
     backup_database_sql,
     cleanup_restore_temp,
     copy_filestore,
@@ -201,6 +202,11 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
     default=True,
     help="Deactivate cloud integrations",
 )
+@click.option(
+    "--anonymize/--no-anonymize",
+    default=True,
+    help="Anonymize personal data after restore (GDPR) — on by default",
+)
 @click.option("--keep-temp", is_flag=True, help="Keep extracted temp files")
 @click.pass_context
 def db_restore(
@@ -211,6 +217,7 @@ def db_restore(
     drop: bool,
     deactivate_cron: bool,
     deactivate_cloud_flag: bool,
+    anonymize: bool,
     keep_temp: bool,
 ) -> None:
     """Restore a database from backup file.
@@ -296,6 +303,13 @@ def db_restore(
         print_info("Deactivating cloud integrations...")
         if not deactivate_cloud(name, **params):
             print_warning("Cloud integration deactivation failed — tables may be missing (non-fatal)")
+
+    if anonymize:
+        print_info("Anonymizing personal data (GDPR)...")
+        if anonymize_database(name, **params):
+            print_success("Personal data anonymized")
+        else:
+            print_warning("Anonymization partially failed — some tables may be missing (non-fatal)")
 
     # Cleanup
     if not keep_temp:
