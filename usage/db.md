@@ -122,6 +122,10 @@ Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis 
 
 > **Tipp:** Nach dem Restore empfiehlt odoodev `odoodev start -d {name} -u all` um alle Module zu aktualisieren.
 
+> **Kunden-Sonderdokument:** Eine ausfuehrliche, kundenfaehige Darstellung beider Schutzschichten
+> (DSGVO-Kontext, vollstaendige Feldtabelle, Audit-Snippets, Restrisiken) liegt unter
+> [data-protection.md](data-protection.md).
+
 ### Standard-Credentials
 
 - **Benutzer:** `ownerp`
@@ -245,6 +249,10 @@ odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # keep raw
 When running `odoodev db drop`, the filestore directory is also removed (with notice in the confirmation prompt).
 
 > **Tip:** After restore, odoodev suggests running `odoodev start -d {name} -u all` to update all modules.
+
+> **Customer-facing reference:** A detailed, customer-ready write-up of both protection layers
+> (GDPR context, full field table, audit snippets, residual risks) lives at
+> [data-protection.md](data-protection.md).
 
 ### Default Credentials
 
