@@ -572,6 +572,22 @@ class AnonTable:
     where: str = ""  # extra WHERE clause to restrict / exclude rows (e.g. system users)
 
 
+@dataclass(frozen=True)
+class StaticAnonTable:
+    """A table whose PII columns are wiped with the same constant value for all rows.
+
+    Used for columns that need no per-row variation and/or are non-text (FK, date,
+    numeric, bytea, json) — a single ``UPDATE`` sets them to NULL/0. Assignments are
+    filtered against the live schema (``_existing_columns``) so the same spec works
+    across Odoo versions where a column may not exist.
+    """
+
+    table: str
+    # (column, raw SQL value expression), e.g. ("birthday", "NULL"), ("wage", "0").
+    assignments: tuple[tuple[str, str], ...]
+    where: str = ""
+
+
 # Shared res_partner fields (everything except name/function, which differ for companies).
 _PARTNER_COMMON_FIELDS: tuple[AnonField, ...] = (
     AnonField("email", lambda f, i: f"p{i}@example.invalid"),
@@ -602,15 +618,9 @@ ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
         + (AnonField("function", lambda f, i: f.job()),),
         where="is_company = false OR is_company IS NULL",
     ),
-    AnonTable(
-        table="res_users",
-        fields=(
-            AnonField("login", lambda f, i: f"user{i}"),
-            AnonField("password", lambda f, i: None),
-        ),
-        # Keep system / technical accounts usable (admin login + password untouched).
-        where="id > 1 AND login NOT IN ('admin', '__system__', 'default', 'public', 'portaltemplate')",
-    ),
+    # NOTE: res_users is intentionally NOT anonymized by default — that would make
+    # every login unusable and break testing. Opt in via anonymize_users() / the
+    # `--anonymize-users` restore flag instead.
     AnonTable(
         table="crm_lead",
         fields=(
@@ -632,6 +642,17 @@ ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
             AnonField("sanitized_acc_number", lambda f, i: None),
         ),
     ),
+    # HR: only the identity text columns are per-row Faker values. The bulk of the
+    # employee PII (private address, IDs, dates, binaries, ...) is wiped via the
+    # column-filtered static updates below, because those columns differ by Odoo
+    # version and many are non-text (FK / date / numeric / bytea).
+    AnonTable(
+        table="hr_employee",
+        fields=(
+            AnonField("name", lambda f, i: f.name()),
+            AnonField("work_email", lambda f, i: f"emp{i}@example.invalid"),
+        ),
+    ),
 )
 
 # Whole-table updates that need no per-row Faker values (often huge tables).
@@ -640,12 +661,152 @@ ANONYMIZE_STATIC_QUERIES: tuple[str, ...] = (
     "UPDATE ir_attachment SET index_content = NULL;",
 )
 
+# HR PII wiped with constant values. One spec per table covers v16/v18/v19 because
+# columns are filtered against the live schema before the UPDATE is built:
+#   - v16: private address / private_email / private_phone live on res_partner (via
+#     address_home_id) and are already handled by the global res_partner pass; those
+#     private_* columns simply don't exist on hr_employee and are filtered out here.
+#   - v19: ssnid / passport_id / marital / ... moved to hr_version; on hr_employee
+#     they no longer exist and are filtered out, while the hr_version spec covers them.
+_HR_EMPLOYEE_NULL_COLUMNS: tuple[str, ...] = (
+    "work_phone",
+    "mobile_phone",
+    "private_email",
+    "private_phone",
+    "private_street",
+    "private_street2",
+    "private_city",
+    "private_zip",
+    "private_state_id",
+    "private_country_id",
+    "identification_id",
+    "passport_id",
+    "ssnid",
+    "sinid",
+    "permit_no",
+    "visa_no",
+    "visa_expire",
+    "work_permit_expiration_date",
+    "birthday",
+    "place_of_birth",
+    "country_of_birth",
+    "spouse_complete_name",
+    "spouse_birthdate",
+    "emergency_contact",
+    "emergency_phone",
+    "has_work_permit",
+    "pin",
+    "barcode",
+    "notes",
+    "additional_note",
+    "departure_description",
+    "legal_name",
+    "private_car_plate",
+    "salary_distribution",
+    "driving_license",
+    "image_1920",
+    "image_1024",
+    "image_512",
+    "image_256",
+    "image_128",
+)
+
+ANONYMIZE_STATIC_TABLES: tuple[StaticAnonTable, ...] = (
+    StaticAnonTable(
+        table="hr_employee",
+        assignments=tuple((col, "NULL") for col in _HR_EMPLOYEE_NULL_COLUMNS)
+        + (
+            ("marital", "'single'"),
+            ("children", "0"),
+            ("km_home_work", "0"),
+            ("distance_home_work", "0"),
+        ),
+    ),
+    # v19: contract/personal data moved into hr_version (successor of hr_contract).
+    StaticAnonTable(
+        table="hr_version",
+        assignments=(
+            ("wage", "0"),
+            ("gender", "NULL"),
+            ("ssnid", "NULL"),
+            ("sinid", "NULL"),
+            ("identification_id", "NULL"),
+            ("passport_id", "NULL"),
+            ("marital", "'single'"),
+            ("spouse_complete_name", "NULL"),
+            ("spouse_birthdate", "NULL"),
+            ("children", "0"),
+        ),
+    ),
+    # v16/v18: salary lives on hr_contract.
+    StaticAnonTable(
+        table="hr_contract",
+        assignments=(("wage", "0"),),
+    ),
+)
+
+# Linkage / M2M tables wiped entirely (e.g. v19 employee↔bank-account relation;
+# the IBANs themselves are already faked via the global res_partner_bank pass).
+ANONYMIZE_DELETE_TABLES: tuple[str, ...] = ("employee_bank_account_rel",)
+
 
 def _sql_literal(value: str | None) -> str:
     """Render a Python value as a safe single-quoted SQL literal (or NULL)."""
     if value is None:
         return "NULL"
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def _existing_columns(
+    table: str,
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> set[str]:
+    """Return the column names of a public table (empty set if it doesn't exist).
+
+    Used to make anonymization version-robust: columns that don't exist in a given
+    Odoo version are filtered out before the UPDATE is built, and a missing table
+    yields an empty set so the caller skips it.
+    """
+    query = (
+        f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '{table}';"
+    )
+    ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return set()
+    columns: set[str] = set()
+    for line in out.splitlines():
+        stripped = line.strip()
+        # Skip psql header ("column_name"), the dashed separator and the "(N rows)" footer.
+        if not stripped or stripped == "column_name" or stripped.startswith("(") or set(stripped) <= {"-"}:
+            continue
+        columns.add(stripped)
+    return columns
+
+
+def _filter_fields(spec: AnonTable, existing: set[str]) -> AnonTable:
+    """Return a copy of ``spec`` keeping only fields whose column exists in the schema."""
+    fields = tuple(field for field in spec.fields if field.column in existing)
+    return AnonTable(table=spec.table, fields=fields, where=spec.where)
+
+
+def _build_static_update(
+    table: str,
+    assignments: tuple[tuple[str, str], ...],
+    existing: set[str],
+    where: str = "",
+) -> str | None:
+    """Build a single ``UPDATE`` from constant assignments, skipping missing columns.
+
+    Returns None if no assigned column exists in the live schema.
+    """
+    parts = [f"{column} = {value}" for column, value in assignments if column in existing]
+    if not parts:
+        return None
+    clause = f" WHERE {where}" if where else ""
+    return f"UPDATE {table} SET {', '.join(parts)}{clause};"
 
 
 def _fetch_ids(
@@ -737,10 +898,12 @@ def anonymize_database(
 ) -> bool:
     """Anonymize personal data after a restore using Faker (GDPR Art. 5, 25).
 
-    Covers res_partner, res_users, crm_lead, res_partner_bank (per-row Faker
-    values) plus mail_message and ir_attachment (whole-table wipes). System
-    accounts are preserved so the dev login keeps working. Non-fatal: missing
-    tables (uninstalled modules) are skipped.
+    Covers res_partner, crm_lead, res_partner_bank and hr_employee (per-row Faker
+    values), the HR PII bulk-wipes (hr_employee / hr_version / hr_contract, column
+    filtered for version robustness) plus mail_message and ir_attachment
+    (whole-table wipes). ``res_users`` is intentionally NOT touched here so logins
+    keep working — opt in via :func:`anonymize_users`. Non-fatal: missing tables /
+    columns (uninstalled modules, version differences) are skipped.
 
     Returns:
         True if every applicable statement succeeded.
@@ -750,19 +913,149 @@ def anonymize_database(
     fake = Faker(locale)
     success = True
 
+    # 1. Per-row Faker tables — column-filtered against the live schema so a column
+    #    that doesn't exist in this Odoo version is left out instead of erroring.
     for spec in ANONYMIZE_TABLES:
         ids = _fetch_ids(spec, db_name, host=host, port=port, user=user)
         if not ids:
             continue
-        sql = _build_anonymize_sql(spec, ids, fake)
+        existing = _existing_columns(spec.table, db_name, host=host, port=port, user=user)
+        effective = _filter_fields(spec, existing) if existing else spec
+        if not effective.fields:
+            continue
+        sql = _build_anonymize_sql(effective, ids, fake)
         ok, _ = _run_psql_file(sql, db=db_name, host=host, port=port, user=user)
         if not ok:
             success = False
 
+    # 2. HR PII bulk-wipes (constant values, column filtered). A missing table
+    #    (wrong version / module not installed) yields an empty column set → skip.
+    for static_table in ANONYMIZE_STATIC_TABLES:
+        existing = _existing_columns(static_table.table, db_name, host=host, port=port, user=user)
+        if not existing:
+            continue
+        stmt = _build_static_update(static_table.table, static_table.assignments, existing, where=static_table.where)
+        if stmt is None:
+            continue
+        ok, _ = _run_psql(stmt, db=db_name, host=host, port=port, user=user)
+        if not ok:
+            success = False
+
+    # 3. Linkage / M2M tables wiped entirely (guarded against missing tables).
+    for table in ANONYMIZE_DELETE_TABLES:
+        if _existing_columns(table, db_name, host=host, port=port, user=user):
+            ok, _ = _run_psql(f"DELETE FROM {table};", db=db_name, host=host, port=port, user=user)
+            if not ok:
+                success = False
+
+    # 4. Whole-table static wipes.
     for query in ANONYMIZE_STATIC_QUERIES:
         ok, _ = _run_psql(query, db=db_name, host=host, port=port, user=user)
         if not ok:
             success = False
+
+    return success
+
+
+# Default dev password for opt-in res_users anonymization (hashed before storing).
+DEFAULT_DEV_PASSWORD = "ownerp"  # noqa: S105 — dev-only login, documented for the team
+
+# Accounts kept untouched so the dev login keeps working (admin id=1 + technical logins).
+_USER_ANON_WHERE = "id > 1 AND login NOT IN ('admin', '__system__', 'default', 'public', 'portaltemplate')"
+
+
+def anonymize_users(
+    db_name: str,
+    dev_password: str = DEFAULT_DEV_PASSWORD,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Opt-in anonymization of ``res_users`` (NOT run by default).
+
+    Sets each non-system login to ``user{id}`` and resets the password to a single
+    known dev password so the database stays testable. ``admin`` (id=1) and technical
+    accounts are left untouched. The password is stored as an Odoo-compatible
+    ``pbkdf2_sha512`` hash (one hash is valid for every user).
+
+    Returns:
+        True on success, False if passlib is missing or a statement failed.
+    """
+    try:
+        from passlib.context import CryptContext
+    except ImportError:
+        from odoodev.output import print_error
+
+        print_error("passlib is not installed — cannot anonymize res_users. Install with: uv pip install passlib")
+        return False
+
+    from faker import Faker
+
+    pw_hash = CryptContext(schemes=["pbkdf2_sha512"]).hash(dev_password)
+    success = True
+
+    # 1. Logins → user{id} (per-row, reusing the VALUES mechanism).
+    login_spec = AnonTable(
+        table="res_users",
+        fields=(AnonField("login", lambda f, i: f"user{i}"),),
+        where=_USER_ANON_WHERE,
+    )
+    ids = _fetch_ids(login_spec, db_name, host=host, port=port, user=user)
+    if ids:
+        sql = _build_anonymize_sql(login_spec, ids, Faker())
+        ok, _ = _run_psql_file(sql, db=db_name, host=host, port=port, user=user)
+        if not ok:
+            success = False
+
+    # 2. Password → one shared dev hash (single static UPDATE).
+    pw_sql = f"UPDATE res_users SET password = {_sql_literal(pw_hash)} WHERE {_USER_ANON_WHERE};"
+    ok, _ = _run_psql(pw_sql, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        success = False
+
+    return success
+
+
+def neutralize_bank_sync(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Disable bank synchronisation after a restore (not covered by odoo-bin neutralize).
+
+    Odoo's native neutralize only marks ``account_online_link.client_id = 'duplicate'``
+    and never resets ``account_journal.bank_statements_source``. This wipes the bank
+    sync state FK-safely: detach journals → delete online accounts → delete online
+    links. Each statement runs as its own psql call (separate transaction) — chaining
+    the journal update and the deletes in one transaction can fail. Column/table
+    guarded, so it is a no-op when the accounting / bank-sync modules are absent.
+
+    Returns:
+        True if every applicable statement succeeded.
+    """
+    success = True
+
+    # 1. Reset statement source and detach online links/accounts from journals.
+    journal_cols = _existing_columns("account_journal", db_name, host=host, port=port, user=user)
+    if journal_cols:
+        assignments: list[tuple[str, str]] = [
+            ("bank_statements_source", "'undefined'"),
+            ("account_online_account_id", "NULL"),
+            ("account_online_link_id", "NULL"),
+        ]
+        stmt = _build_static_update("account_journal", tuple(assignments), journal_cols)
+        if stmt is not None:
+            ok, _ = _run_psql(stmt, db=db_name, host=host, port=port, user=user)
+            if not ok:
+                success = False
+
+    # 2. Delete the child rows (online accounts) before the parent (online links).
+    for table in ("account_online_account", "account_online_link"):
+        if _existing_columns(table, db_name, host=host, port=port, user=user):
+            ok, _ = _run_psql(f"DELETE FROM {table};", db=db_name, host=host, port=port, user=user)
+            if not ok:
+                success = False
 
     return success
 

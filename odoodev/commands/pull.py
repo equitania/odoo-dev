@@ -9,6 +9,7 @@ import sys
 import click
 
 from odoodev.cli import resolve_version
+from odoodev.click_types import ExpandedPath
 from odoodev.commands.repos import (
     _collect_all_repos,
     _find_repos_config,
@@ -18,14 +19,14 @@ from odoodev.commands.repos import (
 )
 from odoodev.core.git_ops import set_ssh_key, update_repo
 from odoodev.core.version_registry import get_version, load_versions
-from odoodev.output import console, print_info, print_success, print_warning
+from odoodev.output import console, print_info, print_start_hint, print_success, print_warning
 
 logger = logging.getLogger(__name__)
 
 
 @click.command()
 @click.argument("version", required=False)
-@click.option("-c", "--config", "config_path", type=click.Path(), help="Custom repos.yaml path")
+@click.option("-c", "--config", "config_path", type=ExpandedPath(), help="Custom repos.yaml path")
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging")
 @click.option("--no-config", is_flag=True, help="Skip Odoo config regeneration after pull")
 @click.option("--select", "select_addons", is_flag=True, help="Interactive addon selector before config generation")
@@ -174,3 +175,8 @@ def pull(
 
             repo_metadata = _prompt_enterprise_inclusion(repo_metadata)
         _generate_config(config, version_cfg, all_paths, repo_metadata)
+
+    # Code changed → remind the user to restart Odoo and update their modules.
+    if updated:
+        console.print()
+        print_start_hint(version)

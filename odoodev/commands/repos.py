@@ -10,6 +10,7 @@ import sys
 import click
 import yaml
 
+from odoodev.click_types import ExpandedPath
 from odoodev.core.git_ops import (
     check_repo_access,
     clone_repo_with_progress,
@@ -21,7 +22,7 @@ from odoodev.core.git_ops import (
 )
 from odoodev.core.odoo_config import create_odoo_config
 from odoodev.core.version_registry import get_version, load_versions
-from odoodev.output import print_error, print_info, print_success, print_warning
+from odoodev.output import console, print_error, print_info, print_start_hint, print_success, print_warning
 
 logger = logging.getLogger(__name__)
 
@@ -295,7 +296,7 @@ def _process_repos(
 
 @click.command()
 @click.argument("version", required=False)
-@click.option("-c", "--config", "config_path", type=click.Path(), help="Custom repos.yaml path")
+@click.option("-c", "--config", "config_path", type=ExpandedPath(), help="Custom repos.yaml path")
 @click.option("--init", "init_mode", is_flag=True, help="Fresh clone all repositories")
 @click.option("--server-only", is_flag=True, help="Only process Odoo server")
 @click.option("--config-only", is_flag=True, help="Only generate Odoo config (no git operations)")
@@ -435,6 +436,10 @@ def repos(
     _generate_config(config, version_cfg, all_paths, repo_metadata)
 
     print_success(f"Odoo v{version} repositories processed successfully")
+
+    # Code/config changed → remind the user to (re)start Odoo and update modules.
+    console.print()
+    print_start_hint(version)
 
 
 def _parse_env_file(env_path: str) -> dict[str, str]:

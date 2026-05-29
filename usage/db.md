@@ -90,6 +90,12 @@ odoodev db neutralize 18 -n v18_test --stdout   # nur SQL ausgeben (Dry-Run, nic
 
 Verifikation: `ir_config_parameter` enthaelt danach `database.is_neutralized = true`.
 
+**Bank-Synchronisation (ergaenzend, unter `--neutralize`):** Odoos Neutralize setzt
+`account_journal.bank_statements_source` nicht zurueck und loescht `account_online_link` nicht.
+`odoodev` ergaenzt daher FK-sicher (Journals entkoppeln → `account_online_account` loeschen →
+`account_online_link` loeschen, `bank_statements_source='undefined'`) — je Statement eine eigene
+Transaktion, tabellen-geprueft (No-Op ohne Buchhaltungs-/Bank-Sync-Module).
+
 ### DSGVO-Anonymisierung (standardmaessig aktiv)
 
 `odoodev db restore` anonymisiert personenbezogene Daten **standardmaessig** direkt nach dem
@@ -103,18 +109,22 @@ reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}
 | Tabelle | Anonymisierte Felder |
 |---------|----------------------|
 | `res_partner` | Name (Firmen → `fake.company()`, Personen → `fake.name()`), E-Mail, Telefon/Mobil, Adresse, USt-IdNr., Website, Notiz, Funktion (nur Personen) |
-| `res_users` | Login (`user{id}`), Passwort (geleert) — **System/Admin bleiben unveraendert** |
 | `crm_lead` | Kontakt-/Firmenname, E-Mail, Telefon/Mobil, Adresse, Beschreibung |
 | `res_partner_bank` | Kontonummer (Fake-IBAN), bereinigte Kontonummer |
+| `hr_employee` | Name, Work-E-Mail, Telefon, Privatadresse, Ausweis-/Pass-/SV-Nummern, Geburtsdaten, Ehepartner-/Notfalldaten, PIN/Barcode, Notizen, Bild-/Scan-Felder; Gehalt-/km-Felder → 0 |
+| `hr_version` (v19) / `hr_contract` (v16/v18) | Gehalt (`wage` → 0), sensible Personaldaten (v19) |
+| `employee_bank_account_rel` (v19) | M2M-Verknuepfung komplett geloescht |
 | `mail_message` | `email_from`, Betreff (geleert), Body (Platzhalter) |
 | `ir_attachment` | `index_content` (Volltext-Index geleert) |
 
-> **Hinweis:** Nicht-System-Benutzer haben danach kein Passwort und den Login `user{id}`.
-> Der `admin`-Login bleibt nutzbar. Nicht installierte Module (fehlende Tabellen) werden
-> uebersprungen (non-fatal).
+> **`res_users` wird per Default NICHT anonymisiert** — Logins bleiben testbar. Opt-in via
+> `--anonymize-users` (Login → `user{id}`, Passwort → Dev-Passwort `--user-password`, Default
+> `ownerp`; `admin` bleibt unveraendert). HR-Spalten werden gegen das Live-Schema gefiltert,
+> daher versionsrobust (v16/v18/v19). Fehlende Tabellen/Spalten werden uebersprungen (non-fatal).
 
 ```bash
-odoodev db restore 18 -n v18_test -z prod_backup.zip          # anonymisiert (Default)
+odoodev db restore 18 -n v18_test -z prod_backup.zip                  # anonymisiert (Default), User bleiben
+odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize-users # zusaetzlich res_users
 odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # Rohdaten behalten
 ```
 
@@ -219,6 +229,12 @@ odoodev db neutralize 18 -n v18_test --stdout   # print SQL only (dry run, appli
 
 Verification: afterwards `ir_config_parameter` holds `database.is_neutralized = true`.
 
+**Bank synchronisation (supplementary, under `--neutralize`):** Odoo's neutralize does not reset
+`account_journal.bank_statements_source` nor delete `account_online_link`. `odoodev` adds an
+FK-safe cleanup (detach journals → delete `account_online_account` → delete `account_online_link`,
+`bank_statements_source='undefined'`) — one transaction per statement, table guarded (no-op when
+the accounting / bank-sync modules are absent).
+
 ### GDPR anonymization (on by default)
 
 `odoodev db restore` anonymizes personal data **by default** right after the import
@@ -232,17 +248,22 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 | Table | Anonymized fields |
 |-------|-------------------|
 | `res_partner` | name (companies → `fake.company()`, persons → `fake.name()`), email, phone/mobile, address, VAT, website, comment, function (persons only) |
-| `res_users` | login (`user{id}`), password (cleared) — **system/admin left untouched** |
 | `crm_lead` | contact/company name, email, phone/mobile, address, description |
 | `res_partner_bank` | account number (fake IBAN), sanitized account number |
+| `hr_employee` | name, work email, phones, private address, ID/passport/SSN numbers, birth data, spouse/emergency data, PIN/barcode, notes, image/scan fields; salary/distance fields → 0 |
+| `hr_version` (v19) / `hr_contract` (v16/v18) | wage → 0, sensitive personnel data (v19) |
+| `employee_bank_account_rel` (v19) | M2M link deleted entirely |
 | `mail_message` | `email_from`, subject (cleared), body (placeholder) |
 | `ir_attachment` | `index_content` (full-text index cleared) |
 
-> **Note:** Non-system users end up with no password and the login `user{id}`. The `admin`
-> login stays usable. Tables of uninstalled modules are skipped (non-fatal).
+> **`res_users` is NOT anonymized by default** — logins stay testable. Opt in via
+> `--anonymize-users` (login → `user{id}`, password → dev password `--user-password`, default
+> `ownerp`; `admin` stays unchanged). HR columns are filtered against the live schema, so it is
+> version robust (v16/v18/v19). Missing tables/columns are skipped (non-fatal).
 
 ```bash
-odoodev db restore 18 -n v18_test -z prod_backup.zip          # anonymized (default)
+odoodev db restore 18 -n v18_test -z prod_backup.zip                  # anonymized (default), users kept
+odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize-users # additionally res_users
 odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # keep raw data
 ```
 

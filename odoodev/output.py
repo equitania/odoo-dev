@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from contextlib import contextmanager
 
@@ -47,6 +48,24 @@ def print_warning(message: str) -> None:
 def print_info(message: str) -> None:
     """Print info message in blue."""
     console.print(f"[blue][INFO][/blue] {message}")
+
+
+def print_start_hint(version: str, db_name: str | None = None) -> None:
+    """Print recommended ``odoodev start`` commands after an operation that
+    requires (re)starting Odoo — restore, pull, repos.
+
+    Includes the ``--tui`` and ``--dev`` flags so the suggestion matches a typical
+    dev workflow. When ``db_name`` is known (restore) it also shows the one-off
+    ``-u all`` module update; otherwise it points at a generic ``<db>`` placeholder.
+    """
+    if db_name:
+        print_info("Next step — update all modules, then start in dev mode:")
+        console.print(f"  [bold green]odoodev start {version} --tui --dev -d {db_name} -u all[/bold green]")
+        print_info("Subsequent starts (no module update needed):")
+        console.print(f"  [bold green]odoodev start {version} --tui --dev[/bold green]")
+    else:
+        print_info("Restart Odoo to apply the changes — update your modules:")
+        console.print(f"  [bold green]odoodev start {version} --tui --dev -d <db> -u all[/bold green]")
 
 
 def print_header(title: str, subtitle: str = "") -> None:
@@ -118,7 +137,7 @@ def path_input(message: str, default: str = "") -> str:
     result = questionary.path(message, default=default, style=_ownerp_style()).ask()
     if result is None:
         raise SystemExit(0)
-    return result
+    return os.path.expanduser(result)
 
 
 def checkbox(message: str, choices: Sequence[str | questionary.Choice]) -> list[str]:

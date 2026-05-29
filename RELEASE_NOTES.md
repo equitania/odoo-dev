@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.7.0 (29.05.2026)
+
+### Added
+- **db restore: bank-sync neutralization** — Native `odoo-bin neutralize` does not reset `account_journal.bank_statements_source` and only marks `account_online_link.client_id = 'duplicate'` (no delete). New `neutralize_bank_sync()` core function closes that gap FK-safely: it detaches journals (`bank_statements_source = 'undefined'`, online account/link FKs set to NULL), then deletes `account_online_account` (child) before `account_online_link` (parent). Each statement runs as its own `psql` call (separate transaction) — required because bundling the journal update and the deletes in one transaction can fail. Column/table guarded (no-op when the accounting/bank-sync modules are absent). Runs under the `--neutralize` flag (also in standalone `db neutralize`), even when native neutralize was skipped for lack of a venv.
+- **db: HR/employee data anonymization** — `anonymize_database()` now anonymizes employee PII: `hr_employee` (name + work email per-row Faker; private address, phones, ID/passport/SSN numbers, birth/spouse/emergency data, PIN/barcode, notes, image & scan binaries wiped; salary/distance fields zeroed), `hr_version` (v19) and `hr_contract` (v16/v18) wages zeroed, and the v19 `employee_bank_account_rel` link table cleared. Version-robust via the new `_existing_columns()` helper: every column is matched against `information_schema` before the `UPDATE`, so the same spec works across v16/v18/v19 despite their differing HR schemas (v16 keeps private data on `res_partner`, v18 on `hr_employee`, v19 on `hr_version`).
+- **db restore: optional res_users anonymization** — New `--anonymize-users/--no-anonymize-users` flag (off by default) plus `--user-password` (default `ownerp`). When enabled, non-system logins become `user{id}` and passwords are reset to one shared dev password stored as an Odoo-compatible `pbkdf2_sha512` hash (via the new `passlib` dependency) — so every user stays loginable as `user<id>` / `ownerp` while `admin` (id=1) keeps its original credentials.
+- **start hint after restart-requiring operations** — New shared `print_start_hint(version, db_name)` helper. After `db restore`, `pull` and `repos`, odoodev now recommends the dev-mode start command including `--tui --dev` (e.g. `odoodev start 19 --tui --dev -d <db> -u all`, plus the no-update follow-up), as copy-pasteable green command lines.
+
+### Changed
+- **db restore: res_users no longer anonymized by default** — Previously the default anonymization cleared user logins/passwords, which made the restored database impossible to log into. `res_users` is now left untouched by default (keeping logins testable); use `--anonymize-users` to opt in. The customer-facing data-protection guide and `usage/db.md` were updated accordingly (HR tables, bank-sync, corrected login section, new audit queries).
+
+### Fixed
+- **path inputs: `~` was not expanded** — `odoodev db restore` (and other prompts) failed with "File not found" when a path like `~/Downloads/backup.7z` was entered interactively, because Python does not expand `~`. `path_input()` now runs the result through `os.path.expanduser()`, and a new `ExpandedPath` (`click.Path` subclass) expands `~` for the `--backup-file`, `--output`, `--config` and `playbook` CLI options too.
+
 ## Version 0.6.0 (27.05.2026)
 
 ### Added

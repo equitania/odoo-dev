@@ -9,6 +9,7 @@ import sys
 import click
 
 from odoodev.cli import resolve_version
+from odoodev.click_types import ExpandedPath
 from odoodev.core.playbook import (
     PlaybookResult,
     PlaybookRunner,
@@ -93,7 +94,7 @@ def _print_playbook_result_json(result: PlaybookResult) -> None:
 
 
 @click.command("run")
-@click.argument("playbook", required=False, type=click.Path())
+@click.argument("playbook", required=False, type=ExpandedPath())
 @click.option("--step", "-s", multiple=True, help="Inline step command (e.g. docker.up, pull)")
 @click.option("--version", "-V", "version_override", help="Override playbook/auto-detected version")
 @click.option(

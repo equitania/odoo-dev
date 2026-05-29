@@ -87,7 +87,8 @@ class TestDryRun:
 
         result = runner.invoke(cli, ["run", pb_file, "--dry-run"])
         assert result.exit_code == 0
-        assert "dry run" in result.output.lower()
+        # Normalize whitespace: Rich may wrap "[DRY RUN]" across lines on narrow widths.
+        assert "dry run" in " ".join(result.output.lower().split())
 
     @patch("odoodev.core.version_registry.get_version")
     def test_dry_run_inline(self, mock_gv, runner, mock_version_cfg):

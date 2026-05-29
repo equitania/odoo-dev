@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -21,8 +21,8 @@
 - Native Entwicklung mit UV Virtual Environments
 - Repository-Management mit frei benennbaren Sections in repos.yaml
 - Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, SQL)
-- DSGVO-Anonymisierung beim Restore (standardmäßig aktiv, Faker-basiert, `--no-anonymize` zum Abschalten)
-- Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, standardmäßig aktiv) + eigenständiger Befehl `db neutralize`
+- DSGVO-Anonymisierung beim Restore (standardmäßig aktiv, Faker-basiert, inkl. HR-/Mitarbeiterdaten, `--no-anonymize` zum Abschalten); `res_users` bleibt per Default testbar — optional via `--anonymize-users`
+- Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, standardmäßig aktiv) + ergänzende Bank-Sync-Bereinigung + eigenständiger Befehl `db neutralize`
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
@@ -183,8 +183,8 @@ uv build                                # Paket bauen
 - Native development with UV virtual environments
 - Repository management with freely nameable sections in repos.yaml
 - Database backup & restoration (ZIP, 7z, tar, SQL)
-- GDPR anonymization on restore (on by default, Faker-based, `--no-anonymize` to disable)
-- Native Odoo neutralization on restore (`odoo-bin neutralize`, on by default) + standalone `db neutralize` command
+- GDPR anonymization on restore (on by default, Faker-based, incl. HR/employee data, `--no-anonymize` to disable); `res_users` stays testable by default — opt in via `--anonymize-users`
+- Native Odoo neutralization on restore (`odoo-bin neutralize`, on by default) + supplementary bank-sync cleanup + standalone `db neutralize` command
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows

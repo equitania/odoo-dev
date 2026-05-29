@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.6.0"
+version = "0.7.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -31,6 +31,7 @@ dependencies = [
     "questionary>=2.0.0",
     "textual>=1.0.0",
     "Faker>=20.0.0",
+    "passlib>=1.7.4",
 ]
 
 [project.scripts]
@@ -45,6 +46,7 @@ dev = [
     "mypy>=1.8.0",
     "types-PyYAML>=6.0.0",
     "types-click>=7.1.0",
+    "types-passlib>=1.7.7",
     "build>=1.0.0",
     "textual-dev>=1.0.0",
     "pytest-asyncio>=1.0.0",

@@ -11,8 +11,11 @@ import click
 import questionary
 
 from odoodev.cli import resolve_version
+from odoodev.click_types import ExpandedPath
 from odoodev.core.database import (
+    DEFAULT_DEV_PASSWORD,
     anonymize_database,
+    anonymize_users,
     backup_database_sql,
     cleanup_restore_temp,
     copy_filestore,
@@ -27,6 +30,7 @@ from odoodev.core.database import (
     get_filestore_path,
     get_restore_temp_dir,
     list_databases,
+    neutralize_bank_sync,
     restore_database,
     run_neutralize,
 )
@@ -37,6 +41,7 @@ from odoodev.output import (
     path_input,
     print_error,
     print_info,
+    print_start_hint,
     print_success,
     print_warning,
     select,
@@ -193,7 +198,7 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
 @db.command("restore")
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="New database name (prompted if omitted)")
-@click.option("-z", "--backup-file", type=click.Path(), help="Backup file path (prompted if omitted)")
+@click.option("-z", "--backup-file", type=ExpandedPath(), help="Backup file path (prompted if omitted)")
 @click.option("--drop/--no-drop", default=True, help="Drop existing database first")
 @click.option("--deactivate-cron/--no-deactivate-cron", default=True, help="Deactivate cron jobs after restore")
 @click.option(
@@ -206,6 +211,18 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
     default=True,
     help="Anonymize personal data after restore (GDPR) — on by default",
 )
+@click.option(
+    "--anonymize-users/--no-anonymize-users",
+    "anon_users",
+    default=False,
+    help="Also anonymize res_users logins/passwords (off by default — keeps logins testable)",
+)
+@click.option(
+    "--user-password",
+    default=DEFAULT_DEV_PASSWORD,
+    show_default=True,
+    help="Dev password set on anonymized users (only with --anonymize-users)",
+)
 @click.option("--keep-temp", is_flag=True, help="Keep extracted temp files")
 @click.pass_context
 def db_restore(
@@ -217,6 +234,8 @@ def db_restore(
     deactivate_cron: bool,
     neutralize: bool,
     anonymize: bool,
+    anon_users: bool,
+    user_password: str,
     keep_temp: bool,
 ) -> None:
     """Restore a database from backup file.
@@ -315,12 +334,25 @@ def db_restore(
             else:
                 print_warning(f"Neutralize failed (non-fatal): {msg.strip()}")
 
+        # Disable bank synchronisation (not covered by odoo-bin neutralize). Pure
+        # psql, so it runs even when native neutralize was skipped above.
+        print_info("Disabling bank synchronisation...")
+        if not neutralize_bank_sync(name, **params):
+            print_warning("Bank-sync neutralization partially failed — some tables may be missing (non-fatal)")
+
     if anonymize:
         print_info("Anonymizing personal data (GDPR)...")
         if anonymize_database(name, **params):
             print_success("Personal data anonymized")
         else:
             print_warning("Anonymization partially failed — some tables may be missing (non-fatal)")
+
+        if anon_users:
+            print_info("Anonymizing res_users (logins + dev password)...")
+            if anonymize_users(name, dev_password=user_password, **params):
+                print_success(f"User logins anonymized (login: user<id>, password: {user_password})")
+            else:
+                print_warning("User anonymization failed (passlib missing or table issue) — non-fatal")
 
     # Cleanup
     if not keep_temp:
@@ -329,8 +361,7 @@ def db_restore(
     print_success(f"Database '{name}' restore complete")
 
     console.print()
-    print_info("Next step: Update all modules to match your local Odoo version:")
-    print_info(f"  odoodev start {version} -d {name} -u all")
+    print_start_hint(version, name)
 
 
 @db.command("neutralize")
@@ -384,6 +415,9 @@ def db_neutralize(
         console.print(output)
     else:
         print_success(f"Database '{name}' neutralized")
+        print_info("Disabling bank synchronisation...")
+        if not neutralize_bank_sync(name, **params):
+            print_warning("Bank-sync neutralization partially failed — some tables may be missing (non-fatal)")
 
 
 def _select_database(params: dict) -> str | None:
@@ -431,7 +465,7 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="Database name (interactive selection if omitted)")
 @click.option("-t", "--type", "backup_type", type=click.Choice(["sql", "zip"]), help="Backup type")
-@click.option("-o", "--output", "output_dir", type=click.Path(), default=".", help="Output directory (default: .)")
+@click.option("-o", "--output", "output_dir", type=ExpandedPath(), default=".", help="Output directory (default: .)")
 @click.pass_context
 def db_backup(
     ctx: click.Context,

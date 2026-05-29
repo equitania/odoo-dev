@@ -100,9 +100,35 @@ SELECT value FROM ir_config_parameter WHERE key = 'database.is_neutralized';
 die Module nachinstalliert haben):
 
 ```bash
-odoodev db neutralize 18 -n v18_test            # neutralisieren
+odoodev db neutralize 18 -n v18_test            # neutralisieren (inkl. Bank-Sync)
 odoodev db neutralize 18 -n v18_test --stdout   # nur SQL ausgeben (Dry-Run)
 ```
+
+#### 1c) Bank-Synchronisation deaktivieren (psql, ergaenzend)
+
+Odoos `neutralize.sql` setzt **`account_journal.bank_statements_source` nicht
+zurueck** und loescht `account_online_link` nicht (es markiert es nur per
+`client_id = 'duplicate'`). `odoodev` ergaenzt daher — sofern die Buchhaltungs-/
+Bank-Sync-Module installiert sind — folgende Bereinigung **FK-sicher** und in
+**getrennten** Transaktionen:
+
+```sql
+-- 1. Journals entkoppeln + Quelle zuruecksetzen
+UPDATE account_journal
+   SET bank_statements_source = 'undefined',
+       account_online_account_id = NULL,
+       account_online_link_id = NULL;
+-- 2. Kind-Datensaetze zuerst (FK), dann Eltern
+DELETE FROM account_online_account;
+DELETE FROM account_online_link;
+```
+
+Jedes Statement laeuft als eigener `psql`-Aufruf (eigene Transaktion) — das ist
+notwendig, da das Buendeln von Journal-Update und Loeschungen in einer
+Transaktion fehlschlagen kann. Spalten-/Tabellen-geprueft: fehlen die Module,
+ist der Schritt ein No-Op. Laeuft unter dem `--neutralize`-Flag — auch dann,
+wenn das native `odoo-bin neutralize` mangels venv uebersprungen wurde (reines
+psql).
 
 ---
 
@@ -136,22 +162,37 @@ werden auf reservierte, nicht zustellbare Werte gesetzt:
 | `res_partner` (Personen) | `is_company = false OR IS NULL` | name | `fake.name()` |
 | | | function | `fake.job()` |
 | | | (sonst wie Firmen) | |
-| `res_users` | `id > 1` und Login nicht in `admin`, `__system__`, `default`, `public`, `portaltemplate` | login | `user{id}` |
-| | | password | `NULL` |
 | `crm_lead` | (alle) | contact_name, partner_name | `fake.name()`, `fake.company()` |
 | | | email_from | `lead{id}@example.invalid` |
 | | | phone, mobile, street, city, zip | Faker |
 | | | description | `NULL` |
 | `res_partner_bank` | (alle) | acc_number | `fake.iban()` |
 | | | sanitized_acc_number | `NULL` |
+| `hr_employee` | (alle) | name, work_email | `fake.name()`, `emp{id}@example.invalid` |
+| | | work_phone, mobile_phone, private_*, identification_id, passport_id, ssnid, sinid, permit_no, visa_no, birthday, place_of_birth, country_of_birth, spouse_*, emergency_*, pin, barcode, notes, Bild-/Scan-Felder (`image_*`, `driving_license`, `has_work_permit`), … | `NULL` |
+| | | children, km_home_work, distance_home_work | `0`; marital | `'single'` |
+| `hr_version` (v19) | (alle) | wage | `0`; ssnid, passport_id, gender, spouse_*, … | `NULL` |
+| `hr_contract` (v16/v18) | (alle) | wage | `0` |
+| `employee_bank_account_rel` (v19) | (alle) | — | komplett geloescht (M2M-Verknuepfung) |
 | `mail_message` | (alle) | email_from, subject | `NULL` |
 | | | body | `'<p>[anonymized]</p>'` |
 | `ir_attachment` | (alle) | index_content | `NULL` (Volltext-Index) |
 
+> **Versionsrobust:** Die HR-Spalten unterscheiden sich je Odoo-Version (v16:
+> Privatadresse in `res_partner`; v18: direkt auf `hr_employee`; v19: sensible
+> Felder in `hr_version`). `odoodev` gleicht jede Spalte vor dem `UPDATE` gegen
+> das Live-Schema ab (`information_schema`) — nicht existierende Spalten/Tabellen
+> werden uebersprungen, dieselbe Konfiguration funktioniert fuer alle Versionen.
+
+> **`res_users` wird per Default NICHT anonymisiert** — damit Logins testbar
+> bleiben. Optionale Anonymisierung siehe Abschnitt
+> [res_users (optional)](#res_users-optional-anonymisieren).
+
 **Was bleibt absichtlich unveraendert:**
 
-- Die Systemkonten `admin`, `__system__`, `default`, `public`, `portaltemplate`
-  — sonst waere das System nicht mehr bedienbar.
+- **`res_users` (alle Logins und Passwoerter)** — per Default unangetastet,
+  damit die Datenbank testbar bleibt (Login mit den Original-Zugangsdaten).
+  Optionale Anonymisierung siehe unten.
 - Strukturelle Beziehungen: Partner-IDs, Belegnummern, Buchungsketten,
   Datensatz-Zusammenhaenge bleiben vollstaendig erhalten.
 - Dateien im Filestore (`~/odoo-share/filestore/{db}/`): PDFs, Bilder und
@@ -175,13 +216,39 @@ Sekundenbruchteilen abgearbeitet.
 
 ---
 
+### res_users (optional) anonymisieren
+
+Per Default bleibt `res_users` unangetastet, damit Logins testbar bleiben. Wer
+auch die Benutzer anonymisieren will (z.B. fuer ein Staging-System mit
+breiterem Zugriff), nutzt das Opt-in-Flag:
+
+```bash
+odoodev db restore 18 -n v18_test --anonymize-users
+odoodev db restore 18 -n v18_test --anonymize-users --user-password geheim123
+```
+
+Wirkung (nur Nicht-System-Konten, `admin`/id=1 + technische Logins bleiben
+unberuehrt):
+
+- **Login** → `user{id}`
+- **Passwort** → ein gemeinsames Dev-Passwort (Default `ownerp`), gespeichert
+  als Odoo-kompatibler `pbkdf2_sha512`-Hash. Damit bleibt jeder Benutzer
+  einloggbar: `user<id>` / `ownerp`. `admin` behaelt sein Original-Passwort.
+
+Benoetigt `passlib` (ist Abhaengigkeit des Tools). Greift nur zusammen mit
+`--anonymize`.
+
+---
+
 ### Ablauf beim Restore
 
-`odoodev db restore` fuehrt die drei Schritte in dieser Reihenfolge aus:
+`odoodev db restore` fuehrt die Schritte in dieser Reihenfolge aus:
 
 1. `deactivate_cronjobs()` — psql-Baseline (Schicht 1a)
 2. `run_neutralize()` — natives `odoo-bin neutralize` (Schicht 1b)
-3. `anonymize_database()` — Faker-Anonymisierung (Schicht 2)
+3. `neutralize_bank_sync()` — Bank-Sync-Bereinigung (Schicht 1c)
+4. `anonymize_database()` — Faker-Anonymisierung inkl. HR (Schicht 2)
+5. `anonymize_users()` — nur bei `--anonymize-users` (optional)
 
 Jeder Schritt ist **eigenstaendig abschaltbar** und **non-fatal**: schlaegt
 ein Schritt fehl oder fehlt eine Voraussetzung, wird mit Warnung
@@ -192,8 +259,10 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 | Flag | Default | Wirkung |
 |------|---------|---------|
 | `--deactivate-cron` / `--no-deactivate-cron` | **an** | Schicht 1a (Cron/Mail/Fetchmail stilllegen) |
-| `--neutralize` / `--no-neutralize` | **an** | Schicht 1b (`odoo-bin neutralize`) |
-| `--anonymize` / `--no-anonymize` | **an** | Schicht 2 (Faker-Anonymisierung) |
+| `--neutralize` / `--no-neutralize` | **an** | Schicht 1b + 1c (`odoo-bin neutralize` + Bank-Sync) |
+| `--anonymize` / `--no-anonymize` | **an** | Schicht 2 (Faker-Anonymisierung inkl. HR) |
+| `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort) |
+| `--user-password TEXT` | `ownerp` | Dev-Passwort fuer anonymisierte Benutzer |
 
 Wer Rohdaten fuer eine Spezial-Analyse braucht, kann gezielt einzelne
 Schichten abschalten — die Entscheidung dafuer liegt dann beim Entwickler.
@@ -222,11 +291,20 @@ SELECT count(*) FROM res_partner
  WHERE email IS NOT NULL AND email NOT LIKE '%@example.invalid';
 -- erwartet: 0
 
--- 5) Echte Nicht-System-Logins entfernt?
+-- 5) Bank-Sync deaktiviert?
+SELECT DISTINCT bank_statements_source FROM account_journal;  -- erwartet: nur 'undefined'
+SELECT count(*) FROM account_online_link;                      -- erwartet: 0
+
+-- 6) Mitarbeiterdaten anonymisiert?
+SELECT count(*) FROM hr_employee
+ WHERE work_email IS NOT NULL AND work_email NOT LIKE '%@example.invalid';
+-- erwartet: 0
+
+-- 7) NUR bei --anonymize-users: echte Nicht-System-Logins entfernt?
 SELECT login FROM res_users
  WHERE id > 1 AND login NOT IN ('admin', '__system__', 'default', 'public', 'portaltemplate')
    AND login NOT LIKE 'user%';
--- erwartet: keine Zeilen
+-- erwartet: keine Zeilen (ohne --anonymize-users bleiben die Original-Logins erhalten)
 ```
 
 ---
@@ -260,15 +338,21 @@ beachten:
 
 ---
 
-### Standard-Credentials nach Restore
+### Login nach Restore
 
-- **Benutzer:** `ownerp`
-- **Passwort:** `CHANGE_AT_FIRST` (konfigurierbar via `odoodev setup`)
+Da `res_users` per Default **nicht** anonymisiert wird, bleiben die
+**Original-Logins und -Passwoerter** der wiederhergestellten Datenbank gueltig —
+ein Login ist also wie in der Produktiv-Datenbank moeglich (z.B. mit dem
+`admin`-Account).
 
-Diese Credentials werden beim Restore eingeschleust, damit nach der
-Anonymisierung (die alle Nicht-System-Passwoerter leert) noch ein
-Login moeglich ist. **Beim ersten Login sollte das Passwort gewechselt
-werden.**
+Wurde `--anonymize-users` gesetzt, sind nur noch folgende Logins moeglich:
+
+- `admin` (id=1) — unveraendert, Original-Passwort
+- alle anderen Benutzer: `user<id>` / das Dev-Passwort (Default `ownerp`)
+
+> **Hinweis:** `ownerp` / `CHANGE_AT_FIRST` sind die PostgreSQL-Verbindungs-
+> Credentials des Dev-Setups (konfigurierbar via `odoodev setup`) — **nicht**
+> die Odoo-Login-Daten.
 
 ---
 
@@ -368,9 +452,34 @@ SELECT value FROM ir_config_parameter WHERE key = 'database.is_neutralized';
 the modules):
 
 ```bash
-odoodev db neutralize 18 -n v18_test            # neutralize
+odoodev db neutralize 18 -n v18_test            # neutralize (incl. bank sync)
 odoodev db neutralize 18 -n v18_test --stdout   # print SQL only (dry run)
 ```
+
+#### 1c) Disable bank synchronisation (psql, supplementary)
+
+Odoo's `neutralize.sql` does **not** reset `account_journal.bank_statements_source`
+and does not delete `account_online_link` (it only marks it via
+`client_id = 'duplicate'`). When the accounting / bank-sync modules are
+installed, `odoodev` therefore adds this cleanup **FK-safely** and in
+**separate** transactions:
+
+```sql
+-- 1. detach journals + reset source
+UPDATE account_journal
+   SET bank_statements_source = 'undefined',
+       account_online_account_id = NULL,
+       account_online_link_id = NULL;
+-- 2. child rows first (FK), then parents
+DELETE FROM account_online_account;
+DELETE FROM account_online_link;
+```
+
+Each statement runs as its own `psql` call (separate transaction) — required
+because bundling the journal update and the deletes in one transaction can
+fail. Column/table guarded: if the modules are absent it is a no-op. Runs under
+the `--neutralize` flag — even when native `odoo-bin neutralize` was skipped for
+lack of a venv (pure psql).
 
 ---
 
@@ -404,22 +513,36 @@ are forced onto reserved, non-deliverable values:
 | `res_partner` (persons) | `is_company = false OR IS NULL` | name | `fake.name()` |
 | | | function | `fake.job()` |
 | | | (rest same as companies) | |
-| `res_users` | `id > 1` and login not in `admin`, `__system__`, `default`, `public`, `portaltemplate` | login | `user{id}` |
-| | | password | `NULL` |
 | `crm_lead` | (all) | contact_name, partner_name | `fake.name()`, `fake.company()` |
 | | | email_from | `lead{id}@example.invalid` |
 | | | phone, mobile, street, city, zip | Faker |
 | | | description | `NULL` |
 | `res_partner_bank` | (all) | acc_number | `fake.iban()` |
 | | | sanitized_acc_number | `NULL` |
+| `hr_employee` | (all) | name, work_email | `fake.name()`, `emp{id}@example.invalid` |
+| | | work_phone, mobile_phone, private_*, identification_id, passport_id, ssnid, sinid, permit_no, visa_no, birthday, place_of_birth, country_of_birth, spouse_*, emergency_*, pin, barcode, notes, image/scan fields (`image_*`, `driving_license`, `has_work_permit`), … | `NULL` |
+| | | children, km_home_work, distance_home_work | `0`; marital | `'single'` |
+| `hr_version` (v19) | (all) | wage | `0`; ssnid, passport_id, gender, spouse_*, … | `NULL` |
+| `hr_contract` (v16/v18) | (all) | wage | `0` |
+| `employee_bank_account_rel` (v19) | (all) | — | deleted entirely (M2M link) |
 | `mail_message` | (all) | email_from, subject | `NULL` |
 | | | body | `'<p>[anonymized]</p>'` |
 | `ir_attachment` | (all) | index_content | `NULL` (full-text index) |
 
+> **Version robust:** HR columns differ per Odoo version (v16: private address
+> on `res_partner`; v18: directly on `hr_employee`; v19: sensitive fields on
+> `hr_version`). `odoodev` matches every column against the live schema
+> (`information_schema`) before the `UPDATE` — non-existing columns/tables are
+> skipped, so the same configuration works across all versions.
+
+> **`res_users` is NOT anonymized by default** — so logins stay testable.
+> For optional anonymization see [res_users (optional)](#res_users-optional).
+
 **What deliberately stays untouched:**
 
-- The system accounts `admin`, `__system__`, `default`, `public`,
-  `portaltemplate` — otherwise the system would no longer be operable.
+- **`res_users` (all logins and passwords)** — left intact by default so the
+  database stays testable (log in with the original credentials). Optional
+  anonymization see below.
 - Structural relations: partner IDs, document numbers, posting chains
   and record links remain fully intact.
 - Files in the filestore (`~/odoo-share/filestore/{db}/`): PDFs, images
@@ -442,13 +565,38 @@ fractions of a second.
 
 ---
 
+### res_users (optional)
+
+By default `res_users` stays untouched so logins remain testable. To also
+anonymize the users (e.g. for a staging system with broader access), use the
+opt-in flag:
+
+```bash
+odoodev db restore 18 -n v18_test --anonymize-users
+odoodev db restore 18 -n v18_test --anonymize-users --user-password secret123
+```
+
+Effect (non-system accounts only; `admin`/id=1 + technical logins stay intact):
+
+- **login** → `user{id}`
+- **password** → one shared dev password (default `ownerp`), stored as an
+  Odoo-compatible `pbkdf2_sha512` hash. Every user stays loginable as
+  `user<id>` / `ownerp`; `admin` keeps its original password.
+
+Requires `passlib` (a dependency of the tool). Only takes effect together with
+`--anonymize`.
+
+---
+
 ### Restore flow
 
-`odoodev db restore` executes the three steps in this order:
+`odoodev db restore` executes the steps in this order:
 
 1. `deactivate_cronjobs()` — psql baseline (layer 1a)
 2. `run_neutralize()` — native `odoo-bin neutralize` (layer 1b)
-3. `anonymize_database()` — Faker anonymization (layer 2)
+3. `neutralize_bank_sync()` — bank-sync cleanup (layer 1c)
+4. `anonymize_database()` — Faker anonymization incl. HR (layer 2)
+5. `anonymize_users()` — only with `--anonymize-users` (optional)
 
 Each step is **independently switchable** and **non-fatal**: if a step
 fails or a prerequisite is missing, processing continues with a warning —
@@ -459,8 +607,10 @@ the restore still ends with "Database restore complete".
 | Flag | Default | Effect |
 |------|---------|--------|
 | `--deactivate-cron` / `--no-deactivate-cron` | **on** | Layer 1a (quiet cron / mail / fetchmail) |
-| `--neutralize` / `--no-neutralize` | **on** | Layer 1b (`odoo-bin neutralize`) |
-| `--anonymize` / `--no-anonymize` | **on** | Layer 2 (Faker anonymization) |
+| `--neutralize` / `--no-neutralize` | **on** | Layer 1b + 1c (`odoo-bin neutralize` + bank sync) |
+| `--anonymize` / `--no-anonymize` | **on** | Layer 2 (Faker anonymization incl. HR) |
+| `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password) |
+| `--user-password TEXT` | `ownerp` | Dev password set on anonymized users |
 
 Anyone needing raw data for a special analysis can disable individual
 layers — the responsibility for that decision then sits with the developer.
@@ -489,11 +639,20 @@ SELECT count(*) FROM res_partner
  WHERE email IS NOT NULL AND email NOT LIKE '%@example.invalid';
 -- expected: 0
 
--- 5) Real non-system logins removed?
+-- 5) Bank sync disabled?
+SELECT DISTINCT bank_statements_source FROM account_journal;  -- expected: only 'undefined'
+SELECT count(*) FROM account_online_link;                      -- expected: 0
+
+-- 6) Employee data anonymized?
+SELECT count(*) FROM hr_employee
+ WHERE work_email IS NOT NULL AND work_email NOT LIKE '%@example.invalid';
+-- expected: 0
+
+-- 7) ONLY with --anonymize-users: real non-system logins removed?
 SELECT login FROM res_users
  WHERE id > 1 AND login NOT IN ('admin', '__system__', 'default', 'public', 'portaltemplate')
    AND login NOT LIKE 'user%';
--- expected: no rows
+-- expected: no rows (without --anonymize-users the original logins are kept)
 ```
 
 ---
@@ -525,11 +684,17 @@ Please consider the following points when judging the data-protection level:
 
 ---
 
-### Default credentials after restore
+### Login after restore
 
-- **User:** `ownerp`
-- **Password:** `CHANGE_AT_FIRST` (configurable via `odoodev setup`)
+Because `res_users` is **not** anonymized by default, the **original logins and
+passwords** of the restored database stay valid — you log in just like in
+production (e.g. with the `admin` account).
 
-These credentials are injected during restore so that a login remains
-possible after anonymization (which clears all non-system passwords).
-**The password should be changed on first login.**
+If `--anonymize-users` was passed, only these logins remain:
+
+- `admin` (id=1) — unchanged, original password
+- all other users: `user<id>` / the dev password (default `ownerp`)
+
+> **Note:** `ownerp` / `CHANGE_AT_FIRST` are the PostgreSQL connection
+> credentials of the dev setup (configurable via `odoodev setup`) — **not** the
+> Odoo login credentials.

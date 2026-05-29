@@ -12,11 +12,16 @@ from faker import Faker
 
 from odoodev.cli import cli
 from odoodev.core.database import (
+    ANONYMIZE_DELETE_TABLES,
     ANONYMIZE_STATIC_QUERIES,
+    ANONYMIZE_STATIC_TABLES,
     ANONYMIZE_TABLES,
     _build_anonymize_sql,
+    _build_static_update,
+    _existing_columns,
     _sql_literal,
     anonymize_database,
+    anonymize_users,
     cleanup_restore_temp,
     copy_filestore,
     detect_backup_type,
@@ -24,6 +29,7 @@ from odoodev.core.database import (
     format_size,
     get_filestore_path,
     get_restore_temp_dir,
+    neutralize_bank_sync,
     run_neutralize,
 )
 
@@ -272,16 +278,14 @@ class TestBuildAnonymizeSql:
 
 
 class TestAnonymizeSpecs:
-    def test_res_users_excludes_system_accounts(self):
-        spec = _table_spec("res_users")
-        assert "id > 1" in spec.where
-        assert "admin" in spec.where
+    def test_res_users_not_anonymized_by_default(self):
+        """res_users must stay out of the default pass so logins keep working."""
+        assert all(spec.table != "res_users" for spec in ANONYMIZE_TABLES)
 
-    def test_res_users_login_and_password(self):
-        spec = _table_spec("res_users")
-        sql = _build_anonymize_sql(spec, [5], Faker("de_DE"))
-        assert "user5" in sql  # login forced, not Faker
-        assert "NULL" in sql  # password cleared
+    def test_hr_employee_in_default_pass(self):
+        spec = _table_spec("hr_employee")
+        cols = [f.column for f in spec.fields]
+        assert "name" in cols and "work_email" in cols
 
     def test_static_queries_cover_mail_and_attachments(self):
         joined = " ".join(ANONYMIZE_STATIC_QUERIES)
@@ -307,24 +311,38 @@ class TestAnonymizeSpecs:
         assert "name" in company_cols and "name" in person_cols
 
 
+def _all_known_columns() -> set[str]:
+    """Every column referenced by any anonymization spec (+ id) for mocking schema."""
+    cols = {"id"}
+    for spec in ANONYMIZE_TABLES:
+        cols |= {f.column for f in spec.fields}
+    for static in ANONYMIZE_STATIC_TABLES:
+        cols |= {col for col, _ in static.assignments}
+    return cols
+
+
 class TestAnonymizeDatabase:
     def test_runs_all_tables_and_static_queries(self, monkeypatch):
         file_sql: list[str] = []
-        static_queries: list[str] = []
+        psql_queries: list[str] = []
 
         monkeypatch.setattr("odoodev.core.database._fetch_ids", lambda spec, *a, **k: [1])
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: _all_known_columns())
         monkeypatch.setattr(
             "odoodev.core.database._run_psql_file",
             lambda sql, **k: (file_sql.append(sql), (True, ""))[1],
         )
         monkeypatch.setattr(
             "odoodev.core.database._run_psql",
-            lambda query, **k: (static_queries.append(query), (True, ""))[1],
+            lambda query, **k: (psql_queries.append(query), (True, ""))[1],
         )
 
         assert anonymize_database("mydb") is True
+        # One bundled file per per-row table.
         assert len(file_sql) == len(ANONYMIZE_TABLES)
-        assert len(static_queries) == len(ANONYMIZE_STATIC_QUERIES)
+        # Static updates (HR) + linkage deletes + whole-table wipes go through _run_psql.
+        expected = len(ANONYMIZE_STATIC_TABLES) + len(ANONYMIZE_DELETE_TABLES) + len(ANONYMIZE_STATIC_QUERIES)
+        assert len(psql_queries) == expected
 
     def test_skips_tables_without_rows(self, monkeypatch):
         file_sql: list[str] = []
@@ -432,6 +450,9 @@ class TestRestoreCliFlags:
         monkeypatch.setattr(start_cmd, "resolve_odoo_invocation", lambda vc, ev: inv)
         monkeypatch.setattr(db_cmd, "run_neutralize", lambda name, **k: (neut_calls.append(name), (True, ""))[1])
         monkeypatch.setattr(db_cmd, "anonymize_database", lambda name, **k: (anon_calls.append(name), True)[1])
+        # New post-restore steps — mocked to True so the CLI flow never touches real psql.
+        monkeypatch.setattr(db_cmd, "neutralize_bank_sync", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: True)
 
     def test_help_lists_neutralize_and_anonymize_flags(self):
         result = CliRunner().invoke(cli, ["db", "restore", "--help"])
@@ -497,3 +518,140 @@ class TestRestoreCliFlags:
         result = CliRunner().invoke(cli, ["db", "neutralize", "--help"])
         assert result.exit_code == 0
         assert "--stdout" in result.output
+
+    def test_anonymize_users_help_flag(self):
+        result = CliRunner().invoke(cli, ["db", "restore", "--help"])
+        assert "--anonymize-users" in result.output
+        assert "--user-password" in result.output
+
+    def test_anonymize_users_opt_in(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        anon: list[str] = []
+        neut: list[str] = []
+        users: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, anon, neut)
+        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: (users.append(name), True)[1])
+        result = CliRunner().invoke(
+            cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--anonymize-users"]
+        )
+        assert result.exit_code == 0, result.output
+        assert users == ["testdb"]
+
+    def test_anonymize_users_off_by_default(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        anon: list[str] = []
+        neut: list[str] = []
+        users: list[str] = []
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, anon, neut)
+        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: (users.append(name), True)[1])
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        assert result.exit_code == 0, result.output
+        assert users == []  # res_users untouched unless explicitly requested
+
+
+class TestExistingColumns:
+    def test_parses_psql_output(self, monkeypatch):
+        out = " column_name \n-------------\n id\n name\n work_email\n(3 rows)\n"
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (True, out))
+        cols = _existing_columns("hr_employee", "db")
+        assert cols == {"id", "name", "work_email"}
+
+    def test_missing_table_returns_empty(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (False, "no such table"))
+        assert _existing_columns("nope", "db") == set()
+
+
+class TestBuildStaticUpdate:
+    def test_filters_missing_columns(self):
+        stmt = _build_static_update(
+            "hr_employee",
+            (("birthday", "NULL"), ("ssnid", "NULL"), ("wage", "0")),
+            existing={"id", "birthday", "wage"},
+        )
+        assert stmt is not None
+        assert "birthday = NULL" in stmt
+        assert "wage = 0" in stmt
+        assert "ssnid" not in stmt  # filtered out (not in schema)
+
+    def test_returns_none_when_no_column_exists(self):
+        assert _build_static_update("t", (("a", "NULL"),), existing={"id", "b"}) is None
+
+    def test_includes_where(self):
+        stmt = _build_static_update("res_users", (("password", "'x'"),), {"password"}, where="id > 1")
+        assert stmt == "UPDATE res_users SET password = 'x' WHERE id > 1;"
+
+
+class TestAnonymizeUsers:
+    def test_builds_login_values_and_password_hash(self, monkeypatch):
+        file_sql: list[str] = []
+        psql: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._fetch_ids", lambda spec, *a, **k: [5, 7])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_file",
+            lambda sql, **k: (file_sql.append(sql), (True, ""))[1],
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (psql.append(q), (True, ""))[1],
+        )
+        assert anonymize_users("db", dev_password="ownerp") is True
+        # logins forced to user{id} (admin exclusion happens at id-selection time)
+        assert "user5" in file_sql[0] and "user7" in file_sql[0]
+        # password set once as a pbkdf2 hash (never plaintext), admin excluded via WHERE
+        assert len(psql) == 1
+        assert "UPDATE res_users SET password = " in psql[0]
+        assert "id > 1" in psql[0]
+        assert "pbkdf2" in psql[0]
+        assert "'ownerp'" not in psql[0]
+
+    def test_missing_passlib_returns_false(self, monkeypatch):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "passlib.context" or name.startswith("passlib"):
+                raise ImportError("no passlib")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        assert anonymize_users("db") is False
+
+
+class TestNeutralizeBankSync:
+    def test_fk_safe_order_and_separate_calls(self, monkeypatch):
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {
+                "account_journal": {"bank_statements_source", "account_online_account_id", "account_online_link_id"},
+                "account_online_account": {"id"},
+                "account_online_link": {"id"},
+            }.get(table, set()),
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (calls.append(q), (True, ""))[1],
+        )
+        assert neutralize_bank_sync("db") is True
+        # three separate statements (own transactions), correct FK order
+        assert len(calls) == 3
+        assert "bank_statements_source = 'undefined'" in calls[0]
+        assert calls[1] == "DELETE FROM account_online_account;"
+        assert calls[2] == "DELETE FROM account_online_link;"
+
+    def test_noop_when_tables_absent(self, monkeypatch):
+        calls: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: set())
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (calls.append(q), (True, ""))[1],
+        )
+        assert neutralize_bank_sync("db") is True
+        assert calls == []  # accounting/bank-sync modules not installed → nothing to do
