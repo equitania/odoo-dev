@@ -160,15 +160,12 @@ def init(
                 if check_requirements_changed(venv_dir, requirements):
                     print_warning("requirements.txt has changed since last install")
                     if not non_interactive and confirm("Update packages now?"):
-                        import subprocess
-
-                        result = subprocess.run(
-                            ["uv", "pip", "install", "-r", requirements],
-                            env={**os.environ, "VIRTUAL_ENV": venv_dir},
+                        from odoodev.core.venv_manager import (
+                            install_requirements,
+                            store_requirements_hash,
                         )
-                        if result.returncode == 0:
-                            from odoodev.core.venv_manager import store_requirements_hash
 
+                        if install_requirements(venv_dir, requirements, capture=False):
                             store_requirements_hash(venv_dir, requirements)
                             print_success("Packages updated and hash stored")
                         else:

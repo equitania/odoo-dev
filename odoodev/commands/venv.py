@@ -91,13 +91,10 @@ def venv_setup(ctx: click.Context, version: str | None, force: bool, python_ver:
 
     # Install requirements if available
     if os.path.exists(requirements):
+        from odoodev.core.venv_manager import install_requirements
+
         print_info(f"Installing requirements from {requirements}...")
-        result = subprocess.run(
-            ["uv", "pip", "install", "-r", requirements],
-            cwd=native_dir,
-            env={**os.environ, "VIRTUAL_ENV": venv_dir},
-        )
-        if result.returncode != 0:
+        if not install_requirements(venv_dir, requirements, capture=False, cwd=native_dir):
             print_error("Failed to install requirements")
             raise SystemExit(1)
 

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.7.1 (02.06.2026)
+
+### Fixed
+- **venv setup: stale uv index cache caused false "no solution found"** — When a version required by `requirements.txt` was just published to PyPI but not yet visible in uv's locally cached index, `odoodev venv setup` (and the `init` / `start` package-update paths) aborted with a misleading unsatisfiable-dependency error. `install_requirements()` now retries once with `uv pip install --refresh` on failure, which refreshes the index and recovers automatically; a warning is printed before the retry. The three inline `uv pip install` call sites (`venv setup`, `init`, `start`) were consolidated onto this single core function, which gained `capture` (stream vs. suppress uv output) and `cwd` parameters to preserve their existing behavior.
+
 ## Version 0.7.0 (29.05.2026)
 
 ### Added

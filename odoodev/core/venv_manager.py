@@ -6,6 +6,8 @@ import hashlib
 import os
 import subprocess
 
+from odoodev.output import print_warning
+
 
 def create_venv(venv_dir: str, python_version: str, prompt: str) -> bool:
     """Create a UV virtual environment.
@@ -30,23 +32,40 @@ def create_venv(venv_dir: str, python_version: str, prompt: str) -> bool:
     return result.returncode == 0
 
 
-def install_requirements(venv_dir: str, requirements_path: str) -> bool:
+def install_requirements(
+    venv_dir: str,
+    requirements_path: str,
+    *,
+    capture: bool = True,
+    cwd: str | None = None,
+) -> bool:
     """Install requirements.txt into venv using UV.
+
+    On failure, retries once with ``--refresh``. This recovers from a stale uv
+    index cache — e.g. when a version required by requirements.txt was just
+    published to PyPI but is not yet visible in uv's locally cached index,
+    which surfaces as a misleading "no solution found" error.
 
     Args:
         venv_dir: Path to virtual environment
         requirements_path: Path to requirements.txt
+        capture: If True (default), suppress uv output (programmatic use).
+            If False, stream uv output to the console (interactive commands).
+        cwd: Working directory for the uv subprocess.
 
     Returns:
         True if successful.
     """
     env = {**os.environ, "VIRTUAL_ENV": venv_dir}
-    result = subprocess.run(
-        ["uv", "pip", "install", "-r", requirements_path],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    cmd = ["uv", "pip", "install", "-r", requirements_path]
+    result = subprocess.run(cmd, env=env, cwd=cwd, capture_output=capture, text=True)
+    if result.returncode == 0:
+        return True
+
+    # Retry with a fresh index — the common cause of a failed resolution is a
+    # stale uv cache that does not yet know a freshly published version.
+    print_warning("Install failed — retrying with fresh package index (uv --refresh)...")
+    result = subprocess.run([*cmd, "--refresh"], env=env, cwd=cwd, capture_output=capture, text=True)
     return result.returncode == 0
 
 

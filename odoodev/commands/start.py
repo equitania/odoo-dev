@@ -19,6 +19,7 @@ from odoodev.core.venv_manager import (
     check_venv_python_matches,
     get_venv_python,
     get_venv_python_version,
+    install_requirements,
 )
 from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import confirm, print_error, print_header, print_info, print_success, print_table, print_warning
@@ -605,10 +606,7 @@ def _check_services(
     if os.path.exists(requirements) and check_requirements_changed(venv_dir, requirements):
         print_warning("requirements.txt has changed since last install")
         if not no_confirm and confirm("Update packages now?"):
-            subprocess.run(
-                ["uv", "pip", "install", "-r", requirements],
-                env={**os.environ, "VIRTUAL_ENV": venv_dir},
-            )
+            install_requirements(venv_dir, requirements, capture=False)
 
     # Check if Odoo port is already in use
     odoo_port = int(env_vars.get("ODOO_PORT", str(ports.odoo)))
