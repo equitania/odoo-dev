@@ -164,11 +164,37 @@ class TestWritePgpass:
         assert len(lines) == 2
         assert "localhost:18432:*:ownerp:secret" in lines
 
-    def test_rejects_password_with_colon(self, tmp_dir, monkeypatch):
+    def test_escapes_colon_in_password(self, tmp_dir, monkeypatch):
         monkeypatch.setenv("HOME", tmp_dir)
         _write_pgpass("localhost", "18432", "ownerp", "pass:word")
         pgpass = os.path.join(tmp_dir, ".pgpass")
-        assert not os.path.exists(pgpass)
+        with open(pgpass) as f:
+            content = f.read()
+        assert "localhost:18432:*:ownerp:pass\\:word" in content
+
+    def test_escapes_backslash_in_password(self, tmp_dir, monkeypatch):
+        monkeypatch.setenv("HOME", tmp_dir)
+        _write_pgpass("localhost", "18432", "ownerp", "pass\\word")
+        pgpass = os.path.join(tmp_dir, ".pgpass")
+        with open(pgpass) as f:
+            content = f.read()
+        assert "localhost:18432:*:ownerp:pass\\\\word" in content
+
+    def test_escapes_backslash_before_colon(self, tmp_dir, monkeypatch):
+        from odoodev.commands.start import _pgpass_escape
+
+        # backslash must be escaped FIRST, otherwise \: would double-escape
+        assert _pgpass_escape("p\\a:s") == "p\\\\a\\:s"
+
+    def test_updates_existing_escaped_entry(self, tmp_dir, monkeypatch):
+        monkeypatch.setenv("HOME", tmp_dir)
+        _write_pgpass("localhost", "18432", "ownerp", "first:pass")
+        _write_pgpass("localhost", "18432", "ownerp", "second:pass")
+        pgpass = os.path.join(tmp_dir, ".pgpass")
+        with open(pgpass) as f:
+            lines = [line.strip() for line in f if line.strip()]
+        assert len(lines) == 1
+        assert lines[0] == "localhost:18432:*:ownerp:second\\:pass"
 
     def test_rejects_password_with_newline(self, tmp_dir, monkeypatch):
         monkeypatch.setenv("HOME", tmp_dir)

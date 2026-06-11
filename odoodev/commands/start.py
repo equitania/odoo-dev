@@ -178,6 +178,11 @@ def resolve_odoo_invocation(version_cfg, env_vars: dict[str, str]) -> dict | Non
     }
 
 
+def _pgpass_escape(value: str) -> str:
+    """Escape a .pgpass field per pgpass(5): backslash first, then colon."""
+    return value.replace("\\", "\\\\").replace(":", "\\:")
+
+
 def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
     """Write PostgreSQL credentials to ~/.pgpass file.
 
@@ -185,18 +190,17 @@ def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
     Uses atomic write (write to temp file, then rename) to prevent
     data loss if the process crashes mid-write.
 
-    Validates that password contains no characters that would corrupt
-    the pgpass format (colons, newlines).
+    Colons and backslashes are escaped per the pgpass format; only
+    newlines (illegal in the format) cause the write to be skipped.
     """
-    # Validate password against pgpass format-breaking characters
-    if ":" in password or "\n" in password or "\r" in password:
+    if "\n" in password or "\r" in password:
         from odoodev.output import print_warning
 
-        print_warning("Password contains invalid pgpass characters (: or newline) — skipping .pgpass write")
+        print_warning("Password contains a newline — skipping .pgpass write")
         return
 
     pgpass_path = os.path.join(os.path.expanduser("~"), ".pgpass")
-    entry = f"{host}:{port}:*:{user}:{password}"
+    entry = f"{_pgpass_escape(host)}:{_pgpass_escape(port)}:*:{_pgpass_escape(user)}:{_pgpass_escape(password)}"
 
     # Read existing entries, update or append
     existing_lines: list[str] = []
@@ -205,7 +209,7 @@ def _write_pgpass(host: str, port: str, user: str, password: str) -> None:
             existing_lines = [line.rstrip("\n") for line in f if line.strip()]
 
     # Build match prefix to find existing entry for this host:port:*:user
-    prefix = f"{host}:{port}:*:{user}:"
+    prefix = f"{_pgpass_escape(host)}:{_pgpass_escape(port)}:*:{_pgpass_escape(user)}:"
     updated = False
     new_lines = []
     for line in existing_lines:
