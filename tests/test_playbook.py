@@ -452,3 +452,95 @@ class TestPlaybookRunner:
 
         mock_gv.assert_called_with("19")
         assert result.version == "19"
+
+
+class TestPlaybookVars:
+    def test_vars_block_parsed(self):
+        from odoodev.core.playbook import _validate_playbook
+
+        config = _validate_playbook(
+            {
+                "version": "18",
+                "description": "My playbook",
+                "vars": {"db_name": "mydb", "count": 3},
+                "steps": [{"command": "pull"}],
+            }
+        )
+        assert config.vars == {"db_name": "mydb", "count": "3"}
+        assert config.description == "My playbook"
+
+    def test_vars_must_be_mapping(self):
+        from odoodev.core.playbook import PlaybookValidationError, _validate_playbook
+
+        with pytest.raises(PlaybookValidationError):
+            _validate_playbook({"version": "18", "vars": ["a"], "steps": [{"command": "pull"}]})
+
+    def test_render_substitutes_vars(self):
+        from odoodev.core.playbook import build_template_context, render_step_args
+
+        ctx = build_template_context({"name": "mydb"})
+        rendered = render_step_args({"name": "{{ vars.name }}", "flag": True}, ctx)
+        assert rendered == {"name": "mydb", "flag": True}
+
+    def test_cli_vars_override_playbook_vars(self):
+        from odoodev.core.playbook import build_template_context, render_step_args
+
+        ctx = build_template_context({"name": "from_playbook"}, {"name": "from_cli"})
+        assert render_step_args({"n": "{{ vars.name }}"}, ctx) == {"n": "from_cli"}
+
+    def test_env_and_date_available(self, monkeypatch):
+        from odoodev.core.playbook import build_template_context, render_step_args
+
+        monkeypatch.setenv("MY_TEST_VAR", "hello")
+        ctx = build_template_context({})
+        rendered = render_step_args({"a": "{{ env.MY_TEST_VAR }}", "b": "{{ date }}"}, ctx)
+        assert rendered["a"] == "hello"
+        assert len(rendered["b"]) == 10 and rendered["b"][4] == "-"  # ISO date
+
+    def test_undefined_var_renders_empty(self):
+        from odoodev.core.playbook import build_template_context, render_step_args
+
+        ctx = build_template_context({})
+        assert render_step_args({"a": "x{{ vars.missing }}y"}, ctx) == {"a": "xy"}
+
+    def test_template_syntax_error_raises(self):
+        from odoodev.core.playbook import PlaybookValidationError, build_template_context, render_step_args
+
+        with pytest.raises(PlaybookValidationError):
+            render_step_args({"a": "{{ broken"}, build_template_context({}))
+
+    def test_runner_renders_args_in_dry_run(self, monkeypatch):
+        from odoodev.core.playbook import PlaybookRunner, _validate_playbook
+
+        monkeypatch.setattr(
+            "odoodev.core.version_registry.get_version",
+            lambda v: object(),
+        )
+        config = _validate_playbook(
+            {
+                "version": "18",
+                "vars": {"db": "proddb"},
+                "steps": [{"name": "Backup", "command": "db.backup", "args": {"name": "{{ vars.db }}"}}],
+            }
+        )
+        result = PlaybookRunner().execute(config, dry_run=True, cli_vars={})
+        assert result.status == "ok"
+        assert "proddb" in result.steps[0].message
+
+    def test_runner_template_error_step_fails(self, monkeypatch):
+        from odoodev.core.playbook import PlaybookRunner, _validate_playbook
+
+        monkeypatch.setattr(
+            "odoodev.core.version_registry.get_version",
+            lambda v: object(),
+        )
+        config = _validate_playbook(
+            {
+                "version": "18",
+                "steps": [{"name": "Bad", "command": "db.backup", "args": {"name": "{{ broken"}}],
+            }
+        )
+        result = PlaybookRunner().execute(config, dry_run=True)
+        assert result.status == "error"
+        assert result.steps[0].status == "error"
+        assert "Template error" in result.steps[0].message

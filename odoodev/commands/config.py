@@ -52,13 +52,36 @@ def config() -> None:
 
 @config.command("versions")
 @click.option("--plain", is_flag=True, help="Plain output (one version per line, for scripts)")
-def config_versions(plain: bool) -> None:
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON output")
+def config_versions(plain: bool, as_json: bool) -> None:
     """List all available Odoo versions with their configuration."""
+    if plain and as_json:
+        raise click.UsageError("--plain and --json are mutually exclusive")
     if plain:
         for v in available_versions():
             click.echo(v)
         return
     versions = load_versions()
+    if as_json:
+        import json
+        import sys
+
+        payload = {
+            v: {
+                "python": cfg.python,
+                "postgres": cfg.postgres,
+                "ports": {
+                    "db": cfg.ports.db,
+                    "odoo": cfg.ports.odoo,
+                    "gevent": cfg.ports.gevent,
+                    "mailpit": cfg.ports.mailpit,
+                },
+                "base": cfg.paths.base,
+            }
+            for v, cfg in versions.items()
+        }
+        sys.stdout.write(json.dumps(payload) + "\n")
+        return
     print_version_table(versions)
 
 

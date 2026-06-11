@@ -135,13 +135,24 @@ def db() -> None:
 
 @db.command("list")
 @click.argument("version", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON output")
 @click.pass_context
-def db_list(ctx: click.Context, version: str | None) -> None:
+def db_list(ctx: click.Context, version: str | None, as_json: bool) -> None:
     """List all databases."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+
+    if as_json:
+        import json
+        import sys
+
+        databases = list_databases(host=params["host"], port=params["port"], user=params["user"])
+        payload = {"version": version, "host": params["host"], "port": params["port"], "databases": databases}
+        sys.stdout.write(json.dumps(payload) + "\n")
+        return
+
     _print_migration_hint(version)
 
     databases = list_databases(host=params["host"], port=params["port"], user=params["user"])

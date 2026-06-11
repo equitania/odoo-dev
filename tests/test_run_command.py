@@ -224,3 +224,79 @@ class TestExamplePlaybooks:
         assert pb.version == "18"
         assert len(pb.steps) == 3
         assert pb.steps[1].args.get("backup-file") is not None
+
+
+class TestRunList:
+    def test_list_empty(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("odoodev.cli.detect_version_from_cwd", lambda: None)
+        result = CliRunner().invoke(cli, ["run", "--list"])
+        assert result.exit_code == 0
+        assert "No playbooks found" in result.output
+
+    def test_list_finds_project_local(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("odoodev.cli.detect_version_from_cwd", lambda: None)
+        pb_dir = tmp_path / "playbooks"
+        pb_dir.mkdir()
+        (pb_dir / "daily.yaml").write_text("version: '18'\ndescription: Daily backup\nsteps:\n  - command: pull\n")
+        result = CliRunner().invoke(cli, ["run", "--list"])
+        assert result.exit_code == 0
+        assert "daily" in result.output
+        assert "Daily backup" in result.output
+
+    def test_list_json_output(self, tmp_path, monkeypatch):
+        import json as json_mod
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("odoodev.cli.detect_version_from_cwd", lambda: None)
+        pb_dir = tmp_path / "playbooks"
+        pb_dir.mkdir()
+        (pb_dir / "x.yaml").write_text("version: '18'\nsteps:\n  - command: pull\n")
+        result = CliRunner().invoke(cli, ["run", "--list", "--output", "json"])
+        assert result.exit_code == 0
+        data = json_mod.loads(result.output.strip())
+        assert data[0]["name"] == "x"
+        assert data[0]["source"] == "project"
+
+    def test_list_includes_version_dir(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.chdir(tmp_path)
+        native = tmp_path / "native"
+        (native / "scripts" / "playbooks").mkdir(parents=True)
+        (native / "scripts" / "playbooks" / "setup.yaml").write_text("version: '18'\nsteps:\n  - command: pull\n")
+        monkeypatch.setattr(
+            "odoodev.core.version_registry.get_version",
+            lambda v: SimpleNamespace(paths=SimpleNamespace(native_dir=str(native))),
+        )
+        result = CliRunner().invoke(cli, ["run", "--list", "-V", "18"])
+        assert result.exit_code == 0
+        assert "setup" in result.output
+        assert "version" in result.output
+
+
+class TestRunVarOption:
+    def test_var_overrides_playbook_var(self, tmp_path, monkeypatch):
+        pb = tmp_path / "pb.yaml"
+        pb.write_text(
+            "version: '18'\n"
+            "vars:\n"
+            "  db: defaultdb\n"
+            "steps:\n"
+            "  - name: Backup\n"
+            "    command: db.backup\n"
+            "    args:\n"
+            "      name: '{{ vars.db }}'\n"
+        )
+        monkeypatch.setattr("odoodev.core.version_registry.get_version", lambda v: object())
+        result = CliRunner().invoke(cli, ["run", str(pb), "--dry-run", "-D", "db=cli_db"])
+        assert result.exit_code == 0
+        assert "cli_db" in result.output
+
+    def test_var_invalid_format(self, tmp_path):
+        pb = tmp_path / "pb.yaml"
+        pb.write_text("version: '18'\nsteps:\n  - command: pull\n")
+        result = CliRunner().invoke(cli, ["run", str(pb), "--dry-run", "-D", "novalue"])
+        assert result.exit_code != 0
+        assert "KEY=VALUE" in result.output

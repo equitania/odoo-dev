@@ -51,6 +51,8 @@ class PlaybookConfig:
     version: str
     on_error: str  # "stop" | "continue"
     steps: tuple[StepConfig, ...]
+    vars: dict[str, str] = field(default_factory=dict)
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -154,7 +156,14 @@ def _validate_playbook(data: dict[str, Any]) -> PlaybookConfig:
 
     steps = tuple(_validate_step(s, i) for i, s in enumerate(steps_data))
 
-    return PlaybookConfig(version=version, on_error=on_error, steps=steps)
+    vars_data = data.get("vars", {})
+    if not isinstance(vars_data, dict):
+        raise PlaybookValidationError(f"Playbook: 'vars' must be a mapping, got {type(vars_data).__name__}")
+    playbook_vars = {str(k): str(v) for k, v in vars_data.items()}
+
+    description = str(data.get("description", ""))
+
+    return PlaybookConfig(version=version, on_error=on_error, steps=steps, vars=playbook_vars, description=description)
 
 
 # --- Loading ---
@@ -219,6 +228,45 @@ def build_playbook_from_steps(steps: list[str], version: str, on_error: str = "s
     return PlaybookConfig(version=version, on_error=on_error, steps=tuple(step_configs))
 
 
+# --- Variable templating ---
+
+
+def build_template_context(playbook_vars: dict[str, str], cli_vars: dict[str, str] | None = None) -> dict[str, Any]:
+    """Build the Jinja2 context for step-arg rendering.
+
+    Available in templates: ``{{ vars.x }}`` (playbook ``vars:`` block, CLI
+    ``--var`` overrides win), ``{{ env.X }}`` (process environment) and
+    ``{{ date }}`` (today, ISO 8601).
+    """
+    import os
+    from datetime import date
+
+    merged = {**playbook_vars, **(cli_vars or {})}
+    return {"vars": merged, "env": dict(os.environ), "date": date.today().isoformat()}
+
+
+def render_step_args(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Render Jinja2 templates in string step-arg values (sandboxed).
+
+    Non-string values (bools, ints) pass through unchanged. Raises
+    PlaybookValidationError on template syntax errors.
+    """
+    from jinja2 import TemplateError
+    from jinja2.sandbox import SandboxedEnvironment
+
+    jenv = SandboxedEnvironment()
+    rendered: dict[str, Any] = {}
+    for key, value in args.items():
+        if isinstance(value, str):
+            try:
+                rendered[key] = jenv.from_string(value).render(context)
+            except TemplateError as exc:
+                raise PlaybookValidationError(f"Template error in arg '{key}': {exc}") from exc
+        else:
+            rendered[key] = value
+    return rendered
+
+
 # --- Runner ---
 
 
@@ -237,6 +285,7 @@ class PlaybookRunner:
         version_override: str | None = None,
         dry_run: bool = False,
         playbook_name: str = "<inline>",
+        cli_vars: dict[str, str] | None = None,
     ) -> PlaybookResult:
         """Execute all steps in a playbook.
 
@@ -245,6 +294,7 @@ class PlaybookRunner:
             version_override: Override the playbook's version.
             dry_run: If True, show steps without executing.
             playbook_name: Name for result reporting.
+            cli_vars: ``--var`` overrides for the playbook ``vars:`` block.
 
         Returns:
             PlaybookResult with all step results.
@@ -253,6 +303,7 @@ class PlaybookRunner:
 
         version = version_override or playbook.version
         version_cfg = get_version(version)
+        context = build_template_context(playbook.vars, cli_vars)
 
         results: list[StepResult] = []
         start_time = time.monotonic()
@@ -272,8 +323,25 @@ class PlaybookRunner:
                 )
                 continue
 
+            try:
+                step_args = render_step_args(step.args, context)
+            except PlaybookValidationError as exc:
+                results.append(
+                    StepResult(
+                        name=step.name,
+                        command=step.command,
+                        status="error",
+                        message=str(exc),
+                        exit_code=1,
+                        duration_ms=0,
+                    )
+                )
+                if (step.on_error or playbook.on_error) == "stop":
+                    aborted = True
+                continue
+
             if dry_run:
-                args_str = f" ({step.args})" if step.args else ""
+                args_str = f" ({step_args})" if step_args else ""
                 results.append(
                     StepResult(
                         name=step.name,
@@ -299,7 +367,7 @@ class PlaybookRunner:
             else:
                 step_start = time.monotonic()
                 try:
-                    result = handler(version_cfg, step.args)
+                    result = handler(version_cfg, step_args)
                 except Exception as exc:
                     duration_ms = int((time.monotonic() - step_start) * 1000)
                     result = StepResult(

@@ -145,13 +145,44 @@ def venv_setup(ctx: click.Context, version: str | None, force: bool, python_ver:
 
 @venv.command("check")
 @click.argument("version", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON output (non-interactive)")
 @click.pass_context
-def venv_check(ctx: click.Context, version: str | None) -> None:
+def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
     """Check venv status and requirements freshness."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     venv_dir = _get_venv_dir(version_cfg)
     requirements = _get_requirements_path(version_cfg)
+
+    if as_json:
+        import json
+        import sys
+
+        from odoodev.core.venv_manager import check_venv_python_matches, get_full_python_version
+
+        exists = os.path.isdir(venv_dir)
+        python_bin = os.path.join(venv_dir, "bin", "python3")
+        requirements_current: bool | None = None
+        if exists and os.path.exists(requirements):
+            hash_file = os.path.join(venv_dir, ".requirements.sha256")
+            if os.path.exists(hash_file):
+                with open(hash_file) as f:
+                    requirements_current = f.read().strip() == _hash_file(requirements)
+        payload = {
+            "version": version,
+            "venv_dir": venv_dir,
+            "exists": exists,
+            "is_symlink": os.path.islink(venv_dir),
+            "python_version": get_full_python_version(venv_dir) if exists else None,
+            "python_matches": (
+                check_venv_python_matches(venv_dir, version_cfg.python)
+                if exists and os.path.exists(python_bin)
+                else None
+            ),
+            "requirements_current": requirements_current,
+        }
+        sys.stdout.write(json.dumps(payload) + "\n")
+        raise SystemExit(0 if exists else 1)
 
     if not os.path.exists(venv_dir):
         print_warning(f"No venv found at {venv_dir}")

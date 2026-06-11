@@ -93,6 +93,81 @@ def _print_playbook_result_json(result: PlaybookResult) -> None:
     )
 
 
+def _discover_playbooks(version_native_dir: str | None) -> list[dict[str, str]]:
+    """Discover *.yaml playbooks in ./playbooks/ and {native_dir}/scripts/playbooks/.
+
+    Returns dicts with name, description, path and source ("project" / "version").
+    """
+    import glob
+
+    import yaml
+
+    results: list[dict[str, str]] = []
+    search_dirs = [("project", os.path.join(os.getcwd(), "playbooks"))]
+    if version_native_dir:
+        search_dirs.append(("version", os.path.join(version_native_dir, "scripts", "playbooks")))
+
+    for source, directory in search_dirs:
+        if not os.path.isdir(directory):
+            continue
+        for path in sorted(glob.glob(os.path.join(directory, "*.yaml")) + glob.glob(os.path.join(directory, "*.yml"))):
+            name = os.path.splitext(os.path.basename(path))[0]
+            description = ""
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    description = str(data.get("description", ""))
+            except (OSError, yaml.YAMLError):
+                description = "(unreadable)"
+            results.append({"name": name, "description": description, "path": path, "source": source})
+    return results
+
+
+def _list_playbooks(ctx: click.Context, version_override: str | None, is_json: bool) -> None:
+    """Print discovered playbooks as Rich table or JSON array."""
+    native_dir = None
+    try:
+        version = version_override or resolve_version(ctx, None)
+        from odoodev.core.version_registry import get_version
+
+        native_dir = get_version(version).paths.native_dir
+    except click.UsageError:
+        pass
+
+    playbooks = _discover_playbooks(native_dir)
+
+    if is_json:
+        sys.stdout.write(json.dumps(playbooks) + "\n")
+        return
+
+    if not playbooks:
+        print_info("No playbooks found in ./playbooks/ or <native_dir>/scripts/playbooks/")
+        return
+
+    from rich.table import Table
+
+    table = Table(title="Available Playbooks")
+    table.add_column("Name", style="bold")
+    table.add_column("Description")
+    table.add_column("Source")
+    table.add_column("Path", style="dim")
+    for pb in playbooks:
+        table.add_row(pb["name"], pb["description"], pb["source"], pb["path"])
+    console.print(table)
+
+
+def _parse_cli_vars(var_options: tuple[str, ...]) -> dict[str, str]:
+    """Parse repeated --var KEY=VALUE options into a dict."""
+    cli_vars: dict[str, str] = {}
+    for item in var_options:
+        if "=" not in item:
+            raise click.UsageError(f"--var expects KEY=VALUE, got '{item}'")
+        key, _, value = item.partition("=")
+        cli_vars[key.strip()] = value
+    return cli_vars
+
+
 @click.command("run")
 @click.argument("playbook", required=False, type=ExpandedPath())
 @click.option("--step", "-s", multiple=True, help="Inline step command (e.g. docker.up, pull)")
@@ -101,6 +176,8 @@ def _print_playbook_result_json(result: PlaybookResult) -> None:
     "--output", "-o", "output_format", type=click.Choice(["text", "json"]), default="text", help="Output format"
 )
 @click.option("--dry-run", is_flag=True, help="Show steps without executing")
+@click.option("--list", "list_playbooks", is_flag=True, help="List discoverable playbooks and exit")
+@click.option("--var", "-D", "var_options", multiple=True, metavar="KEY=VALUE", help="Set/override a playbook variable")
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -109,6 +186,8 @@ def run(
     version_override: str | None,
     output_format: str,
     dry_run: bool,
+    list_playbooks: bool,
+    var_options: tuple[str, ...],
 ) -> None:
     """Execute a playbook or inline steps for automated Odoo development.
 
@@ -118,9 +197,19 @@ def run(
     1. YAML playbook:  odoodev run playbook.yaml
     2. Inline steps:   odoodev run --step docker.up --step pull -V 18
 
+    \b
+    Playbooks may define a 'vars:' block; values are usable in step args as
+    {{ vars.name }} alongside {{ env.HOME }} and {{ date }} (ISO). Override
+    with: odoodev run playbook.yaml -D name=other_db
+
+    Use --list to discover playbooks in ./playbooks/ and <native_dir>/scripts/playbooks/.
     Use --output json for machine-readable NDJSON output (one JSON line per event).
     Use --dry-run to preview steps without executing them.
     """
+    if list_playbooks:
+        _list_playbooks(ctx, version_override, output_format == "json")
+        return
+
     if not playbook and not step:
         from odoodev.output import checkbox, path_input, select
 
@@ -180,6 +269,7 @@ def run(
             version_override=version_override,
             dry_run=dry_run,
             playbook_name=playbook_name,
+            cli_vars=_parse_cli_vars(var_options),
         )
 
         # Output results
