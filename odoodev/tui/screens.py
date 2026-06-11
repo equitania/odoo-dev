@@ -198,3 +198,86 @@ class LanguageLoadScreen(ModalScreen[str | None]):
         self._process.restart(extra_args=args)
         overwrite_label = " (overwrite)" if overwrite else ""
         self.dismiss(f"lang:{lang}{overwrite_label}")
+
+
+HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        "Server Control",
+        (
+            ("r", "Restart Odoo server"),
+            ("u", "Update module (-u restart or XML-RPC hot update)"),
+            ("l", "Load language / reload translations"),
+            ("q / Ctrl+Q", "Quit (stops the server)"),
+        ),
+    ),
+    (
+        "Log Filtering",
+        (
+            ("0", "Show all levels"),
+            ("1-5", "Toggle DEBUG / INFO / WARNING / ERROR / CRITICAL"),
+            ("f", "Issues only (WARN + ERROR + CRIT)"),
+            ("/", "Search log output (Escape clears)"),
+            ("Space", "Toggle auto-scroll"),
+            ("Ctrl+L", "Clear log display"),
+        ),
+    ),
+    (
+        "Clipboard & Export",
+        (
+            ("c", "Copy visible (filtered) lines to clipboard"),
+            ("e", "Copy ERROR/CRITICAL lines to clipboard"),
+            ("w", "Copy WARN + ERROR + CRIT lines to clipboard"),
+            ("s", "Save visible log to ~/odoodev-logs/"),
+        ),
+    ),
+    (
+        "Help",
+        (("?", "Show this overlay (Escape or q closes)"),),
+    ),
+)
+
+
+class HelpScreen(ModalScreen[None]):
+    """Full keybinding reference overlay."""
+
+    BINDINGS = [
+        ("escape", "dismiss_help", "Close"),
+        ("q", "dismiss_help", "Close"),
+        ("question_mark", "dismiss_help", "Close"),
+    ]
+
+    DEFAULT_CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+    #help-dialog {
+        width: 76;
+        height: auto;
+        max-height: 38;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+        overflow-y: auto;
+    }
+    #help-dialog .help-section {
+        margin-top: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        """Build the help overlay from HELP_SECTIONS."""
+        with Vertical(id="help-dialog"):
+            yield Label("[bold]odoodev TUI — Keybindings[/bold]")
+            for section, entries in HELP_SECTIONS:
+                yield Static(f"[bold cyan]{section}[/bold cyan]", classes="help-section")
+                for key, description in entries:
+                    yield Static(f"  [bold]{key:<10}[/bold] {description}")
+            yield Static("")
+            yield Button("Close", variant="primary", id="btn-help-close")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-help-close":
+            self.dismiss(None)
+
+    def action_dismiss_help(self) -> None:
+        self.dismiss(None)

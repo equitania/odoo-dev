@@ -540,3 +540,73 @@ class TestClipboard:
 
     def test_copy_empty_string(self):
         assert OdooTuiApp._copy_to_clipboard("") is True
+
+
+class TestSaveLog:
+    """Test the 's' log export action."""
+
+    async def test_save_log_writes_file(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.6)
+            app.action_save_log()
+            await pilot.pause(0.1)
+        log_dir = home / "odoodev-logs"
+        files = list(log_dir.glob("odoo_18_v18_exam_*.log"))
+        assert len(files) == 1
+        content = files[0].read_text()
+        assert "Loading module base" in content
+
+    async def test_save_log_empty_buffer_warns(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.6)
+            app.action_clear_log()
+            app.action_save_log()
+            await pilot.pause(0.1)
+        assert not (home / "odoodev-logs").exists()
+
+
+class TestHelpScreen:
+    """Test the '?' help overlay."""
+
+    async def test_question_mark_opens_help(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import HelpScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("question_mark")
+            await pilot.pause(0.1)
+            assert isinstance(app.screen, HelpScreen)
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+            assert not isinstance(app.screen, HelpScreen)
+
+    def test_help_sections_cover_all_app_bindings(self):
+        from odoodev.tui.app import OdooTuiApp
+        from odoodev.tui.screens import HELP_SECTIONS
+
+        documented = " ".join(f"{key} {desc}" for _, entries in HELP_SECTIONS for key, desc in entries).lower()
+        for binding in OdooTuiApp.BINDINGS:
+            key = binding.key if hasattr(binding, "key") else binding[0]
+            normalized = {
+                "question_mark": "?",
+                "slash": "/",
+                "1": "1-5",
+                "2": "1-5",
+                "3": "1-5",
+                "4": "1-5",
+                "5": "1-5",
+            }.get(key, key)
+            assert normalized.lower() in documented, f"Binding '{key}' missing from HELP_SECTIONS"

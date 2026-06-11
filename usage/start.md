@@ -46,6 +46,28 @@ odoodev start 18 --host 0.0.0.0
 
 > **Hinweis:** `--dev=all` aktiviert alle Entwickler-Features (XML-Reload, Python Auto-Reload, pdb-Debugger). Einzelne Features koennen kommagetrennt gewaehlt werden, z.B. `--dev=reload,xml`. Niemals in Produktion verwenden!
 
+### TUI-Tastenkombinationen (`--tui`)
+
+Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und Clipboard-Export. Mit `?` laesst sich diese Uebersicht jederzeit im TUI anzeigen.
+
+| Taste | Funktion |
+|-------|----------|
+| `q` / `Ctrl+Q` | Beenden (stoppt den Server) |
+| `r` | Odoo-Server neu starten |
+| `u` | Modul aktualisieren (`-u`-Neustart oder XML-RPC Hot-Update) |
+| `l` | Sprache laden / Uebersetzungen neu laden |
+| `?` | Tastenbelegung anzeigen |
+| `0` | Alle Log-Level anzeigen |
+| `1`–`5` | DEBUG / INFO / WARNING / ERROR / CRITICAL einzeln umschalten |
+| `f` | Nur Probleme (WARN + ERROR + CRIT) |
+| `/` | Log durchsuchen (`Escape` loescht die Suche) |
+| `Space` | Auto-Scroll umschalten |
+| `Ctrl+L` | Log-Anzeige leeren |
+| `c` | Sichtbare (gefilterte) Zeilen in die Zwischenablage kopieren |
+| `e` | Nur ERROR/CRITICAL kopieren |
+| `w` | WARN + ERROR + CRIT kopieren |
+| `s` | Sichtbares Log speichern nach `~/odoodev-logs/` |
+
 ### Bind-Host (`--host`)
 
 Seit v0.4.50 bindet Odoo standardmaessig nur auf `127.0.0.1` (Loopback), damit der Dev-Server nicht ueber gemeinsame Netzwerk-Interfaces exponiert wird. Wer aus einer VM oder einem anderen Rechner auf Odoo zugreifen moechte, verwendet:
@@ -124,6 +146,28 @@ odoodev start 18 --host 0.0.0.0
 | **Prepare** | `--prepare` | Only activates the virtual environment and opens a shell without starting Odoo. |
 
 > **Note:** `--dev=all` enables all developer features (XML reload, Python auto-reload, pdb debugger). Individual features can be selected comma-separated, e.g. `--dev=reload,xml`. Never use in production!
+
+### TUI Keybindings (`--tui`)
+
+TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and clipboard export. Press `?` inside the TUI to display this reference at any time.
+
+| Key | Action |
+|-----|--------|
+| `q` / `Ctrl+Q` | Quit (stops the server) |
+| `r` | Restart Odoo server |
+| `u` | Update module (`-u` restart or XML-RPC hot update) |
+| `l` | Load language / reload translations |
+| `?` | Show keybinding overlay |
+| `0` | Show all log levels |
+| `1`–`5` | Toggle DEBUG / INFO / WARNING / ERROR / CRITICAL individually |
+| `f` | Issues only (WARN + ERROR + CRIT) |
+| `/` | Search log output (`Escape` clears) |
+| `Space` | Toggle auto-scroll |
+| `Ctrl+L` | Clear log display |
+| `c` | Copy visible (filtered) lines to clipboard |
+| `e` | Copy ERROR/CRITICAL lines only |
+| `w` | Copy WARN + ERROR + CRIT lines |
+| `s` | Save visible log to `~/odoodev-logs/` |
 
 ### Bind Host (`--host`)
 

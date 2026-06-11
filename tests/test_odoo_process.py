@@ -178,3 +178,37 @@ class TestOdooProcessSigkillEscalation:
         result = stubborn_process.stop(timeout=1)
         assert result is True
         assert stubborn_process.is_running is False
+
+
+class TestRestartExtraArgsEphemeral:
+    """extra_args must apply to a single restart only."""
+
+    def test_extra_args_not_retained(self, tmp_path):
+        script = tmp_path / "args_echo.py"
+        script.write_text(
+            "import sys, time\n"
+            "print(' '.join(sys.argv[1:]), flush=True)\n"
+            "try:\n"
+            "    time.sleep(60)\n"
+            "except (KeyboardInterrupt, SystemExit):\n"
+            "    pass\n"
+        )
+        proc = OdooProcess(
+            cmd=[sys.executable, str(script), "--base-arg"],
+            env={},
+            cwd=str(tmp_path),
+        )
+        proc.start()
+        proc.restart(extra_args=["-u", "eq_sale"])
+        time.sleep(0.3)
+        update_lines = proc.read_lines()
+        assert any("-u eq_sale" in line for line in update_lines)
+        # internal cmd is restored immediately after the one-shot restart
+        assert proc._cmd == proc._base_cmd
+
+        proc.restart()  # plain restart must NOT repeat -u
+        time.sleep(0.3)
+        plain_lines = proc.read_lines()
+        assert any("--base-arg" in line for line in plain_lines)
+        assert not any("-u" in line for line in plain_lines)
+        proc.stop()

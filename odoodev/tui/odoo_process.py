@@ -130,13 +130,13 @@ class OdooProcess:
 
         Args:
             extra_args: Additional arguments to append (e.g. ["-u", "module"]).
+                One-shot: they apply to this restart only and are not retained
+                for later start()/restart() calls.
         """
         self.stop()
-        if extra_args:
-            self._cmd = self._base_cmd + extra_args
-        else:
-            self._cmd = list(self._base_cmd)
+        self._cmd = self._base_cmd + (extra_args or [])
         self.start()
+        self._cmd = list(self._base_cmd)
 
     @property
     def is_running(self) -> bool:

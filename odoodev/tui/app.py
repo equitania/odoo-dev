@@ -48,6 +48,8 @@ class OdooTuiApp(App):
         Binding("c", "copy_visible", "Copy"),
         Binding("e", "copy_errors", "Copy Errors"),
         Binding("w", "copy_warnings", "Copy Warn+Err"),
+        Binding("s", "save_log", "Save Log"),
+        Binding("question_mark", "show_help", "Help", show=False),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
     ]
@@ -296,6 +298,36 @@ class OdooTuiApp(App):
             self.notify(f"{count} warning/error lines copied to clipboard", severity="information")
         else:
             self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
+
+    def action_save_log(self) -> None:
+        """Save the currently visible (filtered) log lines to ~/odoodev-logs/."""
+        import datetime
+        from pathlib import Path
+
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        text = log_viewer.get_visible_text()
+        if not text:
+            self.notify("Log buffer is empty", severity="warning")
+            return
+
+        log_dir = Path.home() / "odoodev-logs"
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_version = (self._version_info or "unknown").replace("/", "-").replace(" ", "_")
+        safe_db = (self._db_name or "nodb").replace("/", "-")
+        path = log_dir / f"odoo_{safe_version}_{safe_db}_{timestamp}.log"
+
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(text + "\n", encoding="utf-8")
+            self.notify(f"Log saved: {path}", severity="information")
+        except OSError as e:
+            self.notify(f"Save failed: {e}", severity="error")
+
+    def action_show_help(self) -> None:
+        """Show the keybinding help overlay."""
+        from odoodev.tui.screens import HelpScreen
+
+        self.push_screen(HelpScreen())
 
     @staticmethod
     def _copy_to_clipboard(text: str) -> bool:
