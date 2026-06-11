@@ -690,3 +690,150 @@ class TestNeutralizeBankSync:
         )
         assert neutralize_bank_sync("db") is True
         assert calls == []  # accounting/bank-sync modules not installed → nothing to do
+
+
+class TestConnectionHelpers:
+    def test_connection_count_parses_number(self, monkeypatch):
+        psql_out = " count \n-------\n     3\n(1 row)\n"
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (True, psql_out))
+        from odoodev.core.database import get_active_connection_count
+
+        assert get_active_connection_count("mydb") == 3
+
+    def test_connection_count_error_returns_minus_one(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (False, "boom"))
+        from odoodev.core.database import get_active_connection_count
+
+        assert get_active_connection_count("mydb") == -1
+
+    def test_terminate_connections_query(self, monkeypatch):
+        queries: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (queries.append(q), (True, ""))[1])
+        from odoodev.core.database import terminate_connections
+
+        assert terminate_connections("mydb") is True
+        assert "pg_terminate_backend" in queries[0]
+        assert "mydb" in queries[0]
+
+    def test_unsafe_db_name_raises(self):
+        from odoodev.core.database import get_active_connection_count
+
+        with pytest.raises(ValueError):
+            get_active_connection_count("bad;name")
+
+
+class TestCopyRenameDatabase:
+    def test_copy_database_uses_template(self, monkeypatch):
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        from odoodev.core.database import copy_database
+
+        assert copy_database("srcdb", "dstdb") is True
+        assert calls[0][0] == "createdb"
+        assert "-T" in calls[0]
+        assert calls[0][calls[0].index("-T") + 1] == "srcdb"
+        assert calls[0][-1] == "dstdb"
+
+    def test_rename_database_alter_statement(self, monkeypatch):
+        queries: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (queries.append(q), (True, ""))[1])
+        from odoodev.core.database import rename_database
+
+        assert rename_database("olddb", "newdb") is True
+        assert queries[0] == "ALTER DATABASE olddb RENAME TO newdb;"
+
+    def test_copy_rejects_unsafe_names(self):
+        from odoodev.core.database import copy_database, rename_database
+
+        with pytest.raises(ValueError):
+            copy_database("ok", "bad name")
+        with pytest.raises(ValueError):
+            rename_database("bad;", "ok")
+
+
+class TestDbCopyRenameCommands:
+    def _patch_common(self, monkeypatch, connections=0):
+        import odoodev.commands.db as db_cmd
+
+        monkeypatch.setattr(
+            db_cmd,
+            "get_version",
+            lambda v: types.SimpleNamespace(
+                paths=types.SimpleNamespace(native_dir="/nonexistent"),
+                ports=types.SimpleNamespace(db=18432),
+            ),
+        )
+        monkeypatch.setattr(db_cmd, "database_exists", lambda name, **k: name == "srcdb")
+        monkeypatch.setattr(db_cmd, "get_active_connection_count", lambda name, **k: connections)
+        monkeypatch.setattr(db_cmd, "get_filestore_path", lambda v, db_name: f"/nonexistent/fs/{db_name}")
+        return db_cmd
+
+    def test_copy_happy_path(self, monkeypatch):
+        db_cmd = self._patch_common(monkeypatch)
+        copied: list[tuple[str, str]] = []
+        monkeypatch.setattr(db_cmd, "copy_database", lambda s, d, **k: (copied.append((s, d)), True)[1])
+        result = CliRunner().invoke(cli, ["db", "copy", "18", "-s", "srcdb", "-d", "newdb", "-y"])
+        assert result.exit_code == 0
+        assert copied == [("srcdb", "newdb")]
+
+    def test_copy_dst_exists_fails(self, monkeypatch):
+        db_cmd = self._patch_common(monkeypatch)
+        monkeypatch.setattr(db_cmd, "database_exists", lambda name, **k: True)
+        result = CliRunner().invoke(cli, ["db", "copy", "18", "-s", "srcdb", "-d", "srcdb2", "-y"])
+        assert result.exit_code == 1
+        assert "already exists" in result.output
+
+    def test_copy_src_missing_fails(self, monkeypatch):
+        db_cmd = self._patch_common(monkeypatch)
+        monkeypatch.setattr(db_cmd, "database_exists", lambda name, **k: False)
+        result = CliRunner().invoke(cli, ["db", "copy", "18", "-s", "ghost", "-d", "newdb", "-y"])
+        assert result.exit_code == 1
+        assert "does not exist" in result.output
+
+    def test_copy_invalid_dst_name(self, monkeypatch):
+        self._patch_common(monkeypatch)
+        result = CliRunner().invoke(cli, ["db", "copy", "18", "-s", "srcdb", "-d", "1bad", "-y"])
+        assert result.exit_code == 1
+        assert "Invalid database name" in result.output
+
+    def test_copy_active_connections_abort_without_flag(self, monkeypatch):
+        db_cmd = self._patch_common(monkeypatch, connections=2)
+        monkeypatch.setattr(db_cmd, "copy_database", lambda s, d, **k: True)
+        result = CliRunner().invoke(cli, ["db", "copy", "18", "-s", "srcdb", "-d", "newdb", "-y"])
+        assert result.exit_code == 1
+        assert "active connection" in result.output
+
+    def test_copy_terminate_connections_flag(self, monkeypatch):
+        db_cmd = self._patch_common(monkeypatch, connections=2)
+        terminated: list[str] = []
+        monkeypatch.setattr(db_cmd, "terminate_connections", lambda name, **k: (terminated.append(name), True)[1])
+        monkeypatch.setattr(db_cmd, "copy_database", lambda s, d, **k: True)
+        result = CliRunner().invoke(
+            cli, ["db", "copy", "18", "-s", "srcdb", "-d", "newdb", "-y", "--terminate-connections"]
+        )
+        assert result.exit_code == 0
+        assert terminated == ["srcdb"]
+
+    def test_rename_happy_path_moves_filestore(self, monkeypatch, tmp_path):
+        db_cmd = self._patch_common(monkeypatch)
+        fs_root = tmp_path / "fs"
+        (fs_root / "srcdb").mkdir(parents=True)
+        monkeypatch.setattr(db_cmd, "get_filestore_path", lambda v, db_name: str(fs_root / db_name))
+        renamed: list[tuple[str, str]] = []
+        monkeypatch.setattr(db_cmd, "rename_database", lambda s, d, **k: (renamed.append((s, d)), True)[1])
+        result = CliRunner().invoke(cli, ["db", "rename", "18", "-s", "srcdb", "-d", "newdb", "-y"])
+        assert result.exit_code == 0
+        assert renamed == [("srcdb", "newdb")]
+        assert (fs_root / "newdb").is_dir()
+        assert not (fs_root / "srcdb").exists()
+
+    def test_rename_failure_exit_1(self, monkeypatch):
+        db_cmd = self._patch_common(monkeypatch)
+        monkeypatch.setattr(db_cmd, "rename_database", lambda s, d, **k: False)
+        result = CliRunner().invoke(cli, ["db", "rename", "18", "-s", "srcdb", "-d", "newdb", "-y"])
+        assert result.exit_code == 1

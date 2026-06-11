@@ -222,6 +222,84 @@ def restore_database(
         return False
 
 
+def get_active_connection_count(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> int:
+    """Count active connections to a database (excluding our own psql session).
+
+    Returns -1 if the query failed (e.g. PostgreSQL not reachable).
+    """
+    _check_identifier(db_name)
+    query = f"SELECT count(*) FROM pg_stat_activity WHERE datname = '{db_name}' AND pid <> pg_backend_pid();"
+    ok, out = _run_psql(query, db="postgres", host=host, port=port, user=user)
+    if not ok:
+        return -1
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.isdigit():
+            return int(stripped)
+    return -1
+
+
+def terminate_connections(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Terminate all active connections to a database via pg_terminate_backend."""
+    _check_identifier(db_name)
+    query = (
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();"
+    )
+    ok, _ = _run_psql(query, db="postgres", host=host, port=port, user=user)
+    return ok
+
+
+def copy_database(
+    src: str,
+    dst: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Copy a database via ``createdb -T src dst`` (requires no active connections on src)."""
+    _check_identifier(src)
+    _check_identifier(dst)
+    env = _get_pg_env(host, port)
+    cmd = ["createdb", "-U", user, "-h", host, "-p", str(port), "-T", src, dst]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        logger.info("Database %s copied to %s.", src, dst)
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error("Failed to copy %s to %s: %s", src, dst, e.stderr)
+        return False
+
+
+def rename_database(
+    old_name: str,
+    new_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Rename a database via ``ALTER DATABASE`` (requires no active connections)."""
+    _check_identifier(old_name)
+    _check_identifier(new_name)
+    query = f"ALTER DATABASE {old_name} RENAME TO {new_name};"
+    ok, err = _run_psql(query, db="postgres", host=host, port=port, user=user)
+    if ok:
+        logger.info("Database %s renamed to %s.", old_name, new_name)
+    else:
+        logger.error("Failed to rename %s to %s: %s", old_name, new_name, err)
+    return ok
+
+
 def extract_backup(backup_file: str, extract_path: str) -> bool:
     """Extract a backup file (ZIP, 7z, tar, gz, SQL).
 

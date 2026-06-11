@@ -18,6 +18,7 @@ from odoodev.core.database import (
     anonymize_users,
     backup_database_sql,
     cleanup_restore_temp,
+    copy_database,
     copy_filestore,
     create_backup_zip,
     create_database,
@@ -27,12 +28,15 @@ from odoodev.core.database import (
     drop_database,
     extract_backup,
     format_size,
+    get_active_connection_count,
     get_filestore_path,
     get_restore_temp_dir,
     list_databases,
     neutralize_bank_sync,
+    rename_database,
     restore_database,
     run_neutralize,
+    terminate_connections,
 )
 from odoodev.core.version_registry import get_version
 from odoodev.output import (
@@ -193,6 +197,137 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
             print_success(f"Filestore removed: {filestore_path}")
         except OSError as e:
             print_warning(f"Could not remove filestore: {e}")
+
+
+def _resolve_copy_names(params: dict, src: str | None, dst: str | None) -> tuple[str, str]:
+    """Resolve source/destination names, prompting interactively when omitted.
+
+    Raises SystemExit on invalid input or missing source database.
+    """
+    if not src:
+        src = _select_database(params)
+        if not src:
+            raise SystemExit(1)
+    if not dst:
+        dst = text_input("New database name:")
+        if not dst:
+            print_info("Aborted.")
+            raise SystemExit(1)
+    dst = dst.strip()
+
+    if not _validate_db_name(dst):
+        print_error(f"Invalid database name: '{dst}' (letters, digits, underscores; no leading digit)")
+        raise SystemExit(1)
+    if not database_exists(src, **params):
+        print_error(f"Source database '{src}' does not exist")
+        raise SystemExit(1)
+    if database_exists(dst, **params):
+        print_error(f"Destination database '{dst}' already exists")
+        raise SystemExit(1)
+    return src, dst
+
+
+def _ensure_no_connections(name: str, params: dict, terminate: bool, yes: bool) -> None:
+    """Abort (SystemExit) unless the database has no active connections.
+
+    With ``terminate`` (or interactive consent), active sessions are killed
+    via pg_terminate_backend first.
+    """
+    count = get_active_connection_count(name, **params)
+    if count <= 0:
+        return
+
+    print_warning(f"Database '{name}' has {count} active connection(s) (e.g. a running Odoo server)")
+    if not terminate and not yes:
+        terminate = confirm("Terminate these connections?", default=False)
+    if not terminate:
+        print_info("Aborted. Stop the Odoo server or pass --terminate-connections.")
+        raise SystemExit(1)
+    if not terminate_connections(name, **params):
+        print_error("Failed to terminate connections")
+        raise SystemExit(1)
+    print_success(f"Terminated {count} connection(s)")
+
+
+@db.command("copy")
+@click.argument("version", required=False)
+@click.option("-s", "--src", help="Source database (interactive selection if omitted)")
+@click.option("-d", "--dst", help="New database name (prompted if omitted)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--terminate-connections", "terminate", is_flag=True, help="Kill active connections on source first")
+@click.pass_context
+def db_copy(
+    ctx: click.Context, version: str | None, src: str | None, dst: str | None, yes: bool, terminate: bool
+) -> None:
+    """Copy a database (incl. filestore) under a new name.
+
+    \b
+    Examples:
+        odoodev db copy 18 -s v18_prod -d v18_test
+        odoodev db copy 18 -s v18_prod -d v18_test --terminate-connections -y
+    """
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _print_migration_hint(version)
+
+    src, dst = _resolve_copy_names(params, src, dst)
+    _ensure_no_connections(src, params, terminate, yes)
+
+    print_info(f"Copying database '{src}' → '{dst}'...")
+    if not copy_database(src, dst, **params):
+        print_error("Database copy failed (see log for details)")
+        raise SystemExit(1)
+    print_success(f"Database '{dst}' created from '{src}'")
+
+    src_fs = get_filestore_path(version, db_name=src)
+    if os.path.isdir(src_fs):
+        dst_fs = get_filestore_path(version, db_name=dst)
+        if copy_filestore(src_fs, dst_fs):
+            print_success(f"Filestore copied: {dst_fs}")
+        else:
+            print_warning("Filestore copy failed — attachments may be missing (non-fatal)")
+
+
+@db.command("rename")
+@click.argument("version", required=False)
+@click.option("-s", "--src", help="Database to rename (interactive selection if omitted)")
+@click.option("-d", "--dst", help="New database name (prompted if omitted)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--terminate-connections", "terminate", is_flag=True, help="Kill active connections first")
+@click.pass_context
+def db_rename(
+    ctx: click.Context, version: str | None, src: str | None, dst: str | None, yes: bool, terminate: bool
+) -> None:
+    """Rename a database (incl. filestore directory).
+
+    \b
+    Example:
+        odoodev db rename 18 -s v18_old -d v18_new
+    """
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _print_migration_hint(version)
+
+    src, dst = _resolve_copy_names(params, src, dst)
+    _ensure_no_connections(src, params, terminate, yes)
+
+    if not rename_database(src, dst, **params):
+        print_error("Database rename failed (see log for details)")
+        raise SystemExit(1)
+    print_success(f"Database '{src}' renamed to '{dst}'")
+
+    src_fs = get_filestore_path(version, db_name=src)
+    if os.path.isdir(src_fs):
+        dst_fs = get_filestore_path(version, db_name=dst)
+        try:
+            shutil.move(src_fs, dst_fs)
+            print_success(f"Filestore moved: {dst_fs}")
+        except OSError as e:
+            print_warning(f"Could not move filestore: {e} (non-fatal)")
 
 
 @db.command("restore")
