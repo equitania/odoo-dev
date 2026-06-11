@@ -219,7 +219,7 @@ def migrate_list() -> None:
 
 @migrate.command("remove")
 @click.argument("name")
-@click.option("--yes", is_flag=True, help="Force removal even if active")
+@click.option("--yes", "-y", is_flag=True, help="Force removal even if active")
 def migrate_remove(name: str, yes: bool) -> None:
     """Remove a migration group definition."""
     from odoodev.core.migration_config import remove_migration_group

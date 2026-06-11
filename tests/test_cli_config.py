@@ -39,3 +39,32 @@ class TestHelp:
         assert "db" in result.output
         assert "init" in result.output
         assert "config" in result.output
+
+
+class TestYesFlagUnification:
+    """All confirmation-skipping flags expose -y as short form."""
+
+    def test_db_drop_has_short_y(self):
+        from odoodev.commands.db import db_drop
+
+        opt = next(p for p in db_drop.params if p.name == "yes")
+        assert "-y" in opt.opts
+
+    def test_migrate_remove_has_short_y(self):
+        from odoodev.commands.migrate import migrate_remove
+
+        opt = next(p for p in migrate_remove.params if p.name == "yes")
+        assert "-y" in opt.opts
+
+    def test_venv_remove_has_short_y(self):
+        from odoodev.commands.venv import venv_remove
+
+        opt = next(p for p in venv_remove.params if p.name == "yes")
+        assert "-y" in opt.opts
+
+    def test_start_accepts_yes_alias(self):
+        from odoodev.commands.start import start
+
+        opt = next(p for p in start.params if p.name == "yes_flag")
+        assert "-y" in opt.opts and "--yes" in opt.opts
+        assert opt.hidden is True

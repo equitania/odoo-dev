@@ -703,6 +703,7 @@ def _build_odoo_extra_args(
 @click.option("--test", "mode", flag_value="test", help="Run tests (--test-enable --stop-after-init)")
 @click.option("--prepare", is_flag=True, help="Open interactive shell with venv (don't start Odoo)")
 @click.option("--no-confirm", is_flag=True, help="Skip confirmation prompt")
+@click.option("--yes", "-y", "yes_flag", is_flag=True, hidden=True, help="Alias for --no-confirm")
 @click.option("--tui", is_flag=True, help="Start with Terminal UI (log viewer, filtering, module update)")
 @click.option("--load-language", default=None, help="Load language (e.g. 'de_DE', 'fr_FR', 'all')")
 @click.option("--i18n-overwrite", is_flag=True, help="Overwrite existing translations when loading language")
@@ -730,6 +731,7 @@ def start(
     mode: str | None,
     prepare: bool,
     no_confirm: bool,
+    yes_flag: bool,
     tui: bool,
     load_language: str | None,
     i18n_overwrite: bool,
@@ -765,6 +767,8 @@ def start(
     Clean sessions before starting:
         odoodev start 18 --clean-sessions
     """
+    no_confirm = no_confirm or yes_flag
+
     version = resolve_version(ctx, version)
     versions = load_versions()
     version_cfg = get_version(version, versions)

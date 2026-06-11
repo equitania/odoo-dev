@@ -152,7 +152,7 @@ def db_list(ctx: click.Context, version: str | None) -> None:
 @db.command("drop")
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="Database name (interactive selection if omitted)")
-@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
 def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool) -> None:
     """Drop a database."""

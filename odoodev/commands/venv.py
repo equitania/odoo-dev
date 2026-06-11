@@ -38,6 +38,40 @@ def venv() -> None:
     """Manage Python virtual environments."""
 
 
+@venv.command("remove")
+@click.argument("version", required=False)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def venv_remove(ctx: click.Context, version: str | None, yes: bool) -> None:
+    """Remove the virtual environment for a version."""
+    import shutil
+
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    venv_dir = _get_venv_dir(version_cfg)
+
+    if not os.path.exists(venv_dir) and not os.path.islink(venv_dir):
+        print_warning(f"No venv found at {venv_dir}")
+        return
+
+    if not yes:
+        print_warning(f"This will permanently delete the venv at {venv_dir}")
+        if not confirm("Proceed?", default=False):
+            print_info("Aborted.")
+            return
+
+    try:
+        if os.path.islink(venv_dir):
+            os.remove(venv_dir)
+        else:
+            shutil.rmtree(venv_dir)
+        print_success(f"Venv removed: {venv_dir}")
+        print_info(f"Recreate with: odoodev venv setup {version}")
+    except OSError as e:
+        print_error(f"Failed to remove venv: {e}")
+        raise SystemExit(1) from e
+
+
 @venv.command("setup")
 @click.argument("version", required=False)
 @click.option("--force", is_flag=True, help="Recreate even if venv exists")
