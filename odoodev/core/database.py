@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -224,6 +225,9 @@ def restore_database(
 def extract_backup(backup_file: str, extract_path: str) -> bool:
     """Extract a backup file (ZIP, 7z, tar, gz, SQL).
 
+    On success the extracted content is restricted to the current user —
+    dumps and filestore may contain production PII before anonymization runs.
+
     Args:
         backup_file: Path to backup file
         extract_path: Directory to extract into
@@ -231,6 +235,27 @@ def extract_backup(backup_file: str, extract_path: str) -> bool:
     Returns:
         True if extraction successful.
     """
+    ok = _extract_backup_inner(backup_file, extract_path)
+    if ok:
+        _restrict_permissions(extract_path)
+    return ok
+
+
+def _restrict_permissions(extract_path: str) -> None:
+    """Chmod extracted backup content to owner-only (dirs 0o700, files 0o600)."""
+    try:
+        os.chmod(extract_path, 0o700)
+        for root, dirs, files in os.walk(extract_path):
+            for name in dirs:
+                os.chmod(os.path.join(root, name), 0o700)
+            for name in files:
+                os.chmod(os.path.join(root, name), 0o600)
+    except OSError as e:
+        logger.warning("Could not restrict permissions on %s: %s", extract_path, e)
+
+
+def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
+    """Format-dispatching extraction logic (see :func:`extract_backup`)."""
     os.makedirs(extract_path, exist_ok=True)
 
     ext = os.path.splitext(backup_file)[1].lower()
@@ -757,6 +782,32 @@ def _sql_literal(value: str | None) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+_SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Tokens that have no business in an anonymization WHERE filter (statement
+# chaining, comments, quoting) — the filters are plain column comparisons.
+_FORBIDDEN_WHERE_TOKENS = (";", "--", "/*")
+
+
+def _check_identifier(name: str) -> str:
+    """Fail fast on a table/column name that is not a plain SQL identifier.
+
+    All current callers pass hardcoded constants; this guard exists so the
+    f-string query builders cannot be reused with untrusted input.
+    """
+    if not _SQL_IDENTIFIER_RE.match(name):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return name
+
+
+def _check_where_fragment(where: str) -> str:
+    """Fail fast on a WHERE fragment containing statement-breaking tokens."""
+    for token in _FORBIDDEN_WHERE_TOKENS:
+        if token in where:
+            raise ValueError(f"Unsafe SQL WHERE fragment: {where!r}")
+    return where
+
+
 def _existing_columns(
     table: str,
     db_name: str,
@@ -770,6 +821,7 @@ def _existing_columns(
     Odoo version are filtered out before the UPDATE is built, and a missing table
     yields an empty set so the caller skips it.
     """
+    _check_identifier(table)
     query = (
         f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '{table}';"
     )
@@ -802,10 +854,11 @@ def _build_static_update(
 
     Returns None if no assigned column exists in the live schema.
     """
-    parts = [f"{column} = {value}" for column, value in assignments if column in existing]
+    _check_identifier(table)
+    parts = [f"{_check_identifier(column)} = {value}" for column, value in assignments if column in existing]
     if not parts:
         return None
-    clause = f" WHERE {where}" if where else ""
+    clause = f" WHERE {_check_where_fragment(where)}" if where else ""
     return f"UPDATE {table} SET {', '.join(parts)}{clause};"
 
 
@@ -821,8 +874,8 @@ def _fetch_ids(
     Returns an empty list on any error (e.g. table missing because the module
     is not installed) so anonymization stays non-fatal.
     """
-    where = f" WHERE {spec.where}" if spec.where else ""
-    query = f"SELECT id FROM {spec.table}{where} ORDER BY id;"
+    where = f" WHERE {_check_where_fragment(spec.where)}" if spec.where else ""
+    query = f"SELECT id FROM {_check_identifier(spec.table)}{where} ORDER BY id;"
     ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
     if not ok:
         return []
@@ -844,7 +897,8 @@ def _build_anonymize_sql(
 
     Faker is seeded per row id so the result is deterministic / reproducible.
     """
-    columns = [f.column for f in spec.fields]
+    _check_identifier(spec.table)
+    columns = [_check_identifier(f.column) for f in spec.fields]
     col_list = ", ".join(columns)
     set_clause = ", ".join(f"{c} = v.{c}" for c in columns)
     statements = []
@@ -960,6 +1014,30 @@ def anonymize_database(
 # Default dev password for opt-in res_users anonymization (hashed before storing).
 DEFAULT_DEV_PASSWORD = "ownerp"  # noqa: S105 — dev-only login, documented for the team
 
+# Rounds matching passlib's pbkdf2_sha512 default, which Odoo accepts and re-hashes on login.
+_PBKDF2_SHA512_ROUNDS = 25000
+
+
+def _pbkdf2_sha512_hash(password: str, rounds: int = _PBKDF2_SHA512_ROUNDS) -> str:
+    """Build an Odoo/passlib-compatible ``$pbkdf2-sha512$`` hash with the stdlib only.
+
+    Uses passlib's "ab64" encoding (standard base64 with ``+`` → ``.``, padding
+    stripped): ``$pbkdf2-sha512$<rounds>$<salt>$<checksum>``. Odoo verifies this
+    via passlib, so no passlib dependency is needed on our side.
+    """
+    import base64
+    import hashlib
+    import secrets
+
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha512", password.encode("utf-8"), salt, rounds)
+
+    def ab64(data: bytes) -> str:
+        return base64.b64encode(data).decode("ascii").replace("+", ".").rstrip("=")
+
+    return f"$pbkdf2-sha512${rounds}${ab64(salt)}${ab64(digest)}"
+
+
 # Accounts kept untouched so the dev login keeps working (admin id=1 + technical logins).
 _USER_ANON_WHERE = "id > 1 AND login NOT IN ('admin', '__system__', 'default', 'public', 'portaltemplate')"
 
@@ -979,19 +1057,11 @@ def anonymize_users(
     ``pbkdf2_sha512`` hash (one hash is valid for every user).
 
     Returns:
-        True on success, False if passlib is missing or a statement failed.
+        True on success, False if a statement failed.
     """
-    try:
-        from passlib.context import CryptContext
-    except ImportError:
-        from odoodev.output import print_error
-
-        print_error("passlib is not installed — cannot anonymize res_users. Install with: uv pip install passlib")
-        return False
-
     from faker import Faker
 
-    pw_hash = CryptContext(schemes=["pbkdf2_sha512"]).hash(dev_password)
+    pw_hash = _pbkdf2_sha512_hash(dev_password)
     success = True
 
     # 1. Logins → user{id} (per-row, reusing the VALUES mechanism).

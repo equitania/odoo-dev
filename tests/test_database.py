@@ -16,9 +16,11 @@ from odoodev.core.database import (
     ANONYMIZE_STATIC_QUERIES,
     ANONYMIZE_STATIC_TABLES,
     ANONYMIZE_TABLES,
+    AnonTable,
     _build_anonymize_sql,
     _build_static_update,
     _existing_columns,
+    _fetch_ids,
     _sql_literal,
     anonymize_database,
     anonymize_users,
@@ -610,18 +612,51 @@ class TestAnonymizeUsers:
         assert "pbkdf2" in psql[0]
         assert "'ownerp'" not in psql[0]
 
-    def test_missing_passlib_returns_false(self, monkeypatch):
-        import builtins
+    def test_pbkdf2_hash_is_odoo_compatible(self):
+        from odoodev.core.database import _pbkdf2_sha512_hash
 
-        real_import = builtins.__import__
+        h = _pbkdf2_sha512_hash("ownerp")
+        scheme, rounds, salt, checksum = h.lstrip("$").split("$")
+        assert scheme == "pbkdf2-sha512"
+        assert rounds.isdigit() and int(rounds) >= 25000
+        # passlib ab64 encoding: no '+', no '=' padding
+        assert "+" not in h and "=" not in h
+        assert len(salt) > 0 and len(checksum) > 0
+        # salted: two hashes of the same password must differ
+        assert h != _pbkdf2_sha512_hash("ownerp")
 
-        def fake_import(name, *args, **kwargs):
-            if name == "passlib.context" or name.startswith("passlib"):
-                raise ImportError("no passlib")
-            return real_import(name, *args, **kwargs)
 
-        monkeypatch.setattr(builtins, "__import__", fake_import)
-        assert anonymize_users("db") is False
+class TestSqlGuards:
+    def test_valid_identifier_passes(self):
+        from odoodev.core.database import _check_identifier
+
+        assert _check_identifier("res_partner") == "res_partner"
+        assert _check_identifier("hr_employee") == "hr_employee"
+
+    def test_injection_in_identifier_raises(self):
+        from odoodev.core.database import _check_identifier
+
+        for bad in ("res_partner; DROP TABLE x", "a'b", "t--", "1table", ""):
+            with pytest.raises(ValueError):
+                _check_identifier(bad)
+
+    def test_valid_where_fragment_passes(self):
+        from odoodev.core.database import _check_where_fragment
+
+        where = "id > 1 AND login NOT IN ('admin', '__system__')"
+        assert _check_where_fragment(where) == where
+
+    def test_where_fragment_rejects_statement_tokens(self):
+        from odoodev.core.database import _check_where_fragment
+
+        for bad in ("id > 1; DELETE FROM res_users", "id > 1 -- comment", "id > 1 /* x */"):
+            with pytest.raises(ValueError):
+                _check_where_fragment(bad)
+
+    def test_fetch_ids_rejects_unsafe_table(self):
+        spec = AnonTable(table="res_users; DROP TABLE x", fields=(), where="")
+        with pytest.raises(ValueError):
+            _fetch_ids(spec, "db")
 
 
 class TestNeutralizeBankSync:

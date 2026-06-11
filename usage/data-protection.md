@@ -235,8 +235,8 @@ unberuehrt):
   als Odoo-kompatibler `pbkdf2_sha512`-Hash. Damit bleibt jeder Benutzer
   einloggbar: `user<id>` / `ownerp`. `admin` behaelt sein Original-Passwort.
 
-Benoetigt `passlib` (ist Abhaengigkeit des Tools). Greift nur zusammen mit
-`--anonymize`.
+Der Hash wird mit der Python-Standardbibliothek erzeugt (keine
+Zusatzabhaengigkeit). Greift nur zusammen mit `--anonymize`.
 
 ---
 
@@ -583,8 +583,8 @@ Effect (non-system accounts only; `admin`/id=1 + technical logins stay intact):
   Odoo-compatible `pbkdf2_sha512` hash. Every user stays loginable as
   `user<id>` / `ownerp`; `admin` keeps its original password.
 
-Requires `passlib` (a dependency of the tool). Only takes effect together with
-`--anonymize`.
+The hash is generated with the Python standard library (no extra
+dependency). Only takes effect together with `--anonymize`.
 
 ---
 

@@ -352,7 +352,7 @@ def db_restore(
             if anonymize_users(name, dev_password=user_password, **params):
                 print_success(f"User logins anonymized (login: user<id>, password: {user_password})")
             else:
-                print_warning("User anonymization failed (passlib missing or table issue) — non-fatal")
+                print_warning("User anonymization failed (table issue) — non-fatal")
 
     # Cleanup
     if not keep_temp:

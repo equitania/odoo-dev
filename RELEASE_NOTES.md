@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.7.2 (11.06.2026)
+
+### Changed
+- **passlib dependency removed** — The opt-in `res_users` anonymization now builds the Odoo-compatible `$pbkdf2-sha512$` password hash with the Python standard library (`hashlib.pbkdf2_hmac` + `secrets`, passlib "ab64" encoding, 25,000 rounds). passlib has been unmaintained since 2020; Odoo still verifies the format on its side, so nothing changes for restored databases. `passlib`/`types-passlib` were dropped from the project dependencies (the `data/examples/*/requirements.txt` keep `passlib` — that is Odoo's own dependency).
+
+### Fixed
+- **Security: credentials files now written with owner-only permissions** — `~/.config/odoodev/config.yaml` and the generated `.env` (both contain the PostgreSQL password in plaintext) are created with mode `0600`, the config directory with `0700`. Previously they inherited the umask and could be world-readable on shared systems.
+- **Security: restored backup content restricted to the current user** — After extraction, `extract_backup()` chmods the extracted dump/filestore to `0700`/`0600`. Dumps contain production PII until anonymization completes; extracted files previously inherited the umask.
+- **Security: SQL guards against identifier/WHERE injection** — New `_check_identifier()` (strict `[A-Za-z_][A-Za-z0-9_]*` regex) and `_check_where_fragment()` (rejects `;`, `--`, `/*`) validators fail fast in all f-string query builders (`_existing_columns`, `_build_static_update`, `_fetch_ids`, `_build_anonymize_sql`). All current callers pass hardcoded constants — this hardens the builders against future reuse with untrusted input.
+
 ## Version 0.7.1 (02.06.2026)
 
 ### Fixed
