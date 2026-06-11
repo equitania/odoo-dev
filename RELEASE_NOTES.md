@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.8.0 (11.06.2026)
+
+### Added
+- **`odoodev doctor [VERSION]`** — All environment prerequisite checks (uv, Docker, Compose, wkhtmltopdf, pg tools, PostgreSQL port, Node.js + packages, system libs, venv packages) in one Rich summary table with per-check remediation hints. Hard requirements exit 1 on failure; the rest only warn. Includes a PyPI freshness check (2s timeout, graceful offline skip) that announces when a newer odoodev release is available. Wires the previously unused `run_all_checks()` into the CLI.
+- **`db copy` / `db rename`** — Copy a database via `createdb -T` or rename it via `ALTER DATABASE`, both including the filestore (copy / move). Active connections (e.g. a running Odoo server) are detected; terminate them interactively or with `--terminate-connections`. All names pass the SQL identifier guard.
+- **`config set <key> <value>` / `config edit`** — Change `base_dir`, `language`, `db.user`, `db.password` and `active_versions` from the CLI (validated whitelist, passwords never echoed), or open `config.yaml` in `$EDITOR`. No more hand-editing YAML for routine changes.
+- **`venv remove [VERSION]`** — Cleanly delete a version's venv (confirmation unless `--yes/-y`, idempotent, symlink-safe). Counterpart to `venv setup`.
+- **Machine-readable `--json` output** for `db list`, `config versions` and `venv check` (non-interactive; exit 1 when the venv is missing) — for scripts, CI and AI agents.
+- **Playbook variables** — New `vars:` block plus optional `description:`; step args are rendered through a sandboxed Jinja2 environment with `{{ vars.x }}`, `{{ env.X }}` and `{{ date }}` (ISO). Override per run with `--var/-D KEY=VALUE`. Template errors fail the step and honor `on_error`.
+- **`run --list`** — Discover playbooks (`*.yaml`/`*.yml`) in `./playbooks/` and `<native_dir>/scripts/playbooks/` with name, description, source and path (Rich table or `--output json`).
+- **TUI: log export (`s`)** — Save the visible (filtered) log buffer to `~/odoodev-logs/odoo_{version}_{db}_{timestamp}.log`.
+- **TUI: help overlay (`?`)** — Modal screen listing every keybinding grouped by Server / Filtering / Clipboard & Export; a test asserts the overlay stays complete. Full keybinding table added to `usage/start.md` (DE + EN).
+- **Unified `--yes/-y`** — `-y` short form on `db drop` and `migrate remove`; hidden `--yes/-y` alias for `start --no-confirm`; new commands use `--yes/-y` natively.
+
+### Fixed
+- **`.pgpass`: passwords with `:` or `\` now work** — Previously a password containing a colon silently skipped the `.pgpass` write (falling back to env-var auth) and a backslash corrupted the entry. Fields are now escaped per pgpass(5) (`\\` and `\:`); only newlines (illegal in the format) still skip the write.
+- **TUI: one-shot module update args** — `OdooProcess.restart(extra_args=["-u", ...])` no longer retains the extra args internally, so a later direct `start()` cannot accidentally repeat the module update.
+
 ## Version 0.7.2 (11.06.2026)
 
 ### Changed

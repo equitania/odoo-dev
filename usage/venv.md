@@ -18,12 +18,56 @@ odoodev venv setup 18 --force
 # Venv-Status pruefen
 odoodev venv check 18
 
+# Venv-Status als JSON pruefen (nicht-interaktiv)
+odoodev venv check 18 --json
+
 # Aktivierungsbefehl anzeigen
 odoodev venv activate 18
 
 # Venv-Pfad ausgeben
 odoodev venv path 18
+
+# Venv loeschen
+odoodev venv remove 18
+
+# Venv loeschen ohne Bestaetigungsprompt
+odoodev venv remove 18 --yes
 ```
+
+### Venv loeschen (`odoodev venv remove`)
+
+```bash
+odoodev venv remove 18          # mit Bestaetigungsprompt
+odoodev venv remove 18 --yes    # ohne Prompt
+odoodev venv remove 18 -y       # Kurzform
+```
+
+Loescht das `.venv`-Verzeichnis der angegebenen Version. Ist das Venv bereits nicht
+vorhanden, laeuft der Befehl ohne Fehler durch (idempotent). Symlinks werden korrekt
+behandelt (nur der Link wird entfernt, nicht das Ziel). Nach dem Loeschen kann das
+Venv mit `odoodev venv setup 18` neu erstellt werden.
+
+### venv check --json
+
+```bash
+odoodev venv check 18 --json
+```
+
+Nicht-interaktiver JSON-Output — geeignet fuer Skripte und AI-Agenten:
+
+```json
+{
+  "version": "18",
+  "venv_dir": "/Users/picard/gitbase/v18/v18-dev/dev18_native/.venv",
+  "exists": true,
+  "is_symlink": false,
+  "python_version": "3.13.2",
+  "python_matches": true,
+  "requirements_current": true
+}
+```
+
+Exit-Code 1, wenn das Venv fehlt (`"exists": false`).
 
 ### Funktionsweise
 
@@ -63,12 +107,55 @@ odoodev venv setup 18 --force
 # Check venv status
 odoodev venv check 18
 
+# Check venv status as JSON (non-interactive)
+odoodev venv check 18 --json
+
 # Show activation command
 odoodev venv activate 18
 
 # Output venv path
 odoodev venv path 18
+
+# Remove venv
+odoodev venv remove 18
+
+# Remove venv without confirmation prompt
+odoodev venv remove 18 --yes
 ```
+
+### Remove Venv (`odoodev venv remove`)
+
+```bash
+odoodev venv remove 18          # with confirmation prompt
+odoodev venv remove 18 --yes    # no prompt
+odoodev venv remove 18 -y       # short form
+```
+
+Deletes the `.venv` directory for the given version. If the venv is already absent,
+the command completes without error (idempotent). Symlinks are handled correctly —
+only the link is removed, not the target. Recreate with `odoodev venv setup 18`.
+
+### venv check --json
+
+```bash
+odoodev venv check 18 --json
+```
+
+Non-interactive JSON output — suitable for scripts and AI agents:
+
+```json
+{
+  "version": "18",
+  "venv_dir": "/Users/picard/gitbase/v18/v18-dev/dev18_native/.venv",
+  "exists": true,
+  "is_symlink": false,
+  "python_version": "3.13.2",
+  "python_matches": true,
+  "requirements_current": true
+}
+```
+
+Exit code 1 when the venv is missing (`"exists": false`).
 
 ### How It Works
 

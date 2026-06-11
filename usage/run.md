@@ -26,6 +26,14 @@ odoodev run --step docker.up --step pull -V 18
 # Version ueberschreiben
 odoodev run playbook.yaml -V 19
 
+# vars-Werte per CLI ueberschreiben
+odoodev run playbook.yaml -D db_name=v18_staging -D backup_dir=/tmp
+
+# Verfuegbare Playbooks auflisten
+odoodev run --list
+odoodev run --list -V 18
+odoodev run --list --output json
+
 # Interaktiv (ohne Argumente): Modus-Auswahl
 odoodev run
 ```
@@ -49,6 +57,49 @@ steps:
     command: start
     on_error: continue  # Per-Step Override
 ```
+
+### Variablen & Jinja2-Templating
+
+Playbooks unterstuetzen ein optionales `vars:`-Objekt auf oberster Ebene sowie ein
+optionales `description:`-Feld. Step-`args` koennen Jinja2-Ausdruecke enthalten:
+
+| Kontext | Beschreibung |
+|---------|-------------|
+| `{{ vars.x }}` | Wert aus dem `vars:`-Block |
+| `{{ env.HOME }}` | Umgebungsvariable |
+| `{{ date }}` | Heutiges Datum (ISO 8601, z.B. `2026-06-11`) |
+
+Template-Fehler brechen den Step ab (`on_error` gilt). CLI-Flag `-D`/`--var` (wiederholbar)
+ueberschreibt `vars:`-Werte zur Laufzeit.
+
+```yaml
+version: "18"
+description: "Daily backup"
+vars:
+  db_name: v18_prod
+steps:
+  - name: Backup
+    command: db.backup
+    args:
+      name: "{{ vars.db_name }}"
+```
+
+CLI-Override:
+
+```bash
+odoodev run daily-backup.yaml -D db_name=v18_staging
+```
+
+### Playbooks auflisten (`odoodev run --list`)
+
+```bash
+odoodev run --list              # alle gefundenen Playbooks
+odoodev run --list -V 18        # auf Version 18 einschraenken
+odoodev run --list --output json
+```
+
+Sucht nach `*.yaml`/`*.yml` in `./playbooks/` und
+`<native_dir>/scripts/playbooks/`. Ausgabe: Name, Description, Quelle, Pfad.
 
 ### Verfuegbare Commands
 
@@ -115,6 +166,14 @@ odoodev run --step docker.up --step pull -V 18
 # Override version
 odoodev run playbook.yaml -V 19
 
+# Override vars values via CLI
+odoodev run playbook.yaml -D db_name=v18_staging -D backup_dir=/tmp
+
+# List available playbooks
+odoodev run --list
+odoodev run --list -V 18
+odoodev run --list --output json
+
 # Interactive (no arguments): mode selection
 odoodev run
 ```
@@ -138,6 +197,49 @@ steps:
     command: start
     on_error: continue  # Per-step override
 ```
+
+### Variables & Jinja2 Templating
+
+Playbooks support an optional top-level `vars:` object and an optional `description:`
+field. Step `args` values may contain Jinja2 expressions:
+
+| Context | Description |
+|---------|-------------|
+| `{{ vars.x }}` | Value from the `vars:` block |
+| `{{ env.HOME }}` | Environment variable |
+| `{{ date }}` | Today's date (ISO 8601, e.g. `2026-06-11`) |
+
+Template errors fail the step (`on_error` applies). The CLI flag `-D`/`--var`
+(repeatable) overrides `vars:` values at runtime.
+
+```yaml
+version: "18"
+description: "Daily backup"
+vars:
+  db_name: v18_prod
+steps:
+  - name: Backup
+    command: db.backup
+    args:
+      name: "{{ vars.db_name }}"
+```
+
+CLI override:
+
+```bash
+odoodev run daily-backup.yaml -D db_name=v18_staging
+```
+
+### List Playbooks (`odoodev run --list`)
+
+```bash
+odoodev run --list              # all discovered playbooks
+odoodev run --list -V 18        # filter to version 18
+odoodev run --list --output json
+```
+
+Discovers `*.yaml`/`*.yml` files in `./playbooks/` and
+`<native_dir>/scripts/playbooks/`. Output: name, description, source, path.
 
 ### Available Commands
 

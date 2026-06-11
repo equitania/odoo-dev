@@ -15,9 +15,70 @@ odoodev config versions
 # Nur Versionsnummern (fuer Skripte)
 odoodev config versions --plain
 
+# Versionen als JSON ausgeben
+odoodev config versions --json
+
 # Plattform und Konfiguration anzeigen
 odoodev config show
+
+# Konfigurationswert setzen
+odoodev config set base_dir ~/projects/odoo
+odoodev config set language de
+odoodev config set db.user ownerp
+odoodev config set db.password geheim
+odoodev config set active_versions 16,17,18,19
+
+# Konfigurationsdatei im Editor oeffnen
+odoodev config edit
 ```
+
+### Konfiguration setzen (`odoodev config set`)
+
+```bash
+odoodev config set <key> <value>
+```
+
+Setzt einen einzelnen Konfigurationswert in `~/.config/odoodev/config.yaml`.
+Unbekannte Schluessel werden abgewiesen. Passwoerter werden nicht auf dem Terminal
+wiederholt (silent).
+
+| Schluessel | Werte |
+|------------|-------|
+| `base_dir` | Pfad, z.B. `~/projects/odoo` |
+| `language` | `en` oder `de` |
+| `db.user` | PostgreSQL-Benutzername |
+| `db.password` | PostgreSQL-Passwort (nicht echo) |
+| `active_versions` | Kommagetrennt, z.B. `16,17,18,19` |
+
+### Konfiguration im Editor oeffnen (`odoodev config edit`)
+
+```bash
+odoodev config edit
+```
+
+Oeffnet `~/.config/odoodev/config.yaml` im Editor (`$EDITOR`, Fallback `$VISUAL`,
+dann `vi`). Existiert die Datei noch nicht, werden Standardwerte erstellt.
+
+### config versions --json
+
+```bash
+odoodev config versions --json
+```
+
+Gibt ein JSON-Objekt aus, das nach Versionsnummer indiziert ist:
+
+```json
+{
+  "18": {
+    "python": "3.13",
+    "postgres": "16.11",
+    "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025},
+    "base": "~/gitbase/v18"
+  }
+}
+```
+
+`--plain` und `--json` sind gegenseitig ausschliessend.
 
 ### Unterstuetzte Versionen
 
@@ -95,9 +156,69 @@ odoodev config versions
 # Version numbers only (for scripts)
 odoodev config versions --plain
 
+# Versions as JSON
+odoodev config versions --json
+
 # Show platform and configuration
 odoodev config show
+
+# Set a configuration value
+odoodev config set base_dir ~/projects/odoo
+odoodev config set language en
+odoodev config set db.user ownerp
+odoodev config set db.password secret
+odoodev config set active_versions 16,17,18,19
+
+# Open configuration file in editor
+odoodev config edit
 ```
+
+### Set Configuration Values (`odoodev config set`)
+
+```bash
+odoodev config set <key> <value>
+```
+
+Sets a single configuration value in `~/.config/odoodev/config.yaml`.
+Unknown keys are rejected. Passwords are never echoed to the terminal.
+
+| Key | Values |
+|-----|--------|
+| `base_dir` | Path, e.g. `~/projects/odoo` |
+| `language` | `en` or `de` |
+| `db.user` | PostgreSQL username |
+| `db.password` | PostgreSQL password (not echoed) |
+| `active_versions` | Comma-separated, e.g. `16,17,18,19` |
+
+### Open Configuration in Editor (`odoodev config edit`)
+
+```bash
+odoodev config edit
+```
+
+Opens `~/.config/odoodev/config.yaml` in the editor (`$EDITOR`, fallback `$VISUAL`,
+then `vi`). If the file does not yet exist, defaults are created first.
+
+### config versions --json
+
+```bash
+odoodev config versions --json
+```
+
+Returns a JSON object keyed by version number:
+
+```json
+{
+  "18": {
+    "python": "3.13",
+    "postgres": "16.11",
+    "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025},
+    "base": "~/gitbase/v18"
+  }
+}
+```
+
+`--plain` and `--json` are mutually exclusive.
 
 ### Supported Versions
 

@@ -12,6 +12,9 @@
 # Datenbanken auflisten
 odoodev db list 18
 
+# Datenbanken als JSON auflisten
+odoodev db list 18 --json
+
 # Backup erstellen (interaktiv)
 odoodev db backup 18
 
@@ -24,12 +27,59 @@ odoodev db backup 18 -n v18_exam -t zip -o /tmp
 # Backup wiederherstellen
 odoodev db restore 18 -n v18_test -z backup.zip
 
+# Datenbank kopieren
+odoodev db copy 18 -s v18_prod -d v18_test
+
+# Datenbank umbenennen
+odoodev db rename 18 -s v18_old -d v18_new
+
 # Datenbank loeschen
 odoodev db drop 18 -n v18_test
 
 # Datenbank loeschen ohne Bestaetigungsprompt
 odoodev db drop 18 -n v18_test --yes
 ```
+
+### Datenbank kopieren & umbenennen
+
+```bash
+# Datenbank kopieren (interaktive Quellauswahl wenn -s fehlt)
+odoodev db copy 18 -s v18_prod -d v18_test
+odoodev db copy 18 -d v18_test          # Quelle wird interaktiv gewaehlt
+odoodev db copy 18 -s v18_prod -d v18_test --yes   # ohne Bestaetigungsprompt
+
+# Mit aktiven Verbindungen (laufender Odoo-Server)
+odoodev db copy 18 -s v18_prod -d v18_test --terminate-connections
+
+# Datenbank umbenennen
+odoodev db rename 18 -s v18_old -d v18_new
+odoodev db rename 18 -s v18_old -d v18_new --yes
+odoodev db rename 18 -s v18_old -d v18_new --terminate-connections
+```
+
+`db copy` verwendet `createdb -T` und kopiert zusaetzlich den Filestore nach
+`~/odoo-share/filestore/{dst}/`. Das Ziel-Datenbankname darf noch nicht existieren;
+die Quelle muss vorhanden sein. Hat die Quelldatenbank aktive Verbindungen (z.B. ein
+laufender Odoo-Server), gibt der Befehl eine Warnung aus und bietet an, die
+Verbindungen zu beenden — oder verlangt `--terminate-connections`, je nach interaktivem
+Kontext.
+
+`db rename` fuehrt `ALTER DATABASE ... RENAME TO ...` aus und verschiebt anschliessend
+das Filestore-Verzeichnis. Verbindungsbehandlung identisch zu `db copy`.
+
+### db list --json
+
+```bash
+odoodev db list 18 --json
+```
+
+Gibt ein einzeiliges JSON-Objekt aus:
+
+```json
+{"version": "18", "host": "localhost", "port": 18432, "databases": ["v18_prod", "v18_test"]}
+```
+
+Nuetzlich fuer Skripte und AI-Agenten.
 
 ### Interaktiver Modus
 
@@ -38,6 +88,7 @@ Wenn Flags weggelassen werden, fragt odoodev interaktiv nach:
 - `odoodev db backup 18` → Auswahl der Datenbank und des Backup-Typs
 - `odoodev db restore 18` → Eingabe des Dateipfads und Datenbanknamens (mit Vorschlag aus Dateiname)
 - `odoodev db drop 18` → Auswahl der Datenbank aus Liste
+- `odoodev db copy 18 -d v18_test` → Auswahl der Quelldatenbank aus Liste
 
 ### Unterstuetzte Backup-Formate
 
@@ -151,6 +202,9 @@ Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis 
 # List databases
 odoodev db list 18
 
+# List databases as JSON
+odoodev db list 18 --json
+
 # Create backup (interactive)
 odoodev db backup 18
 
@@ -163,12 +217,58 @@ odoodev db backup 18 -n v18_exam -t zip -o /tmp
 # Restore backup
 odoodev db restore 18 -n v18_test -z backup.zip
 
+# Copy database
+odoodev db copy 18 -s v18_prod -d v18_test
+
+# Rename database
+odoodev db rename 18 -s v18_old -d v18_new
+
 # Drop database
 odoodev db drop 18 -n v18_test
 
 # Drop database without confirmation prompt
 odoodev db drop 18 -n v18_test --yes
 ```
+
+### Copy & Rename Databases
+
+```bash
+# Copy database (interactive source selection when -s is omitted)
+odoodev db copy 18 -s v18_prod -d v18_test
+odoodev db copy 18 -d v18_test            # source selected interactively
+odoodev db copy 18 -s v18_prod -d v18_test --yes   # no confirmation prompt
+
+# With active connections (running Odoo server)
+odoodev db copy 18 -s v18_prod -d v18_test --terminate-connections
+
+# Rename database
+odoodev db rename 18 -s v18_old -d v18_new
+odoodev db rename 18 -s v18_old -d v18_new --yes
+odoodev db rename 18 -s v18_old -d v18_new --terminate-connections
+```
+
+`db copy` uses `createdb -T` and additionally copies the filestore to
+`~/odoo-share/filestore/{dst}/`. The destination database name must not yet exist;
+the source must be present. If the source has active connections (e.g. a running
+Odoo server), the command warns and offers to terminate them — or requires
+`--terminate-connections` depending on interactive context.
+
+`db rename` runs `ALTER DATABASE ... RENAME TO ...` and then moves the filestore
+directory. Connection handling is identical to `db copy`.
+
+### db list --json
+
+```bash
+odoodev db list 18 --json
+```
+
+Returns a single-line JSON object:
+
+```json
+{"version": "18", "host": "localhost", "port": 18432, "databases": ["v18_prod", "v18_test"]}
+```
+
+Useful for scripts and AI agents.
 
 ### Interactive Mode
 
@@ -177,6 +277,7 @@ When flags are omitted, odoodev prompts interactively:
 - `odoodev db backup 18` → Select database and backup type
 - `odoodev db restore 18` → Enter file path and database name (with suggestion from filename)
 - `odoodev db drop 18` → Select database from list
+- `odoodev db copy 18 -d v18_test` → Select source database from list
 
 ### Supported Backup Formats
 

@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.7.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -34,6 +34,10 @@
 - Session-Bereinigung vor Odoo-Start (`--clean-sessions`)
 - Debian 13 / Python 3.12+ Kompatibilität (setuptools, Build-Dependencies)
 - Versionsübergreifender Migrationsmodus (geteilte PostgreSQL-Container und Filestore)
+- `odoodev doctor` — alle Umgebungs-Checks auf einen Blick inkl. PyPI-Update-Hinweis
+- Datenbank kopieren/umbenennen (`db copy`, `db rename`) inkl. Filestore
+- Maschinenlesbare Ausgabe (`--json`) für `db list`, `config versions`, `venv check`
+- Playbook-Variablen (`vars:`-Block, `{{ vars.x }}`, `{{ env.X }}`, `{{ date }}`, `--var`-Overrides) und Playbook-Discovery (`run --list`)
 
 ### Schnellstart
 
@@ -62,7 +66,8 @@ odoodev start 18 --dev
 > - [Datenbank](usage/db.md) — Backup, Restore, List, Drop
 > - [Virtual Environment](usage/venv.md) — UV-basierte venv-Verwaltung
 > - [Docker](usage/docker.md) — PostgreSQL & Mailpit Services
-> - [Konfiguration](usage/config.md) — Versionen, Plattforminfo
+> - [Konfiguration](usage/config.md) — Versionen, Plattforminfo, `config set`/`edit`
+> - [Doctor](usage/doctor.md) — Umgebungs-Checks und PyPI-Update-Hinweis
 > - [Playbooks](usage/run.md) — YAML-Automation und Inline-Steps
 > - [Migration](usage/migrate.md) — Versionsuebergreifende DB-Migration
 > - [Shell-Integration](usage/shell.md) — Completions, Wrapper, Aliase
@@ -81,8 +86,9 @@ odoodev start 18 --dev
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Docker-Services steuern | [docker.md](usage/docker.md) |
-| `odoodev config [SUB]` | Konfiguration und Versionen | [config.md](usage/config.md) |
-| `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps | [run.md](usage/run.md) |
+| `odoodev doctor [VERSION]` | Umgebungs-Checks + PyPI-Update-Hinweis | [doctor.md](usage/doctor.md) |
+| `odoodev config [SUB]` | Konfiguration und Versionen (inkl. `set`/`edit`) | [config.md](usage/config.md) |
+| `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps (`--list`, `--var`) | [run.md](usage/run.md) |
 | `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
 
@@ -196,6 +202,10 @@ uv build                                # Paket bauen
 - Session cleanup before Odoo start (`--clean-sessions`)
 - Debian 13 / Python 3.12+ compatibility (setuptools, build dependencies)
 - Cross-version migration mode (shared PostgreSQL container and filestore)
+- `odoodev doctor` — all environment checks at a glance incl. PyPI update notice
+- Database copy/rename (`db copy`, `db rename`) incl. filestore
+- Machine-readable output (`--json`) for `db list`, `config versions`, `venv check`
+- Playbook variables (`vars:` block, `{{ vars.x }}`, `{{ env.X }}`, `{{ date }}`, `--var` overrides) and playbook discovery (`run --list`)
 
 ### Quick Start
 
@@ -224,7 +234,8 @@ odoodev start 18 --dev
 > - [Database](usage/db.md) — Backup, restore, list, drop
 > - [Virtual Environment](usage/venv.md) — UV-based venv management
 > - [Docker](usage/docker.md) — PostgreSQL & Mailpit services
-> - [Configuration](usage/config.md) — Versions, platform info
+> - [Configuration](usage/config.md) — Versions, platform info, `config set`/`edit`
+> - [Doctor](usage/doctor.md) — Environment checks and PyPI update notice
 > - [Playbooks](usage/run.md) — YAML automation and inline steps
 > - [Migration](usage/migrate.md) — Cross-version DB migration
 > - [Shell Integration](usage/shell.md) — Completions, wrappers, aliases
@@ -243,8 +254,9 @@ odoodev start 18 --dev
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Docker service control | [docker.md](usage/docker.md) |
-| `odoodev config [SUB]` | Configuration and versions | [config.md](usage/config.md) |
-| `odoodev run [PLAYBOOK]` | YAML playbook or inline steps | [run.md](usage/run.md) |
+| `odoodev doctor [VERSION]` | Environment checks + PyPI update notice | [doctor.md](usage/doctor.md) |
+| `odoodev config [SUB]` | Configuration and versions (incl. `set`/`edit`) | [config.md](usage/config.md) |
+| `odoodev run [PLAYBOOK]` | YAML playbook or inline steps (`--list`, `--var`) | [run.md](usage/run.md) |
 | `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Install shell completions and wrappers | [shell.md](usage/shell.md) |
 
