@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.9.0 (15.06.2026)
+
+### Added
+- **TUI: module CSV export (`x`)** — Export the running instance's module list as an import-compatible Odoo CSV for the Equitania Releasemanager ("Import Module CSV"). A modal dialog offers three scopes: all available modules, all without Enterprise (`license = OEEL-1`), or installed only. Test (`test_*`) and hardware (`hw_*`) modules are always excluded, non-installable modules are dropped, and themes (`theme_*`) are always kept. The file is written to `~/Downloads/modules_{db}_{scope}_{timestamp}.csv` with the header `.id,name,installed_version,display_name`. Reuses the existing XML-RPC client; dialog and notifications are DE/EN localized.
+
 ## Version 0.8.0 (11.06.2026)
 
 ### Added

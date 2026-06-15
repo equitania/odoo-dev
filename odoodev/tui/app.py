@@ -49,6 +49,7 @@ class OdooTuiApp(App):
         Binding("e", "copy_errors", "Copy Errors"),
         Binding("w", "copy_warnings", "Copy Warn+Err"),
         Binding("s", "save_log", "Save Log"),
+        Binding("x", "export_modules", "Export CSV"),
         Binding("question_mark", "show_help", "Help", show=False),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
@@ -322,6 +323,44 @@ class OdooTuiApp(App):
             self.notify(f"Log saved: {path}", severity="information")
         except OSError as e:
             self.notify(f"Save failed: {e}", severity="error")
+
+    def action_export_modules(self) -> None:
+        """Open the module CSV export dialog (Releasemanager format)."""
+        from odoodev.tui.screens import ExportModulesScreen
+
+        self.push_screen(ExportModulesScreen(self._db_name), self._handle_export_modules)
+
+    def _handle_export_modules(self, scope: str | None) -> None:
+        """Query modules via XML-RPC and write the CSV after the dialog choice."""
+        if scope is None:
+            return  # cancelled
+
+        import datetime
+
+        from odoodev.i18n import t
+        from odoodev.tui.module_export import EXPORT_SCOPES, build_export_path, write_modules_csv
+        from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
+
+        installed_only, exclude_enterprise = EXPORT_SCOPES.get(scope, (False, False))
+        try:
+            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
+        except Exception as e:  # surface any RPC/auth failure to the user
+            self.notify(t("tui.export_error", error=str(e)), severity="error")
+            return
+
+        if not records:
+            self.notify(t("tui.export_empty"), severity="warning")
+            return
+
+        path = build_export_path(self._db_name, scope, datetime.datetime.now())
+        try:
+            write_modules_csv(records, path)
+        except OSError as e:
+            self.notify(t("tui.export_error", error=str(e)), severity="error")
+            return
+
+        self.notify(t("tui.export_saved", count=len(records), path=str(path)), severity="information")
 
     def action_show_help(self) -> None:
         """Show the keybinding help overlay."""

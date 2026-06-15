@@ -82,6 +82,17 @@ MESSAGES: dict[str, dict[str, str]] = {
         "db.restore_postprocess": "Deactivating cron jobs and cloud integrations...",
         "db.restore_done": "Database '{name}' restored successfully.",
         "db.restore_confirm": "Database '{name}' exists. Drop and recreate?",
+        # --- tui module export ---
+        "tui.export_title": "Export modules to CSV (Releasemanager format)",
+        "tui.export_db": "Database: {db}",
+        "tui.export_opt_all": "All available modules",
+        "tui.export_opt_all_no_ent": "All modules without Enterprise",
+        "tui.export_opt_installed": "Installed modules only",
+        "tui.export_btn": "Export CSV",
+        "tui.export_cancel": "Cancel",
+        "tui.export_saved": "{count} modules exported: {path}",
+        "tui.export_empty": "No modules to export.",
+        "tui.export_error": "Module export failed: {error}",
     },
     "de": {
         # --- start.py preflight ---
@@ -133,6 +144,17 @@ MESSAGES: dict[str, dict[str, str]] = {
         "db.restore_postprocess": "Cron-Jobs und Cloud-Integrationen werden deaktiviert…",
         "db.restore_done": "Datenbank '{name}' erfolgreich wiederhergestellt.",
         "db.restore_confirm": "Datenbank '{name}' existiert. Löschen und neu anlegen?",
+        # --- tui module export ---
+        "tui.export_title": "Module als CSV exportieren (Releasemanager-Format)",
+        "tui.export_db": "Datenbank: {db}",
+        "tui.export_opt_all": "Alle verfügbaren Module",
+        "tui.export_opt_all_no_ent": "Alle Module ohne Enterprise",
+        "tui.export_opt_installed": "Nur installierte Module",
+        "tui.export_btn": "CSV exportieren",
+        "tui.export_cancel": "Abbrechen",
+        "tui.export_saved": "{count} Module exportiert: {path}",
+        "tui.export_empty": "Keine Module zum Exportieren.",
+        "tui.export_error": "Modul-Export fehlgeschlagen: {error}",
     },
 }
 

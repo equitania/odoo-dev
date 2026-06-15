@@ -5,8 +5,9 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, Static
+from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
 
+from odoodev.i18n import t
 from odoodev.tui.odoo_process import OdooProcess
 
 
@@ -200,6 +201,79 @@ class LanguageLoadScreen(ModalScreen[str | None]):
         self.dismiss(f"lang:{lang}{overwrite_label}")
 
 
+class ExportModulesScreen(ModalScreen[str | None]):
+    """Modal dialog to choose which modules to export as Releasemanager CSV.
+
+    Returns one of the ``EXPORT_SCOPES`` keys via ``dismiss`` ('all',
+    'all_no_enterprise', 'installed'), or ``None`` on cancel.
+    """
+
+    DEFAULT_CSS = """
+    ExportModulesScreen {
+        align: center middle;
+    }
+    #export-dialog {
+        width: 72;
+        height: auto;
+        max-height: 22;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #export-dialog Label {
+        margin-bottom: 1;
+    }
+    #export-options {
+        width: 100%;
+        margin-bottom: 1;
+    }
+    .button-row {
+        height: 3;
+        align: center middle;
+        layout: horizontal;
+    }
+    .button-row Button {
+        margin: 0 1;
+    }
+    """
+
+    _SCOPE_BY_ID = {
+        "opt-all": "all",
+        "opt-all-no-ent": "all_no_enterprise",
+        "opt-installed": "installed",
+    }
+
+    def __init__(self, db_name: str = "") -> None:
+        super().__init__()
+        self._db_name = db_name
+
+    def compose(self) -> ComposeResult:
+        """Build the export dialog."""
+        with Vertical(id="export-dialog"):
+            yield Label(t("tui.export_title"))
+            yield Static(f"[dim]{t('tui.export_db', db=self._db_name or 'n/a')}[/]")
+            yield RadioSet(
+                RadioButton(t("tui.export_opt_all"), id="opt-all", value=True),
+                RadioButton(t("tui.export_opt_all_no_ent"), id="opt-all-no-ent"),
+                RadioButton(t("tui.export_opt_installed"), id="opt-installed"),
+                id="export-options",
+            )
+            with Vertical(classes="button-row"):
+                yield Button(t("tui.export_btn"), variant="primary", id="btn-export")
+                yield Button(t("tui.export_cancel"), variant="error", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "btn-cancel":
+            self.dismiss(None)
+            return
+        if event.button.id == "btn-export":
+            radio_set = self.query_one("#export-options", RadioSet)
+            pressed = radio_set.pressed_button
+            button_id = pressed.id if pressed is not None else "opt-all"
+            self.dismiss(self._SCOPE_BY_ID.get(button_id or "opt-all", "all"))
+
+
 HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "Server Control",
@@ -228,6 +302,7 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("e", "Copy ERROR/CRITICAL lines to clipboard"),
             ("w", "Copy WARN + ERROR + CRIT lines to clipboard"),
             ("s", "Save visible log to ~/odoodev-logs/"),
+            ("x", "Export module list as CSV to ~/Downloads/"),
         ),
     ),
     (

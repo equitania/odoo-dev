@@ -153,6 +153,74 @@ class TestListInstalledModules:
         assert modules == []
 
 
+class TestListModules:
+    """Test the Releasemanager CSV export listing."""
+
+    @staticmethod
+    def _wire(mock_proxy_cls, records):
+        mock_common = MagicMock()
+        mock_common.authenticate.return_value = 2
+        mock_object = MagicMock()
+        mock_object.execute_kw.return_value = records
+
+        def proxy_factory(url):
+            if "common" in url:
+                return mock_common
+            return mock_object
+
+        mock_proxy_cls.side_effect = proxy_factory
+        return mock_object
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_all_modules_domain(self, mock_proxy_cls, client):
+        """Default flags -> only the installable base filter."""
+        mock_object = self._wire(mock_proxy_cls, [{"id": 1, "name": "base"}])
+        client.list_modules()
+        mock_object.execute_kw.assert_called_once_with(
+            "v18_exam",
+            2,
+            "admin",
+            "ir.module.module",
+            "search_read",
+            [[["installable", "=", True]]],
+            {"fields": ["id", "name", "installed_version", "display_name"], "order": "name asc"},
+        )
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_installed_only_domain(self, mock_proxy_cls, client):
+        mock_object = self._wire(mock_proxy_cls, [])
+        client.list_modules(installed_only=True)
+        args = mock_object.execute_kw.call_args.args
+        assert args[5] == [[["installable", "=", True], ["state", "=", "installed"]]]
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_exclude_enterprise_domain(self, mock_proxy_cls, client):
+        mock_object = self._wire(mock_proxy_cls, [])
+        client.list_modules(exclude_enterprise=True)
+        args = mock_object.execute_kw.call_args.args
+        assert args[5] == [[["installable", "=", True], ["license", "!=", "OEEL-1"]]]
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_test_and_hw_filtered_theme_kept(self, mock_proxy_cls, client):
+        """test_/hw_ modules are dropped client-side; theme_ survives."""
+        self._wire(
+            mock_proxy_cls,
+            [
+                {"id": 1, "name": "base"},
+                {"id": 2, "name": "test_lint"},
+                {"id": 3, "name": "hw_escpos"},
+                {"id": 4, "name": "theme_clean"},
+            ],
+        )
+        names = [r["name"] for r in client.list_modules()]
+        assert names == ["base", "theme_clean"]
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_non_list_result_returns_empty(self, mock_proxy_cls, client):
+        self._wire(mock_proxy_cls, False)
+        assert client.list_modules() == []
+
+
 class TestFindModules:
     """Test module ID lookup."""
 

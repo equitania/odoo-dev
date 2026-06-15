@@ -610,3 +610,116 @@ class TestHelpScreen:
                 "5": "1-5",
             }.get(key, key)
             assert normalized.lower() in documented, f"Binding '{key}' missing from HELP_SECTIONS"
+
+
+class TestExportModulesScreen:
+    """Test the 'x' module CSV export dialog and action."""
+
+    async def test_export_keybinding_opens_screen(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+    async def test_export_screen_has_widgets(self, mock_cmd, tmp_path):
+        from textual.widgets import Button, RadioButton, RadioSet
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            screen = app.screen_stack[-1]
+            assert screen.query_one("#export-options", RadioSet) is not None
+            assert screen.query_one("#opt-all", RadioButton) is not None
+            assert screen.query_one("#opt-all-no-ent", RadioButton) is not None
+            assert screen.query_one("#opt-installed", RadioButton) is not None
+            assert screen.query_one("#btn-export", Button) is not None
+            assert screen.query_one("#btn-cancel", Button) is not None
+
+    async def test_export_cancel_dismisses(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+            app.screen_stack[-1].query_one("#btn-cancel").press()
+            await pilot.pause(0.1)
+            assert not any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+    async def test_export_writes_csv(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        fake_modules = [
+            {"id": 1, "name": "base", "installed_version": "18.0", "display_name": "Base"},
+            {"id": 2, "name": "sale", "installed_version": "18.0", "display_name": "Sales"},
+        ]
+        with patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            mock_common = MagicMock()
+            mock_common.authenticate.return_value = 2
+            mock_object = MagicMock()
+            mock_object.execute_kw.return_value = fake_modules
+            mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+            app = make_app(mock_cmd, tmp_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules("installed")
+                await pilot.pause(0.1)
+
+        files = list((home / "Downloads").glob("modules_v18_exam_installed_*.csv"))
+        assert len(files) == 1
+        content = files[0].read_text(encoding="utf-8")
+        assert content.splitlines()[0] == ".id,name,installed_version,display_name"
+        assert "base" in content
+        assert "sale" in content
+
+    async def test_export_empty_warns_no_file(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        with patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            mock_common = MagicMock()
+            mock_common.authenticate.return_value = 2
+            mock_object = MagicMock()
+            mock_object.execute_kw.return_value = []
+            mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+            app = make_app(mock_cmd, tmp_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules("all")
+                await pilot.pause(0.1)
+
+        assert not (home / "Downloads").exists()
+
+    async def test_export_cancel_scope_none_is_noop(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_export_modules(None)
+            await pilot.pause(0.1)
+
+        assert not (home / "Downloads").exists()

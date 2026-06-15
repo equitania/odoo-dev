@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -27,7 +27,7 @@
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
 - Odoo-Konfigurationsgenerierung mit Template-System
-- TUI-Modus mit Log-Viewer, Level-Filter, Traceback-Kopie und Mausunterstützung (Textauswahl, klickbare Filter-Tabs)
+- TUI-Modus mit Log-Viewer, Level-Filter, Traceback-Kopie, Mausunterstützung (Textauswahl, klickbare Filter-Tabs) und CSV-Modulexport (`x`) im Releasemanager-Format
 - Port-Konflikterkennung mit automatischer Prozessbereinigung
 - Interaktiver Addon-Selektor für repos/pull (`--select`)
 - Sprachladen und Übersetzungs-Overwrite (`--load-language`, `--i18n-overwrite`)
@@ -195,7 +195,7 @@ uv build                                # Paket bauen
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
 - Odoo configuration generation with template system
-- TUI mode with log viewer, level filtering, traceback copy and mouse support (text selection, clickable filter tabs)
+- TUI mode with log viewer, level filtering, traceback copy, mouse support (text selection, clickable filter tabs) and module CSV export (`x`) in Releasemanager format
 - Port conflict detection with automatic process cleanup
 - Interactive addon selector for repos/pull (`--select`)
 - Language loading and translation overwrite (`--load-language`, `--i18n-overwrite`)

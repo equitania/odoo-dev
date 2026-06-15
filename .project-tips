@@ -1,4 +1,4 @@
-# odoodev-equitania v0.8.0 | python/uv
+# odoodev-equitania v0.9.0 | python/uv
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▸ Setup:    uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Run:      odoodev --help

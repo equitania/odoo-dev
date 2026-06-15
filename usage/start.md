@@ -67,6 +67,7 @@ Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und 
 | `e` | Nur ERROR/CRITICAL kopieren |
 | `w` | WARN + ERROR + CRIT kopieren |
 | `s` | Sichtbares Log speichern nach `~/odoodev-logs/` |
+| `x` | Modulliste als CSV nach `~/Downloads/` exportieren (Releasemanager-Format) |
 
 ### Bind-Host (`--host`)
 
@@ -168,6 +169,7 @@ TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and 
 | `e` | Copy ERROR/CRITICAL lines only |
 | `w` | Copy WARN + ERROR + CRIT lines |
 | `s` | Save visible log to `~/odoodev-logs/` |
+| `x` | Export module list as CSV to `~/Downloads/` (Releasemanager format) |
 
 ### Bind Host (`--host`)
 

@@ -149,6 +149,38 @@ class OdooXmlRpcClient:
         )
         return result if isinstance(result, list) else []
 
+    def list_modules(self, installed_only: bool = False, exclude_enterprise: bool = False) -> list[dict[str, object]]:
+        """List modules for the Releasemanager CSV export.
+
+        Builds the server-side domain from the flags, then filters out test
+        and hardware modules client-side (reliable substring handling instead
+        of SQL ``LIKE`` underscore escaping). Themes are kept.
+
+        Args:
+            installed_only: Restrict to ``state = installed`` modules.
+            exclude_enterprise: Drop Odoo Enterprise modules (``license = OEEL-1``).
+
+        Returns:
+            List of dicts with 'id', 'name', 'installed_version', 'display_name'.
+        """
+        from odoodev.tui.module_export import EXPORT_FIELDS, is_exportable_module
+
+        domain: list[list[object]] = [["installable", "=", True]]
+        if installed_only:
+            domain.append(["state", "=", "installed"])
+        if exclude_enterprise:
+            domain.append(["license", "!=", "OEEL-1"])
+
+        result = self._execute_kw(
+            "ir.module.module",
+            "search_read",
+            [domain],
+            {"fields": list(EXPORT_FIELDS), "order": "name asc"},
+        )
+        if not isinstance(result, list):
+            return []
+        return [r for r in result if is_exportable_module(str(r.get("name", "")))]
+
     def find_modules(self, module_names: list[str]) -> list[int]:
         """Find module IDs by name.
 
