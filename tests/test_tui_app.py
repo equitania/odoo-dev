@@ -815,3 +815,18 @@ class TestQuickMenu:
             await pilot.pause(0.3)
             app._handle_menu(None)  # must not raise
             await pilot.pause(0.1)
+
+
+class TestVersionDisplay:
+    """Test the odoodev version label shown bottom-right."""
+
+    async def test_version_label_shows_current_version(self, mock_cmd, tmp_path):
+        from textual.widgets import Static
+
+        from odoodev import __version__
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            label = app.query_one("#app-version", Static)
+            assert __version__ in str(label.render())

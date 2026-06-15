@@ -8,8 +8,9 @@ import subprocess
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer
+from textual.widgets import Footer, Static
 
+from odoodev import __version__
 from odoodev.tui.log_parser import LOG_LEVELS
 from odoodev.tui.odoo_process import OdooProcess
 from odoodev.tui.widgets.filter_bar import FilterBar, FilterTab, ScrollToggle
@@ -81,6 +82,8 @@ class OdooTuiApp(App):
         yield FilterBar(id="filter-bar")
         yield LogViewer(id="log-viewer")
         yield Footer()
+        # Version label overlaid on the right of the footer row
+        yield Static(f"odoodev v{__version__}", id="app-version")
 
     def on_mount(self) -> None:
         """Start the Odoo process and begin polling."""

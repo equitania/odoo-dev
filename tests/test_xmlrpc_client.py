@@ -173,7 +173,7 @@ class TestListModules:
 
     @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_all_modules_domain(self, mock_proxy_cls, client):
-        """Default flags -> only the installable base filter."""
+        """Default flags -> exclude only non-installable modules (state-based)."""
         mock_object = self._wire(mock_proxy_cls, [{"id": 1, "name": "base"}])
         client.list_modules()
         mock_object.execute_kw.assert_called_once_with(
@@ -182,7 +182,7 @@ class TestListModules:
             "admin",
             "ir.module.module",
             "search_read",
-            [[["installable", "=", True]]],
+            [[["state", "!=", "uninstallable"]]],
             {"fields": ["id", "name", "installed_version", "display_name"], "order": "name asc"},
         )
 
@@ -191,14 +191,25 @@ class TestListModules:
         mock_object = self._wire(mock_proxy_cls, [])
         client.list_modules(installed_only=True)
         args = mock_object.execute_kw.call_args.args
-        assert args[5] == [[["installable", "=", True], ["state", "=", "installed"]]]
+        assert args[5] == [[["state", "=", "installed"]]]
 
     @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_exclude_enterprise_domain(self, mock_proxy_cls, client):
         mock_object = self._wire(mock_proxy_cls, [])
         client.list_modules(exclude_enterprise=True)
         args = mock_object.execute_kw.call_args.args
-        assert args[5] == [[["installable", "=", True], ["license", "!=", "OEEL-1"]]]
+        assert args[5] == [[["state", "!=", "uninstallable"], ["license", "!=", "OEEL-1"]]]
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_domain_never_uses_removed_installable_field(self, mock_proxy_cls, client):
+        """Regression: 'installable' was removed from ir.module.module in v19."""
+        mock_object = self._wire(mock_proxy_cls, [])
+        for kwargs in ({}, {"installed_only": True}, {"exclude_enterprise": True}):
+            mock_object.execute_kw.reset_mock()
+            client.list_modules(**kwargs)
+            domain = mock_object.execute_kw.call_args.args[5]
+            fields = [cond[0] for cond in domain[0]]
+            assert "installable" not in fields
 
     @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_test_and_hw_filtered_theme_kept(self, mock_proxy_cls, client):

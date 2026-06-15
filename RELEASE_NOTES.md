@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.10.1 (15.06.2026)
+
+### Fixed
+- **TUI module export crashed on Odoo 19** — The export query filtered on `ir.module.module.installable`, but that field was removed from the model in Odoo 19, raising `ValueError: Invalid field ir.module.module.installable`. The non-installable filter now uses `state != 'uninstallable'` (and installed-only uses `state = 'installed'`), which is the core `state` field present across v16-v19. Behavior is unchanged on v16-v18.
+- **Odoo 19 XML-RPC deprecation warning now silenced** — `_add_v19_log_handlers` only muted the `jsonrpc` controller, but the module export uses `/xmlrpc/2`, whose deprecation warning comes from the `xmlrpc` controller. Both controllers are now raised to ERROR on v19+, so the export no longer spams the deprecation warning into the TUI log.
+
+### Added
+- **TUI: odoodev version shown bottom-right** — The running odoodev version (`odoodev v{version}`) is now displayed in the bottom-right of the TUI, overlaid on the footer row.
+
 ## Version 0.10.0 (15.06.2026)
 
 ### Fixed

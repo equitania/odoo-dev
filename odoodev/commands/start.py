@@ -251,11 +251,14 @@ def _add_v19_log_handlers(cmd: list[str], version: str) -> None:
     """Mute deprecated XML-RPC/JSON-RPC warnings for Odoo 19+.
 
     Odoo 19 deprecated /xmlrpc, /xmlrpc/2 and /jsonrpc endpoints
-    (scheduled for removal in Odoo 20). This silences the warnings
-    until clients are migrated to the new /json/2/ API.
+    (scheduled for removal in Odoo 22). The deprecation warning is emitted
+    by both the ``xmlrpc`` and ``jsonrpc`` controllers, so both loggers are
+    raised to ERROR. The TUI module export uses /xmlrpc/2, hence the
+    ``xmlrpc`` handler is what actually silences it.
     """
     try:
         if int(version) >= 19:
+            cmd.append("--log-handler=odoo.addons.rpc.controllers.xmlrpc:ERROR")
             cmd.append("--log-handler=odoo.addons.rpc.controllers.jsonrpc:ERROR")
     except (ValueError, TypeError):
         pass

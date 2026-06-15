@@ -156,6 +156,10 @@ class OdooXmlRpcClient:
         and hardware modules client-side (reliable substring handling instead
         of SQL ``LIKE`` underscore escaping). Themes are kept.
 
+        Non-installable modules are excluded via ``state != 'uninstallable'``
+        (not the ``installable`` field, which was removed from
+        ``ir.module.module`` in Odoo 19); ``state`` is core across v16-v19.
+
         Args:
             installed_only: Restrict to ``state = installed`` modules.
             exclude_enterprise: Drop Odoo Enterprise modules (``license = OEEL-1``).
@@ -165,9 +169,11 @@ class OdooXmlRpcClient:
         """
         from odoodev.tui.module_export import EXPORT_FIELDS, is_exportable_module
 
-        domain: list[list[object]] = [["installable", "=", True]]
+        domain: list[list[object]]
         if installed_only:
-            domain.append(["state", "=", "installed"])
+            domain = [["state", "=", "installed"]]
+        else:
+            domain = [["state", "!=", "uninstallable"]]
         if exclude_enterprise:
             domain.append(["license", "!=", "OEEL-1"])
 

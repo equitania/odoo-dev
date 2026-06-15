@@ -50,7 +50,7 @@ odoodev start 18 --host 0.0.0.0
 
 Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und Clipboard-Export. Damit die Fußzeile auch auf schmalen Monitoren passt, zeigt sie nur noch `q Quit | m Menu | ? Help`. Mit `m` öffnet sich ein nach oben aufklappendes Menü (Pfeiltasten + Enter), das alle Aktionen nach Ansicht / Log / Export / Server gruppiert. Alle direkten Tasten unten funktionieren weiterhin. Mit `?` lässt sich die vollständige Tastenbelegung jederzeit anzeigen.
 
-Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tatsächlich bediente DB) und ist im Export-Dialog als editierbares Feld vorbelegt.
+Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tatsächlich bediente DB) und ist im Export-Dialog als editierbares Feld vorbelegt. Die odoodev-Version wird unten rechts angezeigt.
 
 | Taste | Funktion |
 |-------|----------|
@@ -155,7 +155,7 @@ odoodev start 18 --host 0.0.0.0
 
 TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and clipboard export. To keep the footer readable on narrow terminals it now shows only `q Quit | m Menu | ? Help`. Press `m` for a menu that folds up from the bottom (arrow keys + Enter), grouping every action by View / Log / Export / Server. All direct keys still work. Press `?` for the full keybinding reference at any time.
 
-The displayed database name is detected live from the Odoo log lines (the database actually served) and pre-fills the editable field in the export dialog.
+The displayed database name is detected live from the Odoo log lines (the database actually served) and pre-fills the editable field in the export dialog. The odoodev version is shown in the bottom-right.
 
 | Key | Action |
 |-----|--------|

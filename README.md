@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.10.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -159,7 +159,7 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (772)
+pytest                                  # Tests (774)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type-Check
 uv build                                # Paket bauen
@@ -169,7 +169,12 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
-**Aktuell — Version 0.10.0:**
+**Version 0.10.1:**
+- **Behoben:** Der TUI-Modulexport stürzte auf Odoo 19 ab (`installable` wurde aus `ir.module.module` entfernt) — der Filter nutzt jetzt das versionsübergreifende `state`-Feld.
+- **Behoben:** Die `/xmlrpc/2`-Deprecation-Warnung auf Odoo 19 wird nun unterdrückt (der richtige `xmlrpc`-Controller-Logger wird stummgeschaltet).
+- **Neu:** Die odoodev-Versionsnummer wird unten rechts im TUI angezeigt.
+
+**Version 0.10.0:**
 - **Behoben:** Der TUI-Modus nutzt jetzt die tatsächliche Datenbank (`-d`/`--database` bzw. `-- -d <db>`) statt eines geratenen Fallbacks; der bediente DB-Name wird zusätzlich live aus den Odoo-Logs erkannt und in der Statusleiste angezeigt.
 - **Neu:** Aufklappendes Schnellmenü (`m`) für schmale Monitore — die Fußzeile zeigt nur noch `q Quit | m Menu | ? Help`, alle direkten Tasten bleiben aktiv.
 - **Neu:** Editierbares Datenbankfeld im CSV-Export-Dialog, vorbelegt mit der erkannten DB.
@@ -336,7 +341,7 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (772)
+pytest                                  # Tests (774)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type checking
 uv build                                # Build package
@@ -346,7 +351,12 @@ uv build                                # Build package
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
 
-**Current — Version 0.10.0:**
+**Version 0.10.1:**
+- **Fixed:** The TUI module export crashed on Odoo 19 (`installable` was removed from `ir.module.module`) — the filter now uses the cross-version `state` field.
+- **Fixed:** The `/xmlrpc/2` deprecation warning on Odoo 19 is now silenced (the correct `xmlrpc` controller logger is muted).
+- **Added:** The odoodev version number is shown in the bottom-right of the TUI.
+
+**Version 0.10.0:**
 - **Fixed:** The TUI now uses the actual database (`-d`/`--database` or `-- -d <db>`) instead of a guessed fallback; the served database is additionally detected live from the Odoo logs and shown in the status bar.
 - **Added:** Upward quick menu (`m`) for narrow terminals — the footer is condensed to `q Quit | m Menu | ? Help`, all direct keys stay active.
 - **Added:** Editable database field in the CSV export dialog, pre-filled with the detected DB.

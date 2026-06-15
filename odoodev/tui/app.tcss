@@ -2,6 +2,7 @@
 
 Screen {
     layout: vertical;
+    layers: base overlay;
 }
 
 #status-bar {
@@ -23,4 +24,16 @@ Screen {
 
 Footer {
     dock: bottom;
+}
+
+/* odoodev version, overlaid on the right of the footer row */
+#app-version {
+    layer: overlay;
+    dock: bottom;
+    height: 1;
+    width: 100%;
+    text-align: right;
+    color: $text-muted;
+    background: transparent;
+    padding: 0 1;
 }
