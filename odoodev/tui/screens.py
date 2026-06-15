@@ -5,7 +5,8 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
+from textual.widgets import Button, Checkbox, Input, Label, OptionList, RadioButton, RadioSet, Static
+from textual.widgets.option_list import Option
 
 from odoodev.i18n import t
 from odoodev.tui.odoo_process import OdooProcess
@@ -201,11 +202,12 @@ class LanguageLoadScreen(ModalScreen[str | None]):
         self.dismiss(f"lang:{lang}{overwrite_label}")
 
 
-class ExportModulesScreen(ModalScreen[str | None]):
-    """Modal dialog to choose which modules to export as Releasemanager CSV.
+class ExportModulesScreen(ModalScreen["tuple[str, str] | None"]):
+    """Modal dialog to choose scope and database for the Releasemanager CSV.
 
-    Returns one of the ``EXPORT_SCOPES`` keys via ``dismiss`` ('all',
-    'all_no_enterprise', 'installed'), or ``None`` on cancel.
+    Returns ``(scope, db_name)`` via ``dismiss`` — ``scope`` is one of the
+    ``EXPORT_SCOPES`` keys ('all', 'all_no_enterprise', 'installed') and
+    ``db_name`` is the (editable) target database — or ``None`` on cancel.
     """
 
     DEFAULT_CSS = """
@@ -215,12 +217,16 @@ class ExportModulesScreen(ModalScreen[str | None]):
     #export-dialog {
         width: 72;
         height: auto;
-        max-height: 22;
+        max-height: 24;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
     }
     #export-dialog Label {
+        margin-bottom: 1;
+    }
+    #export-db {
+        width: 100%;
         margin-bottom: 1;
     }
     #export-options {
@@ -251,7 +257,8 @@ class ExportModulesScreen(ModalScreen[str | None]):
         """Build the export dialog."""
         with Vertical(id="export-dialog"):
             yield Label(t("tui.export_title"))
-            yield Static(f"[dim]{t('tui.export_db', db=self._db_name or 'n/a')}[/]")
+            yield Static(f"[dim]{t('tui.export_db_label')}[/]")
+            yield Input(value=self._db_name, placeholder="v18_exam", id="export-db")
             yield RadioSet(
                 RadioButton(t("tui.export_opt_all"), id="opt-all", value=True),
                 RadioButton(t("tui.export_opt_all_no_ent"), id="opt-all-no-ent"),
@@ -268,10 +275,103 @@ class ExportModulesScreen(ModalScreen[str | None]):
             self.dismiss(None)
             return
         if event.button.id == "btn-export":
-            radio_set = self.query_one("#export-options", RadioSet)
-            pressed = radio_set.pressed_button
-            button_id = pressed.id if pressed is not None else "opt-all"
-            self.dismiss(self._SCOPE_BY_ID.get(button_id or "opt-all", "all"))
+            self._do_export()
+
+    def _do_export(self) -> None:
+        """Validate the database field and dismiss with (scope, db_name)."""
+        db_input = self.query_one("#export-db", Input)
+        db_name = db_input.value.strip()
+        if not db_name:
+            db_input.placeholder = t("tui.export_db_required")
+            return
+        radio_set = self.query_one("#export-options", RadioSet)
+        pressed = radio_set.pressed_button
+        button_id = pressed.id if pressed is not None else "opt-all"
+        scope = self._SCOPE_BY_ID.get(button_id or "opt-all", "all")
+        self.dismiss((scope, db_name))
+
+
+class QuickMenuScreen(ModalScreen["str | None"]):
+    """Bottom-anchored action menu that folds upward.
+
+    Consolidates view filters, log actions, export and server controls into a
+    single keyboard-navigable list (arrows + Enter), so the footer can stay
+    minimal on narrow terminals. Returns the chosen action name via ``dismiss``
+    (the option id equals the app's ``action_*`` name), or ``None`` on cancel.
+    """
+
+    DEFAULT_CSS = """
+    QuickMenuScreen {
+        align: center bottom;
+        background: $background 40%;
+    }
+    #quick-menu {
+        width: 56;
+        height: auto;
+        max-height: 26;
+        border: tall $primary;
+        background: $surface;
+        margin-bottom: 1;
+        padding: 0 1;
+    }
+    #quick-menu Label {
+        margin: 0 1;
+    }
+    #quick-menu-list {
+        height: auto;
+        max-height: 24;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "dismiss_menu", "Close"),
+        ("m", "dismiss_menu", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Build the grouped quick-action menu."""
+        with Vertical(id="quick-menu"):
+            yield Label(t("tui.menu_title"))
+            yield OptionList(
+                Option(f"[b cyan]{t('tui.menu_view')}[/]", disabled=True),
+                Option(t("tui.menu_all_levels"), id="filter_all"),
+                Option(t("tui.menu_issues"), id="filter_issues"),
+                Option(t("tui.menu_only_warning"), id="show_only_warning"),
+                Option(t("tui.menu_only_error"), id="show_only_error"),
+                Option(t("tui.menu_only_critical"), id="show_only_critical"),
+                Option(t("tui.menu_only_info"), id="show_only_info"),
+                Option(t("tui.menu_only_debug"), id="show_only_debug"),
+                None,
+                Option(f"[b cyan]{t('tui.menu_log')}[/]", disabled=True),
+                Option(t("tui.menu_search"), id="search"),
+                Option(t("tui.menu_clear"), id="clear_log"),
+                Option(t("tui.menu_save"), id="save_log"),
+                Option(t("tui.menu_copy_visible"), id="copy_visible"),
+                Option(t("tui.menu_copy_errors"), id="copy_errors"),
+                Option(t("tui.menu_copy_warnings"), id="copy_warnings"),
+                None,
+                Option(f"[b cyan]{t('tui.menu_export')}[/]", disabled=True),
+                Option(t("tui.menu_export_csv"), id="export_modules"),
+                None,
+                Option(f"[b cyan]{t('tui.menu_server')}[/]", disabled=True),
+                Option(t("tui.menu_restart"), id="restart"),
+                Option(t("tui.menu_update"), id="update"),
+                Option(t("tui.menu_load_language"), id="load_language"),
+                id="quick-menu-list",
+                compact=True,
+            )
+
+    def on_mount(self) -> None:
+        """Focus the option list so arrow keys work immediately."""
+        self.query_one("#quick-menu-list", OptionList).focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Dismiss with the selected action name."""
+        self.dismiss(event.option.id)
+
+    def action_dismiss_menu(self) -> None:
+        """Close the menu without selecting anything."""
+        self.dismiss(None)
 
 
 HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
@@ -306,8 +406,11 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         ),
     ),
     (
-        "Help",
-        (("?", "Show this overlay (Escape or q closes)"),),
+        "Menu & Help",
+        (
+            ("m", "Open the quick action menu (folds up from the bottom)"),
+            ("?", "Show this overlay (Escape or q closes)"),
+        ),
     ),
 )
 

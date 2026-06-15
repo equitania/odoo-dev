@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.10.0 (15.06.2026)
+
+### Fixed
+- **TUI: correct database is now used, not guessed** — `odoodev start <v> --tui -d <db>` (and the `-- -d <db>` form) previously passed the database to `odoo-bin` but the TUI ignored it, falling back to the `db_name` in `odoo.conf` or a hardcoded `v{version}_exam`. The export then targeted the wrong database. The TUI now resolves the database by priority: explicit `--database` → `-d`/`--database` in extra args → `odoo.conf` → fallback. Additionally, the **actually served database is detected live from the Odoo log lines** (`OdooLogEntry.database`) and shown in the status bar, so even a database opened at runtime is reflected.
+
+### Added
+- **TUI: quick action menu (`m`)** — A bottom-anchored menu that folds upward (Textual `OptionList`, arrow keys + Enter), grouping View / Log / Export / Server actions. Solves the overcrowded footer on narrow terminals. The footer now shows only `q Quit | m Menu | ? Help`; all direct keys still work and stay reachable via the menu. DE/EN localized.
+- **Export dialog: editable target database** — The CSV export dialog now has an editable database field, pre-filled with the live-detected database. The user can override it (or type one when none could be detected). The export uses exactly this database for both the XML-RPC query and the output filename.
+
 ## Version 0.9.0 (15.06.2026)
 
 ### Added

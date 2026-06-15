@@ -48,11 +48,14 @@ odoodev start 18 --host 0.0.0.0
 
 ### TUI-Tastenkombinationen (`--tui`)
 
-Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und Clipboard-Export. Mit `?` laesst sich diese Uebersicht jederzeit im TUI anzeigen.
+Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und Clipboard-Export. Damit die Fußzeile auch auf schmalen Monitoren passt, zeigt sie nur noch `q Quit | m Menu | ? Help`. Mit `m` öffnet sich ein nach oben aufklappendes Menü (Pfeiltasten + Enter), das alle Aktionen nach Ansicht / Log / Export / Server gruppiert. Alle direkten Tasten unten funktionieren weiterhin. Mit `?` lässt sich die vollständige Tastenbelegung jederzeit anzeigen.
+
+Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tatsächlich bediente DB) und ist im Export-Dialog als editierbares Feld vorbelegt.
 
 | Taste | Funktion |
 |-------|----------|
 | `q` / `Ctrl+Q` | Beenden (stoppt den Server) |
+| `m` | Schnellmenü öffnen (klappt von unten nach oben auf) |
 | `r` | Odoo-Server neu starten |
 | `u` | Modul aktualisieren (`-u`-Neustart oder XML-RPC Hot-Update) |
 | `l` | Sprache laden / Uebersetzungen neu laden |
@@ -150,11 +153,14 @@ odoodev start 18 --host 0.0.0.0
 
 ### TUI Keybindings (`--tui`)
 
-TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and clipboard export. Press `?` inside the TUI to display this reference at any time.
+TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and clipboard export. To keep the footer readable on narrow terminals it now shows only `q Quit | m Menu | ? Help`. Press `m` for a menu that folds up from the bottom (arrow keys + Enter), grouping every action by View / Log / Export / Server. All direct keys still work. Press `?` for the full keybinding reference at any time.
+
+The displayed database name is detected live from the Odoo log lines (the database actually served) and pre-fills the editable field in the export dialog.
 
 | Key | Action |
 |-----|--------|
 | `q` / `Ctrl+Q` | Quit (stops the server) |
+| `m` | Open the quick menu (folds up from the bottom) |
 | `r` | Restart Odoo server |
 | `u` | Update module (`-u` restart or XML-RPC hot update) |
 | `l` | Load language / reload translations |

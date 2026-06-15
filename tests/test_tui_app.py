@@ -261,7 +261,9 @@ class TestOdooTuiAppIntegration:
             status_bar = app.query_one("#status-bar", StatusBar)
             assert status_bar.version == "18"
             assert status_bar.port == 18069
-            assert status_bar.db_name == "v18_exam"
+            # db_name is detected live from the Odoo log lines (mock emits "test_db"),
+            # overriding the start-time value — this proves log-based DB detection.
+            assert status_bar.db_name == "test_db"
 
     async def test_get_visible_text(self, mock_cmd, tmp_path):
         app = make_app(mock_cmd, tmp_path)
@@ -557,7 +559,8 @@ class TestSaveLog:
             app.action_save_log()
             await pilot.pause(0.1)
         log_dir = home / "odoodev-logs"
-        files = list(log_dir.glob("odoo_18_v18_exam_*.log"))
+        # db_name is detected from the mock log lines ("test_db") by the time we save.
+        files = list(log_dir.glob("odoo_18_test_db_*.log"))
         assert len(files) == 1
         content = files[0].read_text()
         assert "Loading module base" in content
@@ -676,7 +679,7 @@ class TestExportModulesScreen:
             app = make_app(mock_cmd, tmp_path)
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause(0.3)
-                app._handle_export_modules("installed")
+                app._handle_export_modules(("installed", "v18_exam"))
                 await pilot.pause(0.1)
 
         files = list((home / "Downloads").glob("modules_v18_exam_installed_*.csv"))
@@ -704,7 +707,7 @@ class TestExportModulesScreen:
             app = make_app(mock_cmd, tmp_path)
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause(0.3)
-                app._handle_export_modules("all")
+                app._handle_export_modules(("all", "v18_exam"))
                 await pilot.pause(0.1)
 
         assert not (home / "Downloads").exists()
@@ -723,3 +726,92 @@ class TestExportModulesScreen:
             await pilot.pause(0.1)
 
         assert not (home / "Downloads").exists()
+
+    async def test_export_db_field_prefilled_with_detected_db(self, mock_cmd, tmp_path):
+        """The export dialog pre-fills the DB field with the live-detected database."""
+        from textual.widgets import Input
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.6)  # let log-based DB detection run -> "test_db"
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            db_input = app.screen_stack[-1].query_one("#export-db", Input)
+            assert db_input.value == "test_db"
+
+    async def test_export_empty_db_keeps_dialog_open(self, mock_cmd, tmp_path):
+        """Clearing the DB field and pressing Export must not dismiss the dialog."""
+        from textual.widgets import Input
+
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.6)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            screen = app.screen_stack[-1]
+            screen.query_one("#export-db", Input).value = ""
+            screen.query_one("#btn-export").press()
+            await pilot.pause(0.1)
+            assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+
+class TestQuickMenu:
+    """Test the 'm' quick action menu (folds up from the bottom)."""
+
+    async def test_menu_keybinding_opens_screen(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import QuickMenuScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("m")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, QuickMenuScreen) for s in app.screen_stack)
+
+    async def test_menu_contains_action_options(self, mock_cmd, tmp_path):
+        from textual.widgets import OptionList
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("m")
+            await pilot.pause(0.1)
+            option_list = app.screen_stack[-1].query_one("#quick-menu-list", OptionList)
+            ids = set()
+            for i in range(option_list.option_count):
+                opt = option_list.get_option_at_index(i)
+                if opt.id:
+                    ids.add(opt.id)
+            assert {"export_modules", "filter_all", "save_log", "restart", "search"} <= ids
+
+    async def test_menu_escape_closes(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import QuickMenuScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("m")
+            await pilot.pause(0.1)
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+            assert not any(isinstance(s, QuickMenuScreen) for s in app.screen_stack)
+
+    async def test_handle_menu_dispatches_action(self, mock_cmd, tmp_path):
+        """_handle_menu runs the named action (export opens its dialog)."""
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_menu("export_modules")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+    async def test_handle_menu_none_is_noop(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(80, 30)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_menu(None)  # must not raise
+            await pilot.pause(0.1)

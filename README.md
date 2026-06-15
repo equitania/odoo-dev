@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -27,7 +27,7 @@
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
 - Odoo-Konfigurationsgenerierung mit Template-System
-- TUI-Modus mit Log-Viewer, Level-Filter, Traceback-Kopie, Mausunterstützung (Textauswahl, klickbare Filter-Tabs) und CSV-Modulexport (`x`) im Releasemanager-Format
+- TUI-Modus mit Log-Viewer, Level-Filter, aufklappendem Schnellmenü (`m`) für schmale Monitore, Live-Erkennung der Datenbank aus den Logs und CSV-Modulexport im Releasemanager-Format
 - Port-Konflikterkennung mit automatischer Prozessbereinigung
 - Interaktiver Addon-Selektor für repos/pull (`--select`)
 - Sprachladen und Übersetzungs-Overwrite (`--load-language`, `--i18n-overwrite`)
@@ -147,7 +147,7 @@ odoodev/
 ├── output.py               # Rich-Konsolenausgabe
 ├── commands/               # Click-Commands (init, start, stop, repos, db, ...)
 ├── core/                   # Kernmodule (version_registry, database, git_ops, ...)
-├── tui/                   # TUI-Modus (Textual — Log-Viewer, Status, Module-Update)
+├── tui/                   # TUI-Modus (Textual — Log-Viewer, Status, Schnellmenü, Modul-Export)
 ├── templates/              # Jinja2-Templates (docker-compose, .env, odoo.conf)
 └── data/
     ├── versions.yaml       # Versionsregistry
@@ -159,11 +159,20 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (390+)
+pytest                                  # Tests (772)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type-Check
 uv build                                # Paket bauen
 ```
+
+### Änderungsprotokoll
+
+Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Aktuell — Version 0.10.0:**
+- **Behoben:** Der TUI-Modus nutzt jetzt die tatsächliche Datenbank (`-d`/`--database` bzw. `-- -d <db>`) statt eines geratenen Fallbacks; der bediente DB-Name wird zusätzlich live aus den Odoo-Logs erkannt und in der Statusleiste angezeigt.
+- **Neu:** Aufklappendes Schnellmenü (`m`) für schmale Monitore — die Fußzeile zeigt nur noch `q Quit | m Menu | ? Help`, alle direkten Tasten bleiben aktiv.
+- **Neu:** Editierbares Datenbankfeld im CSV-Export-Dialog, vorbelegt mit der erkannten DB.
 
 ### Lizenz
 
@@ -195,7 +204,7 @@ uv build                                # Paket bauen
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
 - Odoo configuration generation with template system
-- TUI mode with log viewer, level filtering, traceback copy, mouse support (text selection, clickable filter tabs) and module CSV export (`x`) in Releasemanager format
+- TUI mode with log viewer, level filtering, an upward quick menu (`m`) for narrow terminals, live database detection from the logs, and module CSV export in Releasemanager format
 - Port conflict detection with automatic process cleanup
 - Interactive addon selector for repos/pull (`--select`)
 - Language loading and translation overwrite (`--load-language`, `--i18n-overwrite`)
@@ -315,7 +324,7 @@ odoodev/
 ├── output.py               # Rich console output
 ├── commands/               # Click commands (init, start, stop, repos, db, ...)
 ├── core/                   # Core modules (version_registry, database, git_ops, ...)
-├── tui/                   # TUI mode (Textual — log viewer, status, module update)
+├── tui/                   # TUI mode (Textual — log viewer, status, quick menu, module export)
 ├── templates/              # Jinja2 templates (docker-compose, .env, odoo.conf)
 └── data/
     ├── versions.yaml       # Version registry
@@ -327,11 +336,20 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (390+)
+pytest                                  # Tests (772)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type checking
 uv build                                # Build package
 ```
+
+### Changelog
+
+The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Current — Version 0.10.0:**
+- **Fixed:** The TUI now uses the actual database (`-d`/`--database` or `-- -d <db>`) instead of a guessed fallback; the served database is additionally detected live from the Odoo logs and shown in the status bar.
+- **Added:** Upward quick menu (`m`) for narrow terminals — the footer is condensed to `q Quit | m Menu | ? Help`, all direct keys stay active.
+- **Added:** Editable database field in the CSV export dialog, pre-filled with the detected DB.
 
 ### License
 

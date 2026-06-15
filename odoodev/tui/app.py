@@ -29,28 +29,32 @@ class OdooTuiApp(App):
 
     CSS_PATH = "app.tcss"
 
+    # Footer stays minimal (q / m / ?) so it fits narrow terminals; everything
+    # else is reachable via the quick menu (m) and still works as a direct key.
     BINDINGS = [
         Binding("q", "quit_app", "Quit", priority=True),
         Binding("ctrl+q", "quit_app", "Quit", priority=True, show=False),
-        Binding("r", "restart", "Restart"),
-        Binding("u", "update", "Update Module"),
-        Binding("l", "load_language", "Load Language"),
+        Binding("m", "show_menu", "Menu"),
+        Binding("question_mark", "show_help", "Help"),
+        # Direct keys — hidden from the footer, all reachable via the menu
+        Binding("r", "restart", "Restart", show=False),
+        Binding("u", "update", "Update Module", show=False),
+        Binding("l", "load_language", "Load Language", show=False),
         # Per-level toggles (multi-toggle filter)
-        Binding("0", "filter_all", "All Levels"),
-        Binding("1", "show_only_debug", "DEBUG"),
-        Binding("2", "show_only_info", "INFO"),
-        Binding("3", "show_only_warning", "WARN"),
-        Binding("4", "show_only_error", "ERROR"),
-        Binding("5", "show_only_critical", "CRIT"),
-        Binding("f", "filter_issues", "Issues only"),
-        Binding("slash", "search", "Search"),
-        Binding("ctrl+l", "clear_log", "Clear Log"),
-        Binding("c", "copy_visible", "Copy"),
-        Binding("e", "copy_errors", "Copy Errors"),
-        Binding("w", "copy_warnings", "Copy Warn+Err"),
-        Binding("s", "save_log", "Save Log"),
-        Binding("x", "export_modules", "Export CSV"),
-        Binding("question_mark", "show_help", "Help", show=False),
+        Binding("0", "filter_all", "All Levels", show=False),
+        Binding("1", "show_only_debug", "DEBUG", show=False),
+        Binding("2", "show_only_info", "INFO", show=False),
+        Binding("3", "show_only_warning", "WARN", show=False),
+        Binding("4", "show_only_error", "ERROR", show=False),
+        Binding("5", "show_only_critical", "CRIT", show=False),
+        Binding("f", "filter_issues", "Issues only", show=False),
+        Binding("slash", "search", "Search", show=False),
+        Binding("ctrl+l", "clear_log", "Clear Log", show=False),
+        Binding("c", "copy_visible", "Copy", show=False),
+        Binding("e", "copy_errors", "Copy Errors", show=False),
+        Binding("w", "copy_warnings", "Copy Warn+Err", show=False),
+        Binding("s", "save_log", "Save Log", show=False),
+        Binding("x", "export_modules", "Export CSV", show=False),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
     ]
@@ -99,11 +103,16 @@ class OdooTuiApp(App):
             return
 
         log_viewer = self.query_one("#log-viewer", LogViewer)
+        status_bar = self.query_one("#status-bar", StatusBar)
         for line in lines:
-            log_viewer.write_line(line)
+            entry = log_viewer.write_line(line)
+            # Track the database Odoo actually serves (ground truth from logs).
+            # Odoo logs "?" before DB routing — ignore those and RAW lines.
+            if entry.level != "RAW" and entry.database not in ("", "?") and entry.database != self._db_name:
+                self._db_name = entry.database
+                status_bar.db_name = entry.database
 
         # Detect first output → running
-        status_bar = self.query_one("#status-bar", StatusBar)
         if status_bar.server_state == "starting":
             status_bar.server_state = "running"
 
@@ -324,16 +333,37 @@ class OdooTuiApp(App):
         except OSError as e:
             self.notify(f"Save failed: {e}", severity="error")
 
+    def action_show_menu(self) -> None:
+        """Open the quick action menu (folds up from the bottom)."""
+        from odoodev.tui.screens import QuickMenuScreen
+
+        self.push_screen(QuickMenuScreen(), self._handle_menu)
+
+    def _handle_menu(self, action: str | None) -> None:
+        """Run the action chosen in the quick menu (option id == action name).
+
+        ``run_action`` is a coroutine; schedule it via ``call_next`` so it is
+        awaited after this sync dismiss-callback returns.
+        """
+        if action:
+            self.call_next(self.run_action, action)
+
     def action_export_modules(self) -> None:
         """Open the module CSV export dialog (Releasemanager format)."""
         from odoodev.tui.screens import ExportModulesScreen
 
         self.push_screen(ExportModulesScreen(self._db_name), self._handle_export_modules)
 
-    def _handle_export_modules(self, scope: str | None) -> None:
-        """Query modules via XML-RPC and write the CSV after the dialog choice."""
-        if scope is None:
+    def _handle_export_modules(self, result: tuple[str, str] | None) -> None:
+        """Query modules via XML-RPC and write the CSV after the dialog choice.
+
+        ``result`` is ``(scope, db_name)`` from the dialog, or ``None`` on cancel.
+        The database name is whatever the user confirmed/edited in the dialog.
+        """
+        if result is None:
             return  # cancelled
+
+        scope, db_name = result
 
         import datetime
 
@@ -343,7 +373,7 @@ class OdooTuiApp(App):
 
         installed_only, exclude_enterprise = EXPORT_SCOPES.get(scope, (False, False))
         try:
-            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            client = OdooXmlRpcClient(port=self._odoo_port, database=db_name)
             records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
         except Exception as e:  # surface any RPC/auth failure to the user
             self.notify(t("tui.export_error", error=str(e)), severity="error")
@@ -353,7 +383,7 @@ class OdooTuiApp(App):
             self.notify(t("tui.export_empty"), severity="warning")
             return
 
-        path = build_export_path(self._db_name, scope, datetime.datetime.now())
+        path = build_export_path(db_name, scope, datetime.datetime.now())
         try:
             write_modules_csv(records, path)
         except OSError as e:

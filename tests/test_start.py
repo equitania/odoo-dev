@@ -10,11 +10,69 @@ import odoodev.cli  # noqa: F401
 from odoodev.commands.start import (
     _add_v19_log_handlers,
     _clean_sessions,
+    _extract_db_from_args,
     _find_odoo_config,
     _get_config_value,
     _load_env_file,
+    _resolve_tui_db_name,
     _write_pgpass,
 )
+
+
+class TestExtractDbFromArgs:
+    """Test recovering the database from raw Odoo extra args."""
+
+    def test_space_separated_short(self):
+        assert _extract_db_from_args(("-d", "v19_test")) == "v19_test"
+
+    def test_space_separated_long(self):
+        assert _extract_db_from_args(("--database", "v19_test")) == "v19_test"
+
+    def test_equals_short(self):
+        assert _extract_db_from_args(("-d=v19_test",)) == "v19_test"
+
+    def test_equals_long(self):
+        assert _extract_db_from_args(("--database=v19_test",)) == "v19_test"
+
+    def test_among_other_args(self):
+        assert _extract_db_from_args(("-u", "all", "-d", "realdb", "--dev=all")) == "realdb"
+
+    def test_absent(self):
+        assert _extract_db_from_args(("-u", "all")) is None
+
+    def test_empty(self):
+        assert _extract_db_from_args(()) is None
+
+    def test_trailing_flag_without_value(self):
+        assert _extract_db_from_args(("-u", "all", "-d")) is None
+
+
+class TestResolveTuiDbName:
+    """Test the TUI database-name priority chain (the bug fix)."""
+
+    def test_explicit_database_wins(self, tmp_path):
+        conf = tmp_path / "odoo.conf"
+        conf.write_text("db_name = conf_db\n", encoding="utf-8")
+        assert _resolve_tui_db_name("realdb", ("-d", "argdb"), str(conf), "19") == "realdb"
+
+    def test_extra_args_over_conf_and_fallback(self, tmp_path):
+        conf = tmp_path / "odoo.conf"
+        conf.write_text("db_name = conf_db\n", encoding="utf-8")
+        assert _resolve_tui_db_name(None, ("-d", "argdb"), str(conf), "19") == "argdb"
+
+    def test_conf_over_fallback(self, tmp_path):
+        conf = tmp_path / "odoo.conf"
+        conf.write_text("db_name = conf_db\n", encoding="utf-8")
+        assert _resolve_tui_db_name(None, (), str(conf), "19") == "conf_db"
+
+    def test_fallback_when_nothing_known(self, tmp_path):
+        missing = tmp_path / "nope.conf"
+        assert _resolve_tui_db_name(None, (), str(missing), "19") == "v19_exam"
+
+    def test_double_dash_form(self, tmp_path):
+        """odoodev start 19 --tui -- -d v19_test must reach the TUI db name."""
+        missing = tmp_path / "nope.conf"
+        assert _resolve_tui_db_name(None, ("-d", "v19_test"), str(missing), "19") == "v19_test"
 
 
 class TestFindOdooConfig:

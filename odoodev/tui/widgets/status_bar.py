@@ -77,6 +77,10 @@ class StatusBar(Widget):
         """Update display on uptime change."""
         self._update_display()
 
+    def watch_db_name(self) -> None:
+        """Update display when the detected database changes."""
+        self._update_display()
+
     def _update_display(self) -> None:
         """Re-render the status bar text."""
         try:

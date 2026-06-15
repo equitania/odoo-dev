@@ -631,6 +631,37 @@ def _check_services(
             raise SystemExit(1)
 
 
+def _extract_db_from_args(extra_args: tuple[str, ...]) -> str | None:
+    """Recover the database name from raw Odoo extra args.
+
+    Covers the ``odoodev start ... -- -d db`` form, where ``-d`` is passed
+    through to odoo-bin without going through the ``--database`` option.
+    Handles ``-d db`` / ``--database db`` and ``-d=db`` / ``--database=db``.
+    """
+    args = list(extra_args)
+    for i, arg in enumerate(args):
+        if arg in ("-d", "--database") and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith("-d="):
+            return arg[len("-d=") :]
+        if arg.startswith("--database="):
+            return arg[len("--database=") :]
+    return None
+
+
+def _resolve_tui_db_name(database: str | None, extra_args: tuple[str, ...], config_path: str, version: str) -> str:
+    """Resolve which database the TUI should display and target.
+
+    Priority: explicit ``--database`` > ``-d``/``--database`` inside the raw
+    extra args (the ``-- -d db`` form) > ``db_name`` from the Odoo config >
+    conventional ``v{version}_exam`` fallback. Fixes the bug where the user's
+    chosen database was ignored in favor of the conf value / fallback.
+    """
+    return (
+        database or _extract_db_from_args(extra_args) or _get_config_value(config_path, "db_name") or f"v{version}_exam"
+    )
+
+
 def _launch_tui(
     version: str,
     mode: str,
@@ -641,6 +672,7 @@ def _launch_tui(
     venv_dir: str,
     config_path: str,
     extra_args: tuple[str, ...],
+    database: str | None = None,
     load_language: str | None = None,
     i18n_overwrite: bool = False,
 ) -> None:
@@ -661,7 +693,7 @@ def _launch_tui(
 
     ports = version_cfg.ports  # type: ignore[attr-defined]
     odoo_port = int(env_vars.get("ODOO_PORT", str(ports.odoo)))
-    tui_db_name = _get_config_value(config_path, "db_name") or f"v{version}_exam"
+    tui_db_name = _resolve_tui_db_name(database, extra_args, config_path, version)
 
     from odoodev.tui.app import OdooTuiApp
 
@@ -828,6 +860,7 @@ def start(
             venv_dir,
             config_path,
             extra_args,
+            database=database,
             load_language=load_language,
             i18n_overwrite=i18n_overwrite,
         )

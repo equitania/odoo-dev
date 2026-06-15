@@ -97,7 +97,7 @@ class LogViewer(Widget):
         """Get reference to the RichLog after mounting."""
         self._rich_log = self.query_one("#log-output", SelectableRichLog)
 
-    def write_line(self, line: str) -> None:
+    def write_line(self, line: str) -> OdooLogEntry:
         """Parse and display a raw log line.
 
         Tracks the last structured log level so RAW continuation lines
@@ -106,6 +106,10 @@ class LogViewer(Widget):
 
         Args:
             line: Raw log line from Odoo stdout/stderr.
+
+        Returns:
+            The parsed ``OdooLogEntry`` (so callers can read e.g. the
+            ``database`` field without re-parsing).
         """
         entry = parse_line(line)
         if entry.level == "RAW":
@@ -118,6 +122,8 @@ class LogViewer(Widget):
 
         if self._should_show(entry, effective_level):
             self._render_entry(entry)
+
+        return entry
 
     def _should_show(self, entry: OdooLogEntry, effective_level: str) -> bool:
         """Check if an entry passes the current filter."""
