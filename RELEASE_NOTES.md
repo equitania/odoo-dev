@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.11.0 (15.06.2026)
+
+Semver-correct minor release that promotes the TUI feature work shipped under
+0.10.0–0.10.1 to a proper minor version. No functional changes versus 0.10.1 —
+this release exists to reflect that the 0.10.x line introduced user-facing
+features. Rolled-up highlights of the TUI feature set:
+
+### Added
+- **Quick action menu (`m`)** — bottom-anchored menu that folds upward, grouping View / Log / Export / Server actions (arrow keys + Enter); the footer stays minimal (`q Quit | m Menu | ? Help`) on narrow terminals.
+- **Module CSV export** (Releasemanager format) with an **editable target-database field** in the dialog.
+- **Live database detection** from the Odoo log lines, shown in the status bar.
+- **odoodev version shown bottom-right** in the TUI.
+
+### Fixed
+- TUI database is resolved from `-d`/`--database` (and the `-- -d <db>` form) instead of being guessed.
+- Module export works on Odoo 19 (`state`-based filter; the `installable` field was removed from `ir.module.module` in v19).
+- Odoo 19 `/xmlrpc/2` deprecation warning is silenced (correct `xmlrpc` controller logger).
+
 ## Version 0.10.1 (15.06.2026)
 
 ### Fixed

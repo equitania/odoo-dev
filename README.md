@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.10.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -168,6 +168,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.11.0:**
+- Semver-konformer Minor-Release des TUI-Funktionsumfangs (Schnellmenü `m`, Live-DB-Erkennung, editierbares Export-DB-Feld, Versionsanzeige) inkl. der Odoo-19-Fixes. Keine funktionalen Änderungen gegenüber 0.10.1.
 
 **Version 0.10.1:**
 - **Behoben:** Der TUI-Modulexport stürzte auf Odoo 19 ab (`installable` wurde aus `ir.module.module` entfernt) — der Filter nutzt jetzt das versionsübergreifende `state`-Feld.
@@ -350,6 +353,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.11.0:**
+- Semver-correct minor release of the TUI feature set (quick menu `m`, live DB detection, editable export DB field, version display) including the Odoo 19 fixes. No functional changes versus 0.10.1.
 
 **Version 0.10.1:**
 - **Fixed:** The TUI module export crashed on Odoo 19 (`installable` was removed from `ir.module.module`) — the filter now uses the cross-version `state` field.
