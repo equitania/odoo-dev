@@ -82,7 +82,7 @@ class OdooTuiApp(App):
         yield FilterBar(id="filter-bar")
         yield LogViewer(id="log-viewer")
         yield Footer()
-        # Version label overlaid on the right of the footer row
+        # Version label on its own thin row just above the footer (right-aligned)
         yield Static(f"odoodev v{__version__}", id="app-version")
 
     def on_mount(self) -> None:

@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.30.1 (15.06.2026)
+
+### Fixed
+- **Quick menu (`m`) clipped its last entry (`Load language`)** — the fixed `max-height: 26` cut off the bottom row on normal terminals, hiding the `Load language` action. The menu height is now adaptive (`95%`), so all entries are visible (and the list scrolls on very small terminals). A regression test asserts every action — including `load_language` — is present in the menu.
+
+## Version 0.30.0 (15.06.2026)
+
+### Fixed
+- **TUI footer (keybinding bar) was hidden by the version label** — The bottom-right `odoodev v{version}` label was a second `dock: bottom` widget, which Textual places on the *same* bottom row as the `Footer`, covering the `q Quit | m Menu | ? Help` keys. The version label is now a normal flow row directly above the docked footer, so both are fully visible. A regression test asserts the footer and version label occupy different rows.
+
+### Changed
+- **Quick menu (`m`) now shows the direct shortcut key for each action** — every entry is prefixed with its key (e.g. `0  All levels`, `s  Save visible log`, `x  Export modules as CSV`), so the menu doubles as a cheat sheet now that the footer only shows `q | m | ?`.
+
 ## Version 0.11.0 (15.06.2026)
 
 Semver-correct minor release that promotes the TUI feature work shipped under

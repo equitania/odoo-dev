@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.30.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -159,7 +159,7 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (774)
+pytest                                  # Tests (776)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type-Check
 uv build                                # Paket bauen
@@ -168,6 +168,13 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.30.1:**
+- **Behoben:** Das Schnellmenü (`m`) schnitt seinen letzten Eintrag (`Load language`) unten ab — die Höhe ist jetzt adaptiv (`95%`), alle Einträge sind sichtbar (und die Liste scrollt auf sehr kleinen Terminals).
+
+**Version 0.30.0:**
+- **Behoben:** Die Footer-Tastenleiste (`q | m | ?`) wurde von der Versionsanzeige verdeckt — die Version liegt jetzt auf einer eigenen Zeile direkt über dem Footer, beide sind sichtbar.
+- **Geändert:** Das Schnellmenü (`m`) zeigt jetzt zu jeder Aktion die zugehörige Taste an (z. B. `0  Alle Level`, `s  Sichtbares Log speichern`).
 
 **Version 0.11.0:**
 - Semver-konformer Minor-Release des TUI-Funktionsumfangs (Schnellmenü `m`, Live-DB-Erkennung, editierbares Export-DB-Feld, Versionsanzeige) inkl. der Odoo-19-Fixes. Keine funktionalen Änderungen gegenüber 0.10.1.
@@ -344,7 +351,7 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (774)
+pytest                                  # Tests (776)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type checking
 uv build                                # Build package
@@ -353,6 +360,13 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.30.1:**
+- **Fixed:** The quick menu (`m`) clipped its last entry (`Load language`) — the height is now adaptive (`95%`), so all entries are visible (and the list scrolls on very small terminals).
+
+**Version 0.30.0:**
+- **Fixed:** The footer keybinding bar (`q | m | ?`) was hidden by the version label — the version now sits on its own row directly above the footer, both fully visible.
+- **Changed:** The quick menu (`m`) now shows the direct shortcut key for each action (e.g. `0  All levels`, `s  Save visible log`).
 
 **Version 0.11.0:**
 - Semver-correct minor release of the TUI feature set (quick menu `m`, live DB detection, editable export DB field, version display) including the Odoo 19 fixes. No functional changes versus 0.10.1.

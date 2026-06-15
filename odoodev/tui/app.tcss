@@ -2,7 +2,6 @@
 
 Screen {
     layout: vertical;
-    layers: base overlay;
 }
 
 #status-bar {
@@ -26,14 +25,14 @@ Footer {
     dock: bottom;
 }
 
-/* odoodev version, overlaid on the right of the footer row */
+/* odoodev version on its own thin row just above the footer.
+   NOT docked — a second dock:bottom widget overlaps the Footer on the same
+   row. As a normal flow row (after the 1fr log viewer) it sits right above
+   the docked footer without covering it. */
 #app-version {
-    layer: overlay;
-    dock: bottom;
     height: 1;
     width: 100%;
     text-align: right;
     color: $text-muted;
-    background: transparent;
     padding: 0 1;
 }

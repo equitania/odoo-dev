@@ -784,7 +784,28 @@ class TestQuickMenu:
                 opt = option_list.get_option_at_index(i)
                 if opt.id:
                     ids.add(opt.id)
-            assert {"export_modules", "filter_all", "save_log", "restart", "search"} <= ids
+            # Every action must be present — guards against silently dropping
+            # (or clipping) a menu entry such as load_language.
+            expected = {
+                "filter_all",
+                "filter_issues",
+                "show_only_warning",
+                "show_only_error",
+                "show_only_critical",
+                "show_only_info",
+                "show_only_debug",
+                "search",
+                "clear_log",
+                "save_log",
+                "copy_visible",
+                "copy_errors",
+                "copy_warnings",
+                "export_modules",
+                "restart",
+                "update",
+                "load_language",
+            }
+            assert expected <= ids
 
     async def test_menu_escape_closes(self, mock_cmd, tmp_path):
         from odoodev.tui.screens import QuickMenuScreen
@@ -816,6 +837,27 @@ class TestQuickMenu:
             app._handle_menu(None)  # must not raise
             await pilot.pause(0.1)
 
+    async def test_menu_options_show_shortcut_keys(self, mock_cmd, tmp_path):
+        """Each menu action shows its direct shortcut key (cheat-sheet)."""
+        from textual.widgets import OptionList
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(80, 40)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("m")
+            await pilot.pause(0.1)
+            option_list = app.screen_stack[-1].query_one("#quick-menu-list", OptionList)
+            prompts = {}
+            for i in range(option_list.option_count):
+                opt = option_list.get_option_at_index(i)
+                if opt.id:
+                    prompts[opt.id] = str(opt.prompt)
+            assert "x" in prompts["export_modules"]
+            assert "s" in prompts["save_log"]
+            assert "0" in prompts["filter_all"]
+            assert "Ctrl+L" in prompts["clear_log"]
+            assert "r" in prompts["restart"]
+
 
 class TestVersionDisplay:
     """Test the odoodev version label shown bottom-right."""
@@ -830,3 +872,17 @@ class TestVersionDisplay:
             await pilot.pause(0.2)
             label = app.query_one("#app-version", Static)
             assert __version__ in str(label.render())
+
+    async def test_version_label_does_not_cover_footer(self, mock_cmd, tmp_path):
+        """Regression: the version row must not overlap the footer's keys."""
+        from textual.widgets import Footer, Static
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            footer = app.query_one(Footer)
+            version = app.query_one("#app-version", Static)
+            # Both visible with real height, on different rows (no overlap).
+            assert footer.region.height >= 1
+            assert version.region.height >= 1
+            assert footer.region.y != version.region.y

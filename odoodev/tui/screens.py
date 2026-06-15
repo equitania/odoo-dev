@@ -308,7 +308,7 @@ class QuickMenuScreen(ModalScreen["str | None"]):
     #quick-menu {
         width: 56;
         height: auto;
-        max-height: 26;
+        max-height: 95%;
         border: tall $primary;
         background: $surface;
         margin-bottom: 1;
@@ -319,7 +319,7 @@ class QuickMenuScreen(ModalScreen["str | None"]):
     }
     #quick-menu-list {
         height: auto;
-        max-height: 24;
+        max-height: 90%;
     }
     """
 
@@ -328,38 +328,63 @@ class QuickMenuScreen(ModalScreen["str | None"]):
         ("m", "dismiss_menu", "Close"),
     ]
 
+    # Each group: (group i18n key, [(shortcut key, item i18n key, action id), ...]).
+    # The shortcut keys mirror the app BINDINGS so the menu doubles as a cheat sheet.
+    _MENU_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+        (
+            "tui.menu_view",
+            (
+                ("0", "tui.menu_all_levels", "filter_all"),
+                ("f", "tui.menu_issues", "filter_issues"),
+                ("3", "tui.menu_only_warning", "show_only_warning"),
+                ("4", "tui.menu_only_error", "show_only_error"),
+                ("5", "tui.menu_only_critical", "show_only_critical"),
+                ("2", "tui.menu_only_info", "show_only_info"),
+                ("1", "tui.menu_only_debug", "show_only_debug"),
+            ),
+        ),
+        (
+            "tui.menu_log",
+            (
+                ("/", "tui.menu_search", "search"),
+                ("Ctrl+L", "tui.menu_clear", "clear_log"),
+                ("s", "tui.menu_save", "save_log"),
+                ("c", "tui.menu_copy_visible", "copy_visible"),
+                ("e", "tui.menu_copy_errors", "copy_errors"),
+                ("w", "tui.menu_copy_warnings", "copy_warnings"),
+            ),
+        ),
+        (
+            "tui.menu_export",
+            (("x", "tui.menu_export_csv", "export_modules"),),
+        ),
+        (
+            "tui.menu_server",
+            (
+                ("r", "tui.menu_restart", "restart"),
+                ("u", "tui.menu_update", "update"),
+                ("l", "tui.menu_load_language", "load_language"),
+            ),
+        ),
+    )
+
+    @staticmethod
+    def _option_prompt(key: str, label: str) -> str:
+        """Render an option as a left-aligned key column + label."""
+        return f"[b]{key:<7}[/b] {label}"
+
     def compose(self) -> ComposeResult:
-        """Build the grouped quick-action menu."""
+        """Build the grouped quick-action menu with shortcut keys."""
+        options: list[Option | None] = []
+        for index, (group_key, items) in enumerate(self._MENU_GROUPS):
+            if index > 0:
+                options.append(None)  # separator between groups
+            options.append(Option(f"[b cyan]{t(group_key)}[/]", disabled=True))
+            for key, label_key, action_id in items:
+                options.append(Option(self._option_prompt(key, t(label_key)), id=action_id))
         with Vertical(id="quick-menu"):
             yield Label(t("tui.menu_title"))
-            yield OptionList(
-                Option(f"[b cyan]{t('tui.menu_view')}[/]", disabled=True),
-                Option(t("tui.menu_all_levels"), id="filter_all"),
-                Option(t("tui.menu_issues"), id="filter_issues"),
-                Option(t("tui.menu_only_warning"), id="show_only_warning"),
-                Option(t("tui.menu_only_error"), id="show_only_error"),
-                Option(t("tui.menu_only_critical"), id="show_only_critical"),
-                Option(t("tui.menu_only_info"), id="show_only_info"),
-                Option(t("tui.menu_only_debug"), id="show_only_debug"),
-                None,
-                Option(f"[b cyan]{t('tui.menu_log')}[/]", disabled=True),
-                Option(t("tui.menu_search"), id="search"),
-                Option(t("tui.menu_clear"), id="clear_log"),
-                Option(t("tui.menu_save"), id="save_log"),
-                Option(t("tui.menu_copy_visible"), id="copy_visible"),
-                Option(t("tui.menu_copy_errors"), id="copy_errors"),
-                Option(t("tui.menu_copy_warnings"), id="copy_warnings"),
-                None,
-                Option(f"[b cyan]{t('tui.menu_export')}[/]", disabled=True),
-                Option(t("tui.menu_export_csv"), id="export_modules"),
-                None,
-                Option(f"[b cyan]{t('tui.menu_server')}[/]", disabled=True),
-                Option(t("tui.menu_restart"), id="restart"),
-                Option(t("tui.menu_update"), id="update"),
-                Option(t("tui.menu_load_language"), id="load_language"),
-                id="quick-menu-list",
-                compact=True,
-            )
+            yield OptionList(*options, id="quick-menu-list", compact=True)
 
     def on_mount(self) -> None:
         """Focus the option list so arrow keys work immediately."""
