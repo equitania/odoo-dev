@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.31.0 (16.06.2026)
+
+### Added
+- **TUI database backup (`b`)** — back up the running database straight from the TUI. A dialog picks the (editable) target database and backup type (ZIP with filestore, or SQL only); the dump runs in a worker thread so the UI stays responsive and the file lands in `~/Downloads/`.
+- **TUI database switch (`d`)** — switch the served database at runtime. A picker lists the available PostgreSQL databases (current one marked and listed first) and restarts Odoo bound to the choice; the status bar updates immediately.
+- **TUI module-catalog maintenance (`a` / `k`)** — `a` runs *Update apps list* (`ir.module.module.update_list`) to re-scan the addons path; `k` removes all non-installed modules (`state != 'installed'`) from the catalog. Both run via XML-RPC in a worker thread.
+- **Module-CSV export pre-steps** — the export dialog (`x`) gained two checkboxes: *Update apps list before export* and *Remove non-installed modules before export*. Cleanup runs first, then the update, so a CSV exported after a restore reflects only the modules truly installed on the current system.
+
+### Changed
+- **`odoodev db backup` now defaults to `~/Downloads/`** — previously the backup landed in the current working directory (`--output` default `.`, effectively `~/gitbase/`). It now follows the same convention as the module-CSV export. `--output` still overrides the destination.
+
 ## Version 0.30.1 (15.06.2026)
 
 ### Fixed

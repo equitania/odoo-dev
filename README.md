@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.30.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.31.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -168,6 +168,12 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.0:**
+- **Neu:** Datenbank-Backup direkt aus dem TUI (`b`) — Dialog für DB + Typ (ZIP/SQL), läuft im Hintergrund-Thread, Datei landet in `~/Downloads/`.
+- **Neu:** DB-Wechsel zur Laufzeit aus dem TUI (`d`) — Auswahl aus den verfügbaren Datenbanken, Server startet damit neu.
+- **Neu:** Modul-Katalogpflege aus dem TUI (`a` = Apps-Liste aktualisieren, `k` = nicht-installierte Module entfernen) sowie zwei Checkboxen im CSV-Export-Dialog (`x`), damit die CSV nur tatsächlich installierte Module enthält.
+- **Geändert:** `odoodev db backup` legt das Backup jetzt standardmäßig in `~/Downloads/` ab (statt im Arbeitsverzeichnis); `--output` überschreibt das weiterhin.
 
 **Version 0.30.1:**
 - **Behoben:** Das Schnellmenü (`m`) schnitt seinen letzten Eintrag (`Load language`) unten ab — die Höhe ist jetzt adaptiv (`95%`), alle Einträge sind sichtbar (und die Liste scrollt auf sehr kleinen Terminals).
@@ -360,6 +366,12 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.0:**
+- **Added:** Database backup straight from the TUI (`b`) — dialog for DB + type (ZIP/SQL), runs in a worker thread, the file lands in `~/Downloads/`.
+- **Added:** Runtime database switch from the TUI (`d`) — pick from the available databases, the server restarts bound to the choice.
+- **Added:** Module-catalog maintenance from the TUI (`a` = update apps list, `k` = remove non-installed modules) plus two checkboxes in the CSV export dialog (`x`) so the CSV reflects only truly-installed modules.
+- **Changed:** `odoodev db backup` now defaults to `~/Downloads/` (instead of the working directory); `--output` still overrides it.
 
 **Version 0.30.1:**
 - **Fixed:** The quick menu (`m`) clipped its last entry (`Load language`) — the height is now adaptive (`95%`), so all entries are visible (and the list scrolls on very small terminals).

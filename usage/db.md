@@ -15,10 +15,10 @@ odoodev db list 18
 # Datenbanken als JSON auflisten
 odoodev db list 18 --json
 
-# Backup erstellen (interaktiv)
+# Backup erstellen (interaktiv) — landet standardmaessig in ~/Downloads/
 odoodev db backup 18
 
-# Backup als SQL-Dump
+# Backup als SQL-Dump (mit --output das Zielverzeichnis ueberschreiben)
 odoodev db backup 18 -n v18_exam -t sql -o /tmp
 
 # Backup als ZIP mit Filestore
@@ -85,7 +85,7 @@ Nuetzlich fuer Skripte und AI-Agenten.
 
 Wenn Flags weggelassen werden, fragt odoodev interaktiv nach:
 
-- `odoodev db backup 18` → Auswahl der Datenbank und des Backup-Typs
+- `odoodev db backup 18` → Auswahl der Datenbank und des Backup-Typs (Ziel standardmaessig `~/Downloads/`, mit `-o/--output` ueberschreibbar)
 - `odoodev db restore 18` → Eingabe des Dateipfads und Datenbanknamens (mit Vorschlag aus Dateiname)
 - `odoodev db drop 18` → Auswahl der Datenbank aus Liste
 - `odoodev db copy 18 -d v18_test` → Auswahl der Quelldatenbank aus Liste
@@ -205,10 +205,10 @@ odoodev db list 18
 # List databases as JSON
 odoodev db list 18 --json
 
-# Create backup (interactive)
+# Create backup (interactive) — defaults to ~/Downloads/
 odoodev db backup 18
 
-# Backup as SQL dump
+# Backup as SQL dump (override the target dir with --output)
 odoodev db backup 18 -n v18_exam -t sql -o /tmp
 
 # Backup as ZIP with filestore

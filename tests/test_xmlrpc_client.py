@@ -290,3 +290,72 @@ class TestUpgradeModules:
 
         with pytest.raises(ValueError, match="No installed modules found"):
             client.upgrade_modules(["nonexistent_module"])
+
+
+class TestUpdateModuleList:
+    """Test the 'Update Apps List' (update_list) wrapper."""
+
+    @staticmethod
+    def _wire(mock_proxy_cls, result):
+        mock_common = MagicMock()
+        mock_common.authenticate.return_value = 2
+        mock_object = MagicMock()
+        mock_object.execute_kw.return_value = result
+        mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+        return mock_object
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_calls_update_list_with_no_args(self, mock_proxy_cls, client):
+        mock_object = self._wire(mock_proxy_cls, [3, 5])
+        added = client.update_module_list()
+        assert added == 5
+        mock_object.execute_kw.assert_called_once_with(
+            "v18_exam",
+            2,
+            "admin",
+            "ir.module.module",
+            "update_list",
+            [],
+            {},
+        )
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_non_tuple_result_returns_zero(self, mock_proxy_cls, client):
+        self._wire(mock_proxy_cls, None)
+        assert client.update_module_list() == 0
+
+
+class TestCleanupUninstalledModules:
+    """Test removal of non-installed module catalog entries."""
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_searches_non_installed_then_unlinks(self, mock_proxy_cls, client):
+        mock_common = MagicMock()
+        mock_common.authenticate.return_value = 2
+        mock_object = MagicMock()
+        # First call: search -> ids, second call: unlink -> True
+        mock_object.execute_kw.side_effect = [[7, 8, 9], True]
+        mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+        removed = client.cleanup_uninstalled_modules()
+        assert removed == 3
+
+        search_args = mock_object.execute_kw.call_args_list[0].args
+        assert search_args[4] == "search"
+        assert search_args[5] == [[["state", "!=", "installed"]]]
+        unlink_args = mock_object.execute_kw.call_args_list[1].args
+        assert unlink_args[4] == "unlink"
+        assert unlink_args[5] == [[7, 8, 9]]
+
+    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_no_matches_skips_unlink(self, mock_proxy_cls, client):
+        mock_common = MagicMock()
+        mock_common.authenticate.return_value = 2
+        mock_object = MagicMock()
+        mock_object.execute_kw.return_value = []
+        mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+        removed = client.cleanup_uninstalled_modules()
+        assert removed == 0
+        # Only the search call happened — no unlink.
+        assert mock_object.execute_kw.call_count == 1

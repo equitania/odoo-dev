@@ -41,6 +41,10 @@ class OdooTuiApp(App):
         Binding("r", "restart", "Restart", show=False),
         Binding("u", "update", "Update Module", show=False),
         Binding("l", "load_language", "Load Language", show=False),
+        Binding("b", "backup_db", "Backup DB", show=False),
+        Binding("d", "switch_db", "Switch DB", show=False),
+        Binding("a", "update_apps_list", "Update Apps List", show=False),
+        Binding("k", "cleanup_modules", "Cleanup Modules", show=False),
         # Per-level toggles (multi-toggle filter)
         Binding("0", "filter_all", "All Levels", show=False),
         Binding("1", "show_only_debug", "DEBUG", show=False),
@@ -68,12 +72,14 @@ class OdooTuiApp(App):
         version_info: str = "",
         odoo_port: int = 0,
         db_name: str = "",
+        db_port: int = 0,
     ) -> None:
         super().__init__()
         self._odoo = OdooProcess(cmd=cmd, env=env, cwd=cwd)
         self._version_info = version_info
         self._odoo_port = odoo_port
         self._db_name = db_name
+        self._db_port = db_port
         self._search_active = False
 
     def compose(self) -> ComposeResult:
@@ -357,16 +363,18 @@ class OdooTuiApp(App):
 
         self.push_screen(ExportModulesScreen(self._db_name), self._handle_export_modules)
 
-    def _handle_export_modules(self, result: tuple[str, str] | None) -> None:
+    def _handle_export_modules(self, result: tuple[str, str, bool, bool] | None) -> None:
         """Query modules via XML-RPC and write the CSV after the dialog choice.
 
-        ``result`` is ``(scope, db_name)`` from the dialog, or ``None`` on cancel.
-        The database name is whatever the user confirmed/edited in the dialog.
+        ``result`` is ``(scope, db_name, do_update, do_cleanup)`` from the
+        dialog, or ``None`` on cancel. If requested, non-installed modules are
+        removed and the apps list refreshed (cleanup first, then update — so the
+        catalog reflects the current system) before the modules are listed.
         """
         if result is None:
             return  # cancelled
 
-        scope, db_name = result
+        scope, db_name, do_update, do_cleanup = result
 
         import datetime
 
@@ -377,6 +385,12 @@ class OdooTuiApp(App):
         installed_only, exclude_enterprise = EXPORT_SCOPES.get(scope, (False, False))
         try:
             client = OdooXmlRpcClient(port=self._odoo_port, database=db_name)
+            if do_cleanup:
+                removed = client.cleanup_uninstalled_modules()
+                self.notify(t("tui.modules_cleaned", count=removed), severity="information")
+            if do_update:
+                added = client.update_module_list()
+                self.notify(t("tui.modules_updated", count=added), severity="information")
             records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
         except Exception as e:  # surface any RPC/auth failure to the user
             self.notify(t("tui.export_error", error=str(e)), severity="error")
@@ -394,6 +408,138 @@ class OdooTuiApp(App):
             return
 
         self.notify(t("tui.export_saved", count=len(records), path=str(path)), severity="information")
+
+    # --- Database backup / switch + module maintenance ---
+
+    def action_backup_db(self) -> None:
+        """Open the database backup dialog (writes to ~/Downloads/)."""
+        from odoodev.tui.screens import BackupScreen
+
+        self.push_screen(BackupScreen(self._db_name), self._handle_backup_db)
+
+    def _handle_backup_db(self, result: tuple[str, str] | None) -> None:
+        """Run the backup in a worker thread after the dialog choice.
+
+        ``result`` is ``(backup_type, db_name)`` or ``None`` on cancel. The dump
+        (pg_dump + ZIP) blocks, so it runs off the UI thread; notifications are
+        marshalled back via ``call_from_thread``.
+        """
+        if result is None:
+            return  # cancelled
+
+        backup_type, db_name = result
+        self.run_worker(
+            lambda: self._do_backup(backup_type, db_name),
+            thread=True,
+            exclusive=False,
+        )
+
+    def _do_backup(self, backup_type: str, db_name: str) -> None:
+        """Create the backup file in ~/Downloads/ (runs in a worker thread)."""
+        import tempfile
+        from datetime import datetime
+        from pathlib import Path
+
+        from odoodev.core.database import backup_database_sql, create_backup_zip, format_size, get_filestore_path
+        from odoodev.i18n import t
+
+        self.call_from_thread(self.notify, t("tui.backup_running", db=db_name))
+
+        downloads = Path.home() / "Downloads"
+        downloads.mkdir(parents=True, exist_ok=True)
+        date_suffix = datetime.now().strftime("%y%m%d")
+        ext = "sql" if backup_type == "sql" else "zip"
+        output_file = downloads / f"{db_name}_{date_suffix}.{ext}"
+
+        try:
+            if backup_type == "sql":
+                ok = backup_database_sql(db_name, str(output_file), port=self._db_port)
+            else:
+                tmp_dir = tempfile.mkdtemp(prefix="odoodev_backup_")
+                try:
+                    sql_path = str(Path(tmp_dir) / "dump.sql")
+                    if not backup_database_sql(db_name, sql_path, port=self._db_port):
+                        ok = False
+                    else:
+                        fs_path = get_filestore_path(self._version_info, db_name)
+                        fs_dir = fs_path if Path(fs_path).is_dir() else None
+                        ok = create_backup_zip(sql_path, str(output_file), fs_dir)
+                finally:
+                    import shutil as _shutil
+
+                    _shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as e:
+            self.call_from_thread(self.notify, t("tui.backup_error", error=str(e)), severity="error")
+            return
+
+        if not ok or not output_file.exists():
+            self.call_from_thread(self.notify, t("tui.backup_empty"), severity="error")
+            return
+
+        size = format_size(output_file.stat().st_size)
+        self.call_from_thread(
+            self.notify,
+            t("tui.backup_saved", path=str(output_file), size=size),
+            severity="information",
+        )
+
+    def action_switch_db(self) -> None:
+        """Open the database picker; the server restarts with the choice."""
+        from odoodev.tui.screens import DbSwitchScreen
+
+        self.push_screen(DbSwitchScreen(self._db_port, self._db_name), self._handle_switch_db)
+
+    def _handle_switch_db(self, new_db: str | None) -> None:
+        """Restart the server bound to the newly selected database."""
+        if not new_db or new_db == self._db_name:
+            return
+
+        from odoodev.i18n import t
+
+        self._db_name = new_db
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.db_name = new_db
+        status_bar.server_state = "starting"
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        log_viewer.write_line(f"\n--- Switching to database '{new_db}' ---\n")
+        self._odoo.restart(extra_args=["-d", new_db])
+        self.notify(t("tui.switch_db_switching", db=new_db), severity="information")
+
+    def action_update_apps_list(self) -> None:
+        """Refresh the Odoo apps list (update_list) in a worker thread."""
+        self.run_worker(self._do_update_apps_list, thread=True, exclusive=False)
+
+    def _do_update_apps_list(self) -> None:
+        """Call ir.module.module.update_list via XML-RPC (worker thread)."""
+        from odoodev.i18n import t
+        from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
+
+        self.call_from_thread(self.notify, t("tui.modules_updating"))
+        try:
+            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            added = client.update_module_list()
+        except Exception as e:
+            self.call_from_thread(self.notify, t("tui.modules_update_error", error=str(e)), severity="error")
+            return
+        self.call_from_thread(self.notify, t("tui.modules_updated", count=added), severity="information")
+
+    def action_cleanup_modules(self) -> None:
+        """Remove non-installed modules from the catalog in a worker thread."""
+        self.run_worker(self._do_cleanup_modules, thread=True, exclusive=False)
+
+    def _do_cleanup_modules(self) -> None:
+        """Delete ir.module.module rows where state != installed (worker thread)."""
+        from odoodev.i18n import t
+        from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
+
+        self.call_from_thread(self.notify, t("tui.modules_cleaning"))
+        try:
+            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            removed = client.cleanup_uninstalled_modules()
+        except Exception as e:
+            self.call_from_thread(self.notify, t("tui.modules_clean_error", error=str(e)), severity="error")
+            return
+        self.call_from_thread(self.notify, t("tui.modules_cleaned", count=removed), severity="information")
 
     def action_show_help(self) -> None:
         """Show the keybinding help overlay."""

@@ -24,6 +24,50 @@ class TestBackupHelp:
         assert "--name" in result.output
         assert "--type" in result.output
         assert "--output" in result.output
+        assert "Downloads" in result.output
+
+
+class TestBackupDefaultDestination:
+    """The backup defaults to ~/Downloads when --output is omitted."""
+
+    def test_default_output_is_downloads(self, tmp_path, monkeypatch):
+        import pathlib
+
+        from odoodev.commands import db as db_mod
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        # Stub out everything that needs a real environment / database.
+        monkeypatch.setattr(db_mod, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_mod, "get_version", lambda v: object())
+        monkeypatch.setattr(db_mod, "_load_env_vars", lambda cfg: {})
+        monkeypatch.setattr(
+            db_mod,
+            "_get_db_params",
+            lambda cfg, env: {"host": "localhost", "port": 18432, "user": "ownerp"},
+        )
+        monkeypatch.setattr(db_mod, "_print_migration_hint", lambda v: None)
+        monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda h, p: True)
+        monkeypatch.setattr(db_mod, "database_exists", lambda *a, **k: True)
+
+        captured: dict[str, str] = {}
+
+        def fake_sql(name, output_path, **params):
+            captured["path"] = output_path
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write("SQL")
+            return True
+
+        monkeypatch.setattr(db_mod, "backup_database_sql", fake_sql)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["db", "backup", "18", "-n", "testdb", "-t", "sql"])
+        assert result.exit_code == 0, result.output
+        assert captured["path"].startswith(str(home / "Downloads"))
+        assert "testdb_" in captured["path"]
+        assert captured["path"].endswith(".sql")
 
 
 class TestCreateBackupZip:

@@ -42,6 +42,7 @@ def make_app(mock_cmd, tmp_path):
         version_info="18",
         odoo_port=18069,
         db_name="v18_exam",
+        db_port=18432,
     )
 
 
@@ -679,7 +680,7 @@ class TestExportModulesScreen:
             app = make_app(mock_cmd, tmp_path)
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause(0.3)
-                app._handle_export_modules(("installed", "v18_exam"))
+                app._handle_export_modules(("installed", "v18_exam", False, False))
                 await pilot.pause(0.1)
 
         files = list((home / "Downloads").glob("modules_v18_exam_installed_*.csv"))
@@ -707,7 +708,7 @@ class TestExportModulesScreen:
             app = make_app(mock_cmd, tmp_path)
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause(0.3)
-                app._handle_export_modules(("all", "v18_exam"))
+                app._handle_export_modules(("all", "v18_exam", False, False))
                 await pilot.pause(0.1)
 
         assert not (home / "Downloads").exists()
@@ -801,9 +802,13 @@ class TestQuickMenu:
                 "copy_errors",
                 "copy_warnings",
                 "export_modules",
+                "update_apps_list",
+                "cleanup_modules",
                 "restart",
                 "update",
                 "load_language",
+                "backup_db",
+                "switch_db",
             }
             assert expected <= ids
 
@@ -886,3 +891,139 @@ class TestVersionDisplay:
             assert footer.region.height >= 1
             assert version.region.height >= 1
             assert footer.region.y != version.region.y
+
+
+class TestBackupScreen:
+    """Test the 'b' database backup dialog and worker-based backup."""
+
+    async def test_backup_keybinding_opens_screen(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import BackupScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("b")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, BackupScreen) for s in app.screen_stack)
+
+    async def test_backup_cancel_is_noop(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_backup_db(None)
+            await pilot.pause(0.1)
+        assert not (home / "Downloads").exists()
+
+    async def test_backup_sql_writes_to_downloads(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+
+        import odoodev.core.database as db_core
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        def fake_sql(name, output_path, **params):
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write("SQL")
+            return True
+
+        monkeypatch.setattr(db_core, "backup_database_sql", fake_sql)
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_backup_db(("sql", "v18_exam"))
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.1)
+
+        files = list((home / "Downloads").glob("v18_exam_*.sql"))
+        assert len(files) == 1
+
+
+class TestDbSwitchScreen:
+    """Test the 'd' database switch dialog and restart wiring."""
+
+    async def test_switch_keybinding_opens_screen(self, mock_cmd, tmp_path, monkeypatch):
+        import odoodev.core.database as db_core
+
+        monkeypatch.setattr(db_core, "list_databases", lambda **kw: ["v18_exam", "other"])
+
+        from odoodev.tui.screens import DbSwitchScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("d")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, DbSwitchScreen) for s in app.screen_stack)
+
+    async def test_switch_restarts_with_new_db(self, mock_cmd, tmp_path):
+        from unittest.mock import MagicMock
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            restart_mock = MagicMock()
+            app._odoo.restart = restart_mock  # type: ignore[method-assign]
+            app._handle_switch_db("newdb")
+            await pilot.pause(0.1)
+            restart_mock.assert_called_once_with(extra_args=["-d", "newdb"])
+            assert app._db_name == "newdb"
+
+    async def test_switch_same_or_none_is_noop(self, mock_cmd, tmp_path):
+        from unittest.mock import MagicMock
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            restart_mock = MagicMock()
+            app._odoo.restart = restart_mock  # type: ignore[method-assign]
+            app._handle_switch_db(None)
+            app._handle_switch_db(app._db_name)
+            await pilot.pause(0.1)
+            restart_mock.assert_not_called()
+
+
+class TestModuleMaintenanceActions:
+    """Test the 'a' (update apps list) and 'k' (cleanup) worker actions."""
+
+    async def test_update_apps_list_calls_client(self, mock_cmd, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import odoodev.tui.xmlrpc_client as xmlrpc_mod
+
+        instance = MagicMock()
+        instance.update_module_list.return_value = 4
+        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", MagicMock(return_value=instance))
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app.action_update_apps_list()
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.1)
+        instance.update_module_list.assert_called_once()
+
+    async def test_cleanup_modules_calls_client(self, mock_cmd, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import odoodev.tui.xmlrpc_client as xmlrpc_mod
+
+        instance = MagicMock()
+        instance.cleanup_uninstalled_modules.return_value = 7
+        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", MagicMock(return_value=instance))
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app.action_cleanup_modules()
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.1)
+        instance.cleanup_uninstalled_modules.assert_called_once()

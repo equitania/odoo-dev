@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from datetime import datetime
+from pathlib import Path
 
 import click
 import questionary
@@ -611,14 +612,21 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="Database name (interactive selection if omitted)")
 @click.option("-t", "--type", "backup_type", type=click.Choice(["sql", "zip"]), help="Backup type")
-@click.option("-o", "--output", "output_dir", type=ExpandedPath(), default=".", help="Output directory (default: .)")
+@click.option(
+    "-o",
+    "--output",
+    "output_dir",
+    type=ExpandedPath(),
+    default=None,
+    help="Output directory (default: ~/Downloads)",
+)
 @click.pass_context
 def db_backup(
     ctx: click.Context,
     version: str | None,
     name: str | None,
     backup_type: str | None,
-    output_dir: str,
+    output_dir: str | None,
 ) -> None:
     """Create a database backup (SQL dump or ZIP with filestore).
 
@@ -654,8 +662,9 @@ def db_backup(
         if not backup_type:
             raise SystemExit(1)
 
-    # Prepare output
-    output_dir = os.path.abspath(output_dir)
+    # Prepare output (default to the user's Downloads folder, same convention
+    # as the TUI module-CSV export)
+    output_dir = os.path.abspath(output_dir or str(Path.home() / "Downloads"))
     os.makedirs(output_dir, exist_ok=True)
     date_suffix = datetime.now().strftime("%y%m%d")
 

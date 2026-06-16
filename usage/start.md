@@ -59,6 +59,10 @@ Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tats�
 | `r` | Odoo-Server neu starten |
 | `u` | Modul aktualisieren (`-u`-Neustart oder XML-RPC Hot-Update) |
 | `l` | Sprache laden / Uebersetzungen neu laden |
+| `b` | Datenbank sichern nach `~/Downloads/` (ZIP mit Filestore oder nur SQL) |
+| `d` | Datenbank wechseln (Server startet mit der gewaehlten DB neu) |
+| `a` | Apps-Liste aktualisieren (`update_list` via XML-RPC) |
+| `k` | Nicht-installierte Module aus dem Katalog entfernen |
 | `?` | Tastenbelegung anzeigen |
 | `0` | Alle Log-Level anzeigen |
 | `1`–`5` | DEBUG / INFO / WARNING / ERROR / CRITICAL einzeln umschalten |
@@ -164,6 +168,10 @@ The displayed database name is detected live from the Odoo log lines (the databa
 | `r` | Restart Odoo server |
 | `u` | Update module (`-u` restart or XML-RPC hot update) |
 | `l` | Load language / reload translations |
+| `b` | Back up database to `~/Downloads/` (ZIP with filestore or SQL only) |
+| `d` | Switch database (restarts the server with the chosen DB) |
+| `a` | Update apps list (`update_list` via XML-RPC) |
+| `k` | Remove non-installed modules from the catalog |
 | `?` | Show keybinding overlay |
 | `0` | Show all log levels |
 | `1`–`5` | Toggle DEBUG / INFO / WARNING / ERROR / CRITICAL individually |

@@ -230,3 +230,58 @@ class OdooXmlRpcClient:
             [module_ids],
         )
         return True
+
+    def update_module_list(self) -> int:
+        """Refresh the module list (equivalent to 'Update Apps List' in the UI).
+
+        Re-scans the addons path so ``ir.module.module`` reflects the modules
+        actually present on the current system's disk.
+
+        Returns:
+            Number of newly added module records (0 if the server returned no
+            usable count).
+
+        Raises:
+            ConnectionError: If the server is not reachable.
+        """
+        result = self._execute_kw(
+            "ir.module.module",
+            "update_list",
+            [],
+        )
+        # Odoo returns ``[updated, added]``; surface the added count for the UI.
+        if isinstance(result, (list, tuple)) and len(result) >= 2:
+            try:
+                return int(result[1])
+            except (TypeError, ValueError):
+                return 0
+        return 0
+
+    def cleanup_uninstalled_modules(self) -> int:
+        """Delete all ir.module.module records that are not installed.
+
+        Removes stale catalog entries (``state != 'installed'``) that pollute
+        the module list after restoring a database whose source config listed
+        modules without installing them. Combine with :meth:`update_module_list`
+        to rebuild the catalog from the current system.
+
+        Returns:
+            Number of deleted module records.
+
+        Raises:
+            ConnectionError: If the server is not reachable.
+        """
+        ids = self._execute_kw(
+            "ir.module.module",
+            "search",
+            [[["state", "!=", "installed"]]],
+        )
+        if not isinstance(ids, list) or not ids:
+            return 0
+
+        self._execute_kw(
+            "ir.module.module",
+            "unlink",
+            [ids],
+        )
+        return len(ids)

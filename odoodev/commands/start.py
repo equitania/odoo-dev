@@ -696,6 +696,7 @@ def _launch_tui(
 
     ports = version_cfg.ports  # type: ignore[attr-defined]
     odoo_port = int(env_vars.get("ODOO_PORT", str(ports.odoo)))
+    db_port = int(env_vars.get("DB_PORT", str(ports.db)))
     tui_db_name = _resolve_tui_db_name(database, extra_args, config_path, version)
 
     from odoodev.tui.app import OdooTuiApp
@@ -707,6 +708,7 @@ def _launch_tui(
         version_info=version,
         odoo_port=odoo_port,
         db_name=tui_db_name,
+        db_port=db_port,
     )
     app.run()
     # Safety net: ensure Odoo is stopped regardless of how TUI exited
