@@ -95,7 +95,7 @@ Wenn Flags weggelassen werden, fragt odoodev interaktiv nach:
 | Format | Erkennung | Anmerkung |
 |--------|-----------|-----------|
 | ZIP | `zipfile.is_zipfile()` oder `.zip`-Endung | Standard-Odoo-Backup-Format (SQL + Filestore) |
-| 7z | `.7z`-Endung | Verwendet `7zz` oder `7z`-Binary |
+| 7z | `.7z`-Endung | Verwendet `7zz`-, `7z`- oder `7za`-Binary (Debians `p7zip` liefert `7za`) |
 | tar/tgz | `.tar` oder `.tgz`-Endung | Komprimiertes Archiv |
 | gz | `.gz`-Endung | Gunzip zu dump.sql |
 | SQL | `.sql` oder `.dump`-Endung | Direkter SQL-Import |
@@ -284,7 +284,7 @@ When flags are omitted, odoodev prompts interactively:
 | Format | Detection | Note |
 |--------|-----------|------|
 | ZIP | `zipfile.is_zipfile()` or `.zip` extension | Standard Odoo backup format (SQL + filestore) |
-| 7z | `.7z` extension | Uses `7zz` or `7z` binary |
+| 7z | `.7z` extension | Uses `7zz`, `7z`, or `7za` binary (Debian's `p7zip` ships `7za`) |
 | tar/tgz | `.tar` or `.tgz` extension | Compressed archive |
 | gz | `.gz` extension | Gunzip to dump.sql |
 | SQL | `.sql` or `.dump` extension | Direct SQL import |

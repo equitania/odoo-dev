@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.31.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.31.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -168,6 +168,11 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.1:**
+- **Behoben:** `.7z`-Backups ließen sich unter Debian/WSL2 nicht wiederherstellen — die Extraktion erkennt jetzt zusätzlich das Binary `7za` (von Debians `p7zip`), und die Fehlermeldung nennt die korrekten Pakete je Plattform.
+- **Behoben:** Der wkhtmltopdf-Hinweis war unter Linux unbrauchbar — er verweist jetzt auf das patched-Qt-`.deb` von `github.com/wkhtmltopdf/packaging`; die Erkennung durchsucht zusätzlich `/opt/wkhtmltox/bin`.
+- **Neu:** `odoodev doctor` prüft jetzt zusätzlich auf eine 7-Zip-CLI, sodass bei einer Neueinrichtung frühzeitig gewarnt wird, falls `.7z`-Backups nicht wiederherstellbar wären.
 
 **Version 0.31.0:**
 - **Neu:** Datenbank-Backup direkt aus dem TUI (`b`) — Dialog für DB + Typ (ZIP/SQL), läuft im Hintergrund-Thread, Datei landet in `~/Downloads/`.
@@ -366,6 +371,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.1:**
+- **Fixed:** `.7z` backups could not be restored on Debian/WSL2 — extraction now also detects the `7za` binary (shipped by Debian's `p7zip`), and the error message names the correct packages per platform.
+- **Fixed:** The wkhtmltopdf hint was unusable on Linux — it now points to the patched-Qt `.deb` from `github.com/wkhtmltopdf/packaging`; detection also searches `/opt/wkhtmltox/bin`.
+- **Added:** `odoodev doctor` now also checks for a 7-Zip CLI, warning early during a fresh setup when `.7z` backups would not be restorable.
 
 **Version 0.31.0:**
 - **Added:** Database backup straight from the TUI (`b`) — dialog for DB + type (ZIP/SQL), runs in a worker thread, the file lands in `~/Downloads/`.

@@ -60,15 +60,16 @@ def check_wkhtmltopdf() -> str | None:
     Returns:
         Path to wkhtmltopdf binary, or None if not found.
     """
-    extra_paths = []
     if detect_os() == "macos":
         extra_paths = [
             "/usr/local/bin",
         ]
     else:
+        # /opt/wkhtmltox/bin is the default location of the official tarball/.deb.
         extra_paths = [
             "/usr/local/bin",
             "/usr/bin",
+            "/opt/wkhtmltox/bin",
         ]
 
     path = find_executable("wkhtmltopdf", extra_paths)
@@ -77,11 +78,37 @@ def check_wkhtmltopdf() -> str | None:
         return path
 
     print_warning("wkhtmltopdf not found")
-    print_info("Install: Download 'patched qt' version → https://wkhtmltopdf.org/downloads.html")
+    print_info("Install the 'patched Qt' build — required for correct Odoo PDF rendering")
     if detect_os() == "macos":
         print_info("macOS: Download the .pkg installer from https://wkhtmltopdf.org/downloads.html")
     else:
-        print_info("Note: 'apt-get install wkhtmltopdf' lacks patched Qt — Odoo PDF rendering may not work")
+        print_info(
+            "Linux/Debian: Download the patched-Qt .deb from "
+            "https://github.com/wkhtmltopdf/packaging/releases and install with 'sudo dpkg -i <file>.deb'"
+        )
+        print_info("Do NOT use 'apt install wkhtmltopdf' — that build lacks patched Qt and breaks PDF rendering")
+    return None
+
+
+def check_7zip() -> str | None:
+    """Check if a 7-Zip CLI binary is installed (needed to restore .7z backups).
+
+    Returns:
+        Path to the first 7-Zip binary found, or None if none is available.
+    """
+    # Binary names vary by platform/package: 7zz (macOS brew 7zip, Debian 13+ "7zip"),
+    # 7z (p7zip-full), 7za (p7zip / p7zip-full on older Debian/Ubuntu).
+    for name in ("7zz", "7z", "7za"):
+        path = find_executable(name)
+        if path:
+            print_success(f"7-Zip found: {path}")
+            return path
+
+    print_warning("7-Zip not found — .7z backups cannot be restored")
+    if detect_os() == "macos":
+        print_info("macOS: brew install 7zip")
+    else:
+        print_info("Linux/Debian: apt install 7zip (provides 7zz) or apt install p7zip-full (provides 7z/7za)")
     return None
 
 
@@ -506,6 +533,7 @@ def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]
     results["node"] = check_node() is not None
     results["node_packages"] = len(check_node_packages()) == 0
     results["system_libs"] = len(check_system_libs()) == 0
+    results["7zip"] = check_7zip() is not None
 
     if venv_dir:
         python_bin = os.path.join(venv_dir, "bin", "python3")

@@ -117,7 +117,8 @@ odoodev init 18 --skip-docker
 | UV | `uv --version` | Ja | Python-Paketmanager — ersetzt pip |
 | Docker | `docker info` | Ja | Fuer PostgreSQL- und Mailpit-Container |
 | Docker Compose V2 | `docker compose version` | Ja | Service-Orchestrierung |
-| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/usr/local/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
+| wkhtmltopdf | Pfad-Detection (plattformspezifisch) | Ja | macOS: `/usr/local/bin`; Linux: `/usr/local/bin`, `/usr/bin`, `/opt/wkhtmltox/bin` |
+| 7-Zip | `7zz`/`7z`/`7za` im PATH | Fuer `.7z`-Restore | Debians `p7zip` liefert `7za` |
 | PostgreSQL-Tools | `pg_dump`, `psql` | Fuer DB-Operationen | macOS: `/opt/homebrew/opt/libpq/bin` |
 | Git | SSH-Zugang | Ja | Fuer Repository-Klonen |
 
@@ -125,15 +126,16 @@ odoodev init 18 --skip-docker
 # macOS
 brew install uv
 brew install libpq && brew link libpq --force
-# wkhtmltopdf: "patched qt"-Version von https://wkhtmltopdf.org/downloads.html herunterladen
+brew install 7zip
+# wkhtmltopdf: "patched qt"-Version (.pkg) von https://wkhtmltopdf.org/downloads.html herunterladen
 
 # Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-sudo apt-get install -y postgresql-client
-# wkhtmltopdf: "patched qt"-Version von https://wkhtmltopdf.org/downloads.html herunterladen
+sudo apt-get install -y postgresql-client 7zip
+# wkhtmltopdf: patched-Qt-.deb von https://github.com/wkhtmltopdf/packaging/releases laden, dann: sudo dpkg -i <datei>.deb
 ```
 
-> **Hinweis macOS:** Den `.pkg` Installer von https://wkhtmltopdf.org/downloads.html verwenden (`brew install wkhtmltopdf` funktioniert nicht). **Hinweis Linux:** `apt-get install wkhtmltopdf` enthaelt kein gepatchtes Qt — stattdessen die 'patched qt'-Version von https://wkhtmltopdf.org/downloads.html herunterladen.
+> **Hinweis macOS:** Den `.pkg` Installer von https://wkhtmltopdf.org/downloads.html verwenden (`brew install wkhtmltopdf` funktioniert nicht). **Hinweis Linux:** `apt install wkhtmltopdf` enthaelt kein gepatchtes Qt — stattdessen das patched-Qt-`.deb` von https://github.com/wkhtmltopdf/packaging/releases laden und mit `sudo dpkg -i <datei>.deb` installieren.
 
 ---
 
@@ -250,7 +252,8 @@ odoodev init 18 --skip-docker
 | UV | `uv --version` | Yes | Python package manager — replaces pip |
 | Docker | `docker info` | Yes | For PostgreSQL and Mailpit containers |
 | Docker Compose V2 | `docker compose version` | Yes | Service orchestration |
-| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/usr/local/bin`; Linux: `/usr/local/bin`, `/usr/bin` |
+| wkhtmltopdf | Path detection (platform-specific) | Yes | macOS: `/usr/local/bin`; Linux: `/usr/local/bin`, `/usr/bin`, `/opt/wkhtmltox/bin` |
+| 7-Zip | `7zz`/`7z`/`7za` on PATH | For `.7z` restore | Debian's `p7zip` ships `7za` |
 | PostgreSQL tools | `pg_dump`, `psql` | For DB operations | macOS: `/opt/homebrew/opt/libpq/bin` |
 | Git | SSH access | Yes | For repository cloning |
 
@@ -258,12 +261,13 @@ odoodev init 18 --skip-docker
 # macOS
 brew install uv
 brew install libpq && brew link libpq --force
-# wkhtmltopdf: download 'patched qt' version from https://wkhtmltopdf.org/downloads.html
+brew install 7zip
+# wkhtmltopdf: download the 'patched qt' version (.pkg) from https://wkhtmltopdf.org/downloads.html
 
 # Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-sudo apt-get install -y postgresql-client
-# wkhtmltopdf: download 'patched qt' version from https://wkhtmltopdf.org/downloads.html
+sudo apt-get install -y postgresql-client 7zip
+# wkhtmltopdf: download the patched-Qt .deb from https://github.com/wkhtmltopdf/packaging/releases, then: sudo dpkg -i <file>.deb
 ```
 
-> **Note macOS:** Use the `.pkg` installer from https://wkhtmltopdf.org/downloads.html (`brew install wkhtmltopdf` does not work). **Note Linux:** `apt-get install wkhtmltopdf` lacks patched Qt — download the 'patched qt' version from https://wkhtmltopdf.org/downloads.html instead.
+> **Note macOS:** Use the `.pkg` installer from https://wkhtmltopdf.org/downloads.html (`brew install wkhtmltopdf` does not work). **Note Linux:** `apt install wkhtmltopdf` lacks patched Qt — download the patched-Qt `.deb` from https://github.com/wkhtmltopdf/packaging/releases and install it with `sudo dpkg -i <file>.deb`.

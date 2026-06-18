@@ -106,6 +106,40 @@ class TestExtractBackup:
         assert os.path.isdir(extract_path)
 
 
+class TestExtract7z:
+    @pytest.mark.parametrize("available", ["7zz", "7z", "7za"])
+    def test_extract_7z_uses_available_binary(self, tmp_dir, monkeypatch, available):
+        """7z extraction works with any of 7zz/7z/7za (Debian's p7zip provides 7za)."""
+        archive = os.path.join(tmp_dir, "backup.7z")
+        with open(archive, "w") as f:
+            f.write("not-a-real-7z")  # content irrelevant — subprocess is mocked
+        extract_path = os.path.join(tmp_dir, "extracted")
+
+        calls: dict[str, list[str]] = {}
+
+        def fake_which(name):
+            return f"/usr/bin/{name}" if name == available else None
+
+        def fake_run(cmd, *args, **kwargs):
+            calls["cmd"] = cmd
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("odoodev.core.database.shutil.which", fake_which)
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+
+        assert extract_backup(archive, extract_path) is True
+        assert calls["cmd"][0] == available
+
+    def test_extract_7z_no_binary_returns_false(self, tmp_dir, monkeypatch):
+        """When no 7z binary is installed, extraction fails gracefully (not a crash)."""
+        archive = os.path.join(tmp_dir, "backup.7z")
+        with open(archive, "w") as f:
+            f.write("x")
+        extract_path = os.path.join(tmp_dir, "extracted")
+        monkeypatch.setattr("odoodev.core.database.shutil.which", lambda name: None)
+        assert extract_backup(archive, extract_path) is False
+
+
 class TestDetectBackupType:
     def test_detects_root_sql(self, tmp_dir):
         """Detects dump.sql in root of extracted directory."""

@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from odoodev.core.prerequisites import (
     MACOS_LIBS,
+    check_7zip,
     check_node,
     check_node_packages,
     check_system_libs,
+    check_wkhtmltopdf,
     run_all_checks,
 )
 
@@ -230,6 +232,7 @@ class TestCheckSystemLibs:
 class TestRunAllChecks:
     """Test that run_all_checks returns new keys."""
 
+    @patch("odoodev.core.prerequisites.check_7zip", return_value="/usr/bin/7zz")
     @patch("odoodev.core.prerequisites.check_system_libs", return_value=[])
     @patch("odoodev.core.prerequisites.check_node_packages", return_value=[])
     @patch("odoodev.core.prerequisites.check_node", return_value="/usr/bin/node")
@@ -244,6 +247,97 @@ class TestRunAllChecks:
         assert "node" in results
         assert "node_packages" in results
         assert "system_libs" in results
+        assert "7zip" in results
         assert results["node"] is True
         assert results["node_packages"] is True
         assert results["system_libs"] is True
+        assert results["7zip"] is True
+
+
+# ---------------------------------------------------------------------------
+# check_wkhtmltopdf
+# ---------------------------------------------------------------------------
+
+
+class TestCheckWkhtmltopdf:
+    """Tests for check_wkhtmltopdf()."""
+
+    @patch("odoodev.core.prerequisites.find_executable", return_value="/usr/local/bin/wkhtmltopdf")
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_found_in_usr_local_bin(self, _os, _find):
+        assert check_wkhtmltopdf() == "/usr/local/bin/wkhtmltopdf"
+
+    @patch("odoodev.core.prerequisites.find_executable", return_value="/usr/bin/wkhtmltopdf")
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_found_in_usr_bin(self, _os, _find):
+        assert check_wkhtmltopdf() == "/usr/bin/wkhtmltopdf"
+
+    @patch("odoodev.core.prerequisites.find_executable", return_value="/opt/wkhtmltox/bin/wkhtmltopdf")
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_found_in_opt_wkhtmltox(self, _os, _find):
+        assert check_wkhtmltopdf() == "/opt/wkhtmltox/bin/wkhtmltopdf"
+
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_linux_searches_opt_wkhtmltox_path(self, _os, mock_find):
+        """Linux must include /opt/wkhtmltox/bin in the search paths."""
+        check_wkhtmltopdf()
+        name, extra_paths = mock_find.call_args.args
+        assert name == "wkhtmltopdf"
+        assert "/opt/wkhtmltox/bin" in extra_paths
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_not_found_linux_gives_deb_hint(self, _os, _find, mock_info):
+        assert check_wkhtmltopdf() is None
+        hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
+        assert "dpkg" in hints
+        assert "github.com/wkhtmltopdf/packaging" in hints
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="macos")
+    def test_not_found_macos_gives_pkg_hint(self, _os, _find, mock_info):
+        assert check_wkhtmltopdf() is None
+        hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
+        assert ".pkg" in hints
+
+
+# ---------------------------------------------------------------------------
+# check_7zip
+# ---------------------------------------------------------------------------
+
+
+class TestCheck7zip:
+    """Tests for check_7zip()."""
+
+    def test_found_7zz(self):
+        with patch("odoodev.core.prerequisites.find_executable", side_effect=lambda n: "/usr/bin/7zz"):
+            assert check_7zip() == "/usr/bin/7zz"
+
+    def test_found_only_7za(self):
+        """Debian's p7zip ships only 7za — it must still be detected."""
+
+        def only_7za(name):
+            return "/usr/bin/7za" if name == "7za" else None
+
+        with patch("odoodev.core.prerequisites.find_executable", side_effect=only_7za):
+            assert check_7zip() == "/usr/bin/7za"
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_not_found_linux_hint(self, _os, _find, mock_info):
+        assert check_7zip() is None
+        hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
+        assert "apt install 7zip" in hints
+        assert "p7zip-full" in hints
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="macos")
+    def test_not_found_macos_hint(self, _os, _find, mock_info):
+        assert check_7zip() is None
+        hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
+        assert "brew install 7zip" in hints

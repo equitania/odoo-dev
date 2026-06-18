@@ -28,6 +28,7 @@ ALL_PASS = {
     "node": True,
     "node_packages": True,
     "system_libs": True,
+    "7zip": True,
     "python_packages": True,
 }
 

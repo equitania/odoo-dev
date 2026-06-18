@@ -30,6 +30,7 @@ odoodev doctor 18
 | `postgres` | Hart | PostgreSQL-Port erreichbar (nur mit VERSION) |
 | `python_packages` | Hart | Python-Abhaengigkeiten im Venv vollstaendig (nur mit VERSION + vorhandenem Venv) |
 | `wkhtmltopdf` | Soft | wkhtmltopdf installiert und ausfuehrbar |
+| `7zip` | Soft | 7-Zip-CLI (`7zz`/`7z`/`7za`) vorhanden — fuer `.7z`-Restore |
 | `node` | Soft | Node.js vorhanden |
 | `node_packages` | Soft | rtlcss, less, less-plugin-clean-css installiert |
 | `system_libs` | Soft | Systembibliotheken (z.B. libxml2, libpq) |
@@ -71,6 +72,7 @@ Nach den einzelnen Checks zeigt `doctor` eine Rich-Tabelle:
  docker             ok
  docker_compose     ok
  wkhtmltopdf        warning  not found — PDF reports may not render
+ 7zip               ok
  pg_tools           ok
  postgres           ok       port 18432 reachable
  node               warning  not found — rtlcss/less unavailable
@@ -118,6 +120,7 @@ odoodev doctor 18
 | `postgres` | Hard | PostgreSQL port reachable (only with VERSION) |
 | `python_packages` | Hard | Python dependencies complete in venv (only with VERSION + existing venv) |
 | `wkhtmltopdf` | Soft | wkhtmltopdf installed and executable |
+| `7zip` | Soft | 7-Zip CLI (`7zz`/`7z`/`7za`) present — for `.7z` restore |
 | `node` | Soft | Node.js present |
 | `node_packages` | Soft | rtlcss, less, less-plugin-clean-css installed |
 | `system_libs` | Soft | System libraries (e.g. libxml2, libpq) |
@@ -159,6 +162,7 @@ After the individual checks, `doctor` displays a Rich table:
  docker             ok
  docker_compose     ok
  wkhtmltopdf        warning  not found — PDF reports may not render
+ 7zip               ok
  pg_tools           ok
  postgres           ok       port 18432 reachable
  node               warning  not found — rtlcss/less unavailable

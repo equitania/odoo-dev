@@ -26,12 +26,13 @@ HINTS = {
     "uv": "curl -LsSf https://astral.sh/uv/install.sh | sh",
     "docker": "Install/start Docker Desktop or Docker Engine",
     "docker_compose": "Install the Docker Compose v2 plugin",
-    "wkhtmltopdf": "Download the patched-Qt build from wkhtmltopdf.org",
+    "wkhtmltopdf": "patched-Qt: macOS .pkg from wkhtmltopdf.org / Linux .deb from github.com/wkhtmltopdf/packaging",
     "pg_tools": "brew install libpq  /  apt install postgresql-client",
     "postgres": "odoodev docker up <version>",
     "node": "brew install node@20  /  NodeSource setup_20.x",
     "node_packages": "sudo npm install -g rtlcss less less-plugin-clean-css",
     "system_libs": "See install hint above",
+    "7zip": "needed for .7z restore — macOS: brew install 7zip / Linux: apt install 7zip (or p7zip-full)",
     "python_packages": "odoodev venv setup <version> --force",
 }
 

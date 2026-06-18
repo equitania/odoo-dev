@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.31.1 (18.06.2026)
+
+### Added
+- **`odoodev doctor` now checks for a 7-Zip CLI** — a new soft check probes `7zz`/`7z`/`7za` so a fresh setup (e.g. Debian/WSL2) is warned up front when `.7z` backups would not be restorable, with the correct per-platform install hint (`brew install 7zip` / `apt install 7zip` / `p7zip-full`).
+
+### Fixed
+- **7z backups failed to restore on Debian/WSL2** — `odoodev db restore` only probed the `7zz` and `7z` binaries. Debian's `p7zip` package (without `-full`) ships only `7za`, so 7-Zip was effectively undetected and the restore aborted as "not supported" even though 7-Zip was installed. The extraction now also tries `7za`, and the not-found message names the correct packages per platform (`brew install 7zip`, `apt install 7zip`, `apt install p7zip-full`).
+- **wkhtmltopdf install hint was unusable on Linux** — the "not found" message only said what *not* to do. It now points to the patched-Qt `.deb` from `github.com/wkhtmltopdf/packaging/releases` (`sudo dpkg -i …`) for Linux/Debian and keeps the `.pkg` hint for macOS. The detector also searches `/opt/wkhtmltox/bin` (default tarball/.deb location), and the `doctor` summary hint is now OS-aware.
+
 ## Version 0.31.0 (16.06.2026)
 
 ### Added

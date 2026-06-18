@@ -341,7 +341,9 @@ def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
     try:
         # 7z files
         if ext == ".7z":
-            for cmd_7z in ("7zz", "7z"):
+            # Binary names vary by platform/package: 7zz (macOS brew 7zip, Debian 13+ "7zip"),
+            # 7z (p7zip-full), 7za (p7zip / p7zip-full on older Debian/Ubuntu).
+            for cmd_7z in ("7zz", "7z", "7za"):
                 if shutil.which(cmd_7z):
                     result = subprocess.run(
                         [cmd_7z, "x", backup_file, f"-o{extract_path}"],
@@ -350,7 +352,11 @@ def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
                     )
                     if result.returncode == 0:
                         return True
-            logger.error("7z not found. Install: brew install 7zip (macOS) or apt install p7zip-full")
+            logger.error(
+                "7z not found. Install one of: brew install 7zip (macOS), "
+                "apt install 7zip (Debian 13+, provides 7zz), "
+                "or apt install p7zip-full (older Debian/Ubuntu, provides 7z/7za)"
+            )
             return False
 
         # ZIP files
