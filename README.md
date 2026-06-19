@@ -20,7 +20,7 @@
 - Interaktiver Setup-Wizard für die Ersteinrichtung
 - Native Entwicklung mit UV Virtual Environments
 - Repository-Management mit frei benennbaren Sections in repos.yaml
-- Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, SQL)
+- Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, tar.zst, SQL)
 - DSGVO-Anonymisierung beim Restore (standardmäßig aktiv, Faker-basiert, inkl. HR-/Mitarbeiterdaten, `--no-anonymize` zum Abschalten); `res_users` bleibt per Default testbar — optional via `--anonymize-users`
 - Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, standardmäßig aktiv) + ergänzende Bank-Sync-Bereinigung + eigenständiger Befehl `db neutralize`
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
@@ -169,6 +169,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.31.2:**
+- **Neu:** `odoodev db restore` unterstützt jetzt `.tar.zst`-Stream-Backups — der Backup-Server (`container2backup` v4.7.0+) erzeugt für große Datenbanken ein Zstandard-komprimiertes tar (`dump.sql` + `filestore/`) statt eines gestaffelten ZIP/7z. Der Restore entpackt dieses direkt per `zstd | tarfile`-Stream (kein Zwischen-`.tar` auf der Platte), mit Path-Traversal-Schutz; `odoodev doctor` prüft passend auf eine `zstd`-CLI.
+- **Behoben:** `.tar.gz`-Backups wurden fälschlich als reiner SQL-Dump behandelt (der Filestore ging verloren) — sie werden jetzt korrekt als tar entpackt.
+
 **Version 0.31.1:**
 - **Behoben:** `.7z`-Backups ließen sich unter Debian/WSL2 nicht wiederherstellen — die Extraktion erkennt jetzt zusätzlich das Binary `7za` (von Debians `p7zip`), und die Fehlermeldung nennt die korrekten Pakete je Plattform.
 - **Behoben:** Der wkhtmltopdf-Hinweis war unter Linux unbrauchbar — er verweist jetzt auf das patched-Qt-`.deb` von `github.com/wkhtmltopdf/packaging`; die Erkennung durchsucht zusätzlich `/opt/wkhtmltox/bin`.
@@ -223,7 +227,7 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - Interactive setup wizard for first-time configuration
 - Native development with UV virtual environments
 - Repository management with freely nameable sections in repos.yaml
-- Database backup & restoration (ZIP, 7z, tar, SQL)
+- Database backup & restoration (ZIP, 7z, tar, tar.zst, SQL)
 - GDPR anonymization on restore (on by default, Faker-based, incl. HR/employee data, `--no-anonymize` to disable); `res_users` stays testable by default — opt in via `--anonymize-users`
 - Native Odoo neutralization on restore (`odoo-bin neutralize`, on by default) + supplementary bank-sync cleanup + standalone `db neutralize` command
 - Docker service management (PostgreSQL, Mailpit)
@@ -371,6 +375,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.2:**
+- **Added:** `odoodev db restore` now supports `.tar.zst` stream backups — the backup server (`container2backup` v4.7.0+) produces a Zstandard-compressed tar (`dump.sql` + `filestore/`) for large databases instead of a staged ZIP/7z. Restore decompresses these directly via a `zstd | tarfile` stream (no intermediate `.tar` on disk), with path-traversal protection; `odoodev doctor` gained a matching `zstd` check.
+- **Fixed:** `.tar.gz` backups were mistreated as a plain SQL dump (the filestore was lost) — they now extract correctly as tar.
 
 **Version 0.31.1:**
 - **Fixed:** `.7z` backups could not be restored on Debian/WSL2 — extraction now also detects the `7za` binary (shipped by Debian's `p7zip`), and the error message names the correct packages per platform.

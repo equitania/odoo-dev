@@ -96,8 +96,9 @@ Wenn Flags weggelassen werden, fragt odoodev interaktiv nach:
 |--------|-----------|-----------|
 | ZIP | `zipfile.is_zipfile()` oder `.zip`-Endung | Standard-Odoo-Backup-Format (SQL + Filestore) |
 | 7z | `.7z`-Endung | Verwendet `7zz`-, `7z`- oder `7za`-Binary (Debians `p7zip` liefert `7za`) |
-| tar/tgz | `.tar` oder `.tgz`-Endung | Komprimiertes Archiv |
-| gz | `.gz`-Endung | Gunzip zu dump.sql |
+| tar.zst | `.tar.zst`-Endung | Stream-Backup (`container2backup` v4.7.0+); gestreamt per `zstd \| tarfile`, benoetigt die `zstd`-CLI |
+| tar/tgz/tar.gz | `.tar`/`.tgz`-Endung oder `.tar.gz`-Suffix | Komprimiertes Archiv; `.tar.gz` wird explizit als tar erkannt |
+| gz | `.gz`-Endung (kein tar) | Gunzip zu dump.sql |
 | SQL | `.sql` oder `.dump`-Endung | Direkter SQL-Import |
 
 ### Filestore-Verwaltung
@@ -106,7 +107,7 @@ Wenn Flags weggelassen werden, fragt odoodev interaktiv nach:
 
 Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
 
-1. Backup wird extrahiert (ZIP, 7z, tar, gz, SQL)
+1. Backup wird extrahiert (ZIP, 7z, tar, tar.zst, gz, SQL)
 2. SQL-Dump wird in neue Datenbank eingespielt
 3. Filestore wird nach `~/odoo-share/filestore/{db_name}/` kopiert
 
@@ -285,8 +286,9 @@ When flags are omitted, odoodev prompts interactively:
 |--------|-----------|------|
 | ZIP | `zipfile.is_zipfile()` or `.zip` extension | Standard Odoo backup format (SQL + filestore) |
 | 7z | `.7z` extension | Uses `7zz`, `7z`, or `7za` binary (Debian's `p7zip` ships `7za`) |
-| tar/tgz | `.tar` or `.tgz` extension | Compressed archive |
-| gz | `.gz` extension | Gunzip to dump.sql |
+| tar.zst | `.tar.zst` extension | Stream backup (`container2backup` v4.7.0+); streamed via `zstd \| tarfile`, needs the `zstd` CLI |
+| tar/tgz/tar.gz | `.tar`/`.tgz` extension or `.tar.gz` suffix | Compressed archive; `.tar.gz` is matched explicitly as tar |
+| gz | `.gz` extension (non-tar) | Gunzip to dump.sql |
 | SQL | `.sql` or `.dump` extension | Direct SQL import |
 
 ### Filestore Management
@@ -295,7 +297,7 @@ When flags are omitted, odoodev prompts interactively:
 
 During `odoodev db restore`, the filestore is managed automatically:
 
-1. Backup is extracted (ZIP, 7z, tar, gz, SQL)
+1. Backup is extracted (ZIP, 7z, tar, tar.zst, gz, SQL)
 2. SQL dump is imported into new database
 3. Filestore is copied to `~/odoo-share/filestore/{db_name}/`
 

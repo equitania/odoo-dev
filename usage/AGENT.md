@@ -11,7 +11,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.31.1  ·  **Framework:** Python / Click
+- **Version:** 0.31.2  ·  **Framework:** Python / Click
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
 **Version argument:** Almost every command takes an optional `[VERSION]` (`16`–`19`). If omitted, it
@@ -21,7 +21,7 @@ you must pass it explicitly.
 ## Capabilities at a glance
 - Start an Odoo server in several modes: normal, dev hot-reload, shell, test, prepare; optional TUI.
 - Spin Docker side-services (PostgreSQL + Mailpit) up/down and tail their logs.
-- Full database lifecycle: list, backup (SQL/ZIP+filestore), restore, copy, rename, drop, neutralize.
+- Full database lifecycle: list, backup (SQL/ZIP+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize.
 - **Safe-by-default restore:** deactivate cron, native neutralize, and anonymize PII unless opted out.
 - Clone/update Git repos and (re)generate the dated `odoo_*.conf` addons_path.
 - Manage per-version UV virtualenvs and `.env` files.
