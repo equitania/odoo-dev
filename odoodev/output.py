@@ -133,11 +133,15 @@ def text_input(message: str, default: str = "") -> str:
 
 
 def path_input(message: str, default: str = "") -> str:
-    """Interactive file path input with autocomplete using questionary."""
+    """Interactive file path input with autocomplete using questionary.
+
+    Surrounding whitespace is stripped — pasted paths or autocomplete results
+    can carry a trailing space/newline that would otherwise break os.path.exists.
+    """
     result = questionary.path(message, default=default, style=_ownerp_style()).ask()
     if result is None:
         raise SystemExit(0)
-    return os.path.expanduser(result)
+    return os.path.expanduser(result.strip())
 
 
 def checkbox(message: str, choices: Sequence[str | questionary.Choice]) -> list[str]:

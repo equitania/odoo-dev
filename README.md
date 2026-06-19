@@ -169,6 +169,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.31.3:**
+- **Behoben:** Der interaktive `Backup file:`-Prompt von `odoodev db restore` wies gültige Pfade mit umschließendem Whitespace ab — ein eingefügtes oder per Autovervollständigung erzeugtes Leerzeichen/Newline führte zu „File not found", obwohl die Datei existierte. Pfad-Eingaben werden jetzt vor der `~`-Expansion gestrippt.
+
 **Version 0.31.2:**
 - **Neu:** `odoodev db restore` unterstützt jetzt `.tar.zst`-Stream-Backups — der Backup-Server (`container2backup` v4.7.0+) erzeugt für große Datenbanken ein Zstandard-komprimiertes tar (`dump.sql` + `filestore/`) statt eines gestaffelten ZIP/7z. Der Restore entpackt dieses direkt per `zstd | tarfile`-Stream (kein Zwischen-`.tar` auf der Platte), mit Path-Traversal-Schutz; `odoodev doctor` prüft passend auf eine `zstd`-CLI.
 - **Behoben:** `.tar.gz`-Backups wurden fälschlich als reiner SQL-Dump behandelt (der Filestore ging verloren) — sie werden jetzt korrekt als tar entpackt.
@@ -375,6 +378,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.3:**
+- **Fixed:** `odoodev db restore`'s interactive `Backup file:` prompt rejected valid paths with surrounding whitespace — a pasted or autocompleted trailing space/newline caused "File not found" even though the file existed. Path inputs are now stripped before `~` expansion.
 
 **Version 0.31.2:**
 - **Added:** `odoodev db restore` now supports `.tar.zst` stream backups — the backup server (`container2backup` v4.7.0+) produces a Zstandard-compressed tar (`dump.sql` + `filestore/`) for large databases instead of a staged ZIP/7z. Restore decompresses these directly via a `zstd | tarfile` stream (no intermediate `.tar` on disk), with path-traversal protection; `odoodev doctor` gained a matching `zstd` check.

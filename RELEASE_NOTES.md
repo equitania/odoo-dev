@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.31.3 (19.06.2026)
+
+### Fixed
+- **Interactive backup-file prompt rejected valid paths with surrounding whitespace** — when a path pasted (or autocompleted) into `odoodev db restore`'s `Backup file:` prompt carried a trailing space or newline, `os.path.exists` failed and the restore aborted with "File not found" even though the file existed. `path_input` now strips surrounding whitespace before expanding `~`, so all interactive path prompts (restore, copy, …) tolerate stray whitespace.
+
 ## Version 0.31.2 (19.06.2026)
 
 ### Added

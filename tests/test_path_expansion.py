@@ -27,6 +27,24 @@ class TestPathInputExpansion:
         monkeypatch.setattr("odoodev.output.questionary.path", lambda *a, **k: _FakePrompt("/tmp/x.7z"))
         assert path_input("Backup file:") == "/tmp/x.7z"
 
+    def test_path_input_strips_surrounding_whitespace(self, monkeypatch):
+        """Pasted paths / autocomplete results may carry a trailing space or
+        newline — it must be stripped so os.path.exists does not spuriously fail."""
+        monkeypatch.setattr(
+            "odoodev.output.questionary.path",
+            lambda *a, **k: _FakePrompt("  /tmp/backup.tar.zst \n"),
+        )
+        assert path_input("Backup file:") == "/tmp/backup.tar.zst"
+
+    def test_path_input_strips_then_expands_tilde(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.output.questionary.path",
+            lambda *a, **k: _FakePrompt(" ~/backup.tar.zst "),
+        )
+        result = path_input("Backup file:")
+        assert result == os.path.join(os.path.expanduser("~"), "backup.tar.zst")
+        assert not result.endswith(" ")
+
 
 class TestExpandedPath:
     def test_convert_expands_tilde(self):
