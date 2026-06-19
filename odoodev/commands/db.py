@@ -73,8 +73,9 @@ def _suggest_db_name(backup_file: str) -> str:
     import re
 
     name = os.path.basename(backup_file)
-    # Remove extensions (.zip, .sql, .tar.gz, .7z, etc.)
-    for ext in (".tar.gz", ".zip", ".7z", ".tgz", ".gz", ".sql", ".dump", ".tar"):
+    # Remove extensions (.zip, .sql, .tar.zst, .tar.gz, .7z, etc.)
+    # Longer compound suffixes must come first so the right one strips.
+    for ext in (".tar.zst", ".tar.gz", ".zip", ".7z", ".tgz", ".gz", ".sql", ".dump", ".tar"):
         if name.lower().endswith(ext):
             name = name[: -len(ext)]
             break
@@ -387,7 +388,7 @@ def db_restore(
 ) -> None:
     """Restore a database from backup file.
 
-    Supports ZIP, 7z, tar, gz, and SQL formats.
+    Supports ZIP, 7z, tar, tar.zst, gz, and SQL formats.
     Automatically detects backup structure and handles filestore.
     """
     version = resolve_version(ctx, version)

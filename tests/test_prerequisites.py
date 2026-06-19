@@ -11,6 +11,7 @@ from odoodev.core.prerequisites import (
     check_node_packages,
     check_system_libs,
     check_wkhtmltopdf,
+    check_zstd,
     run_all_checks,
 )
 
@@ -232,6 +233,7 @@ class TestCheckSystemLibs:
 class TestRunAllChecks:
     """Test that run_all_checks returns new keys."""
 
+    @patch("odoodev.core.prerequisites.check_zstd", return_value="/usr/bin/zstd")
     @patch("odoodev.core.prerequisites.check_7zip", return_value="/usr/bin/7zz")
     @patch("odoodev.core.prerequisites.check_system_libs", return_value=[])
     @patch("odoodev.core.prerequisites.check_node_packages", return_value=[])
@@ -248,10 +250,12 @@ class TestRunAllChecks:
         assert "node_packages" in results
         assert "system_libs" in results
         assert "7zip" in results
+        assert "zstd" in results
         assert results["node"] is True
         assert results["node_packages"] is True
         assert results["system_libs"] is True
         assert results["7zip"] is True
+        assert results["zstd"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -341,3 +345,32 @@ class TestCheck7zip:
         assert check_7zip() is None
         hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
         assert "brew install 7zip" in hints
+
+
+# ---------------------------------------------------------------------------
+# check_zstd
+# ---------------------------------------------------------------------------
+
+
+class TestCheckZstd:
+    """Tests for check_zstd()."""
+
+    @patch("odoodev.core.prerequisites.find_executable", return_value="/usr/bin/zstd")
+    def test_found(self, _find):
+        assert check_zstd() == "/usr/bin/zstd"
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="linux")
+    def test_not_found_linux_hint(self, _os, _find, mock_info):
+        assert check_zstd() is None
+        hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
+        assert "apt install zstd" in hints
+
+    @patch("odoodev.core.prerequisites.print_info")
+    @patch("odoodev.core.prerequisites.find_executable", return_value=None)
+    @patch("odoodev.core.prerequisites.detect_os", return_value="macos")
+    def test_not_found_macos_hint(self, _os, _find, mock_info):
+        assert check_zstd() is None
+        hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
+        assert "brew install zstd" in hints

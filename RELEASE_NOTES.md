@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.31.2 (19.06.2026)
+
+### Added
+- **`odoodev db restore` supports `.tar.zst` stream backups** — the Equitania backup server (`container2backup` v4.7.0+) now produces a Zstandard-compressed tar (`dump.sql` + `filestore/`) for large databases instead of a staged ZIP/7z, avoiding the threefold disk overhead. Restore decompresses these directly via a `zstd | tarfile` stream (no intermediate uncompressed tar on disk), with path-traversal protection (`filter="data"`). `odoodev doctor` gained a matching `zstd` soft check with per-platform install hints (`brew install zstd` / `apt install zstd`).
+
 ## Version 0.31.1 (18.06.2026)
 
 ### Added

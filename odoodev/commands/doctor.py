@@ -33,6 +33,7 @@ HINTS = {
     "node_packages": "sudo npm install -g rtlcss less less-plugin-clean-css",
     "system_libs": "See install hint above",
     "7zip": "needed for .7z restore — macOS: brew install 7zip / Linux: apt install 7zip (or p7zip-full)",
+    "zstd": "needed for .tar.zst (stream) restore — macOS: brew install zstd / Linux: apt install zstd",
     "python_packages": "odoodev venv setup <version> --force",
 }
 

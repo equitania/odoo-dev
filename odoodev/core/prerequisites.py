@@ -112,6 +112,25 @@ def check_7zip() -> str | None:
     return None
 
 
+def check_zstd() -> str | None:
+    """Check if the zstd CLI is installed (needed to restore .tar.zst stream backups).
+
+    Returns:
+        Path to the zstd binary, or None if not available.
+    """
+    path = find_executable("zstd")
+    if path:
+        print_success(f"zstd found: {path}")
+        return path
+
+    print_warning("zstd not found — .tar.zst (stream) backups cannot be restored")
+    if detect_os() == "macos":
+        print_info("macOS: brew install zstd")
+    else:
+        print_info("Linux/Debian: apt install zstd")
+    return None
+
+
 def check_pg_tools() -> str | None:
     """Check if PostgreSQL client tools (pg_dump, psql) are available.
 
@@ -534,6 +553,7 @@ def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]
     results["node_packages"] = len(check_node_packages()) == 0
     results["system_libs"] = len(check_system_libs()) == 0
     results["7zip"] = check_7zip() is not None
+    results["zstd"] = check_zstd() is not None
 
     if venv_dir:
         python_bin = os.path.join(venv_dir, "bin", "python3")

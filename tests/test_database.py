@@ -79,6 +79,28 @@ class TestExtractBackup:
         assert extract_backup(dump_path, extract_path) is True
         assert os.path.exists(os.path.join(extract_path, "dump.sql"))
 
+    def test_extract_tar_gz_routes_to_tar_branch(self, tmp_dir):
+        """.tar.gz must extract via the tar branch (dump.sql + filestore), not be
+        mistreated as a plain SQL gzip — splitext yields '.gz' so this is a regression guard."""
+        import tarfile
+
+        staging = os.path.join(tmp_dir, "staging")
+        os.makedirs(os.path.join(staging, "filestore"))
+        with open(os.path.join(staging, "dump.sql"), "w") as f:
+            f.write("SELECT 1;")
+        with open(os.path.join(staging, "filestore", "blob"), "w") as f:
+            f.write("data")
+        archive = os.path.join(tmp_dir, "backup.tar.gz")
+        with tarfile.open(archive, "w:gz") as tf:
+            tf.add(os.path.join(staging, "dump.sql"), arcname="dump.sql")
+            tf.add(os.path.join(staging, "filestore"), arcname="filestore")
+
+        extract_path = os.path.join(tmp_dir, "extracted")
+        assert extract_backup(archive, extract_path) is True
+        assert os.path.exists(os.path.join(extract_path, "dump.sql"))
+        # If it had hit the gz/SQL branch, the filestore would be missing.
+        assert os.path.exists(os.path.join(extract_path, "filestore", "blob"))
+
     def test_unsupported_format(self, tmp_dir):
         """Unsupported format returns False."""
         path = os.path.join(tmp_dir, "backup.xyz")
@@ -133,6 +155,64 @@ class TestExtract7z:
     def test_extract_7z_no_binary_returns_false(self, tmp_dir, monkeypatch):
         """When no 7z binary is installed, extraction fails gracefully (not a crash)."""
         archive = os.path.join(tmp_dir, "backup.7z")
+        with open(archive, "w") as f:
+            f.write("x")
+        extract_path = os.path.join(tmp_dir, "extracted")
+        monkeypatch.setattr("odoodev.core.database.shutil.which", lambda name: None)
+        assert extract_backup(archive, extract_path) is False
+
+
+class TestExtractTarZst:
+    """Tests for the .tar.zst stream-backup format (container2backup v4.7.0+)."""
+
+    @staticmethod
+    def _make_tar_zst(tmp_dir: str) -> str:
+        """Build a real dump.sql + filestore/ tar and compress it with zstd."""
+        import shutil
+        import subprocess
+        import tarfile
+
+        zstd_bin = shutil.which("zstd")
+        if zstd_bin is None:
+            pytest.skip("zstd binary not installed")
+
+        staging = os.path.join(tmp_dir, "staging")
+        os.makedirs(os.path.join(staging, "filestore", "ab"))
+        with open(os.path.join(staging, "dump.sql"), "w") as f:
+            f.write("SELECT 1;")
+        with open(os.path.join(staging, "filestore", "ab", "abcdef"), "w") as f:
+            f.write("blob")
+
+        tar_path = os.path.join(tmp_dir, "backup.tar")
+        with tarfile.open(tar_path, "w") as tf:
+            tf.add(os.path.join(staging, "dump.sql"), arcname="dump.sql")
+            tf.add(os.path.join(staging, "filestore"), arcname="filestore")
+
+        zst_path = os.path.join(tmp_dir, "backup.tar.zst")
+        subprocess.run([zstd_bin, "-q", "-f", "-o", zst_path, tar_path], check=True)
+        return zst_path
+
+    def test_extract_tar_zst_roundtrip(self, tmp_dir):
+        """A real .tar.zst extracts dump.sql and the filestore tree."""
+        zst_path = self._make_tar_zst(tmp_dir)
+        extract_path = os.path.join(tmp_dir, "extracted")
+        assert extract_backup(zst_path, extract_path) is True
+        assert os.path.exists(os.path.join(extract_path, "dump.sql"))
+        assert os.path.exists(os.path.join(extract_path, "filestore", "ab", "abcdef"))
+
+    def test_extract_tar_zst_detects_backup_structure(self, tmp_dir):
+        """detect_backup_type recognizes the extracted .tar.zst layout."""
+        zst_path = self._make_tar_zst(tmp_dir)
+        extract_path = os.path.join(tmp_dir, "extracted")
+        assert extract_backup(zst_path, extract_path) is True
+        info = detect_backup_type(extract_path)
+        assert info is not None
+        assert info["sql_file"].endswith("dump.sql")
+        assert info["filestore"] is not None
+
+    def test_extract_tar_zst_no_binary_returns_false(self, tmp_dir, monkeypatch):
+        """When zstd is not installed, extraction fails gracefully (not a crash)."""
+        archive = os.path.join(tmp_dir, "backup.tar.zst")
         with open(archive, "w") as f:
             f.write("x")
         extract_path = os.path.join(tmp_dir, "extracted")

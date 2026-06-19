@@ -301,7 +301,7 @@ def rename_database(
 
 
 def extract_backup(backup_file: str, extract_path: str) -> bool:
-    """Extract a backup file (ZIP, 7z, tar, gz, SQL).
+    """Extract a backup file (ZIP, 7z, tar, tar.zst, gz, SQL).
 
     On success the extracted content is restricted to the current user —
     dumps and filestore may contain production PII before anonymization runs.
@@ -339,6 +339,40 @@ def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
     ext = os.path.splitext(backup_file)[1].lower()
 
     try:
+        # Zstandard-compressed tar (.tar.zst) — Equitania server stream backups
+        # (container2backup v4.7.0+). Checked before splitext-based dispatch because
+        # splitext("x.tar.zst") yields ".zst", which would never match below.
+        if backup_file.lower().endswith(".tar.zst"):
+            import tarfile
+
+            zstd_bin = shutil.which("zstd")
+            if not zstd_bin:
+                logger.error(
+                    "zstd not found — required to restore .tar.zst backups. "
+                    "Install: brew install zstd (macOS) / apt install zstd (Linux)"
+                )
+                return False
+            proc = subprocess.Popen(
+                [zstd_bin, "-d", "-c", backup_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                # Stream mode "r|": single pass over the decompressed stream.
+                # filter="data" rejects path traversal, symlinks, device files and
+                # absolute paths (CWE-22, Python 3.12+ stdlib).
+                with tarfile.open(fileobj=proc.stdout, mode="r|") as tf:
+                    tf.extractall(extract_path, filter="data")
+            finally:
+                if proc.stdout:
+                    proc.stdout.close()
+                ret = proc.wait()
+            if ret != 0:
+                stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+                logger.error("zstd decompression failed: %s", stderr)
+                return False
+            return True
+
         # 7z files
         if ext == ".7z":
             # Binary names vary by platform/package: 7zz (macOS brew 7zip, Debian 13+ "7zip"),
@@ -372,17 +406,19 @@ def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
                 zf.extractall(extract_path)
             return True
 
-        # TAR files
-        if ext in (".tar", ".tgz"):
+        # TAR files (incl. gzip-compressed .tar.gz — tarfile.open auto-detects compression).
+        # .tar.gz must be matched explicitly: splitext yields ".gz", which would otherwise
+        # fall through to the GZIP branch and be mistreated as a plain SQL dump.
+        if ext in (".tar", ".tgz") or backup_file.lower().endswith(".tar.gz"):
             import tarfile
 
             with tarfile.open(backup_file) as tf:
                 # Validate all members before extraction to prevent path traversal (CWE-22)
                 safe_base = os.path.normpath(os.path.abspath(extract_path))
-                for member in tf.getmembers():
-                    member_path = os.path.normpath(os.path.abspath(os.path.join(extract_path, member.name)))
+                for tar_member in tf.getmembers():
+                    member_path = os.path.normpath(os.path.abspath(os.path.join(extract_path, tar_member.name)))
                     if not member_path.startswith(safe_base + os.sep) and member_path != safe_base:
-                        msg = f"Tar path traversal detected: {member.name}"
+                        msg = f"Tar path traversal detected: {tar_member.name}"
                         raise ValueError(msg)
                 # filter="data" blocks symlinks, device files and absolute paths (Python 3.12+ stdlib)
                 tf.extractall(extract_path, filter="data")
