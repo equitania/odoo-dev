@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.31.4 (23.06.2026)
+
+### Added
+- **`odoodev db backup` supports `.tar.zst` stream backups** — a third backup type (`--type tar.zst`) now produces a Zstandard-compressed tar (`dump.sql` + `filestore/`) matching the Equitania backup server (`container2backup` v4.7.0+) and the restore added in 0.31.2. Implemented symmetrically to the restore: a Python `tarfile` stream is piped into the `zstd` CLI (no `zstandard` package needed). Well suited to large databases with a big filestore. A new `--level/-l` option sets the zstd compression level (1=fastest .. 19/22=smallest, default 5, multi-threaded `-T0`). The interactive backup-type prompt lists `TAR.ZST` alongside `SQL` and `ZIP`, and the command fails early with an install hint if the `zstd` CLI is missing.
+
 ## Version 0.31.3 (19.06.2026)
 
 ### Fixed

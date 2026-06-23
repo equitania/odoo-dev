@@ -24,7 +24,24 @@ class TestBackupHelp:
         assert "--name" in result.output
         assert "--type" in result.output
         assert "--output" in result.output
+        assert "--level" in result.output
+        assert "tar.zst" in result.output
         assert "Downloads" in result.output
+
+
+class TestBackupLevelValidation:
+    """The --level option only accepts the zstd range 1..22."""
+
+    def test_level_out_of_range_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["db", "backup", "18", "-n", "x", "-t", "tar.zst", "-l", "99"])
+        assert result.exit_code != 0
+        assert "99" in result.output or "range" in result.output.lower()
+
+    def test_invalid_type_rejected(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["db", "backup", "18", "-n", "x", "-t", "rar"])
+        assert result.exit_code != 0
 
 
 class TestBackupDefaultDestination:

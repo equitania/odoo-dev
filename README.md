@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.31.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.31.4-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -168,6 +168,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.4:**
+- **Neu:** `odoodev db backup` unterstützt jetzt `.tar.zst`-Stream-Backups (`--type tar.zst`) — erzeugt ein Zstandard-komprimiertes tar (`dump.sql` + `filestore/`) passend zum Backup-Server (`container2backup` v4.7.0+) und zum Restore aus 0.31.2. Symmetrisch implementiert: ein Python-`tarfile`-Stream wird in die `zstd`-CLI gepipet (kein `zstandard`-Package nötig). Ideal für große Datenbanken mit umfangreichem Filestore. Die neue Option `--level/-l` setzt das zstd-Kompressionslevel (1=schnell .. 19/22=kleinste, Standard 5). Die interaktive Auswahl listet `TAR.ZST` neben `SQL` und `ZIP`; fehlt die `zstd`-CLI, bricht der Befehl frühzeitig mit Installationshinweis ab.
 
 **Version 0.31.3:**
 - **Behoben:** Der interaktive `Backup file:`-Prompt von `odoodev db restore` wies gültige Pfade mit umschließendem Whitespace ab — ein eingefügtes oder per Autovervollständigung erzeugtes Leerzeichen/Newline führte zu „File not found", obwohl die Datei existierte. Pfad-Eingaben werden jetzt vor der `~`-Expansion gestrippt.
@@ -378,6 +381,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.31.4:**
+- **Added:** `odoodev db backup` now supports `.tar.zst` stream backups (`--type tar.zst`) — produces a Zstandard-compressed tar (`dump.sql` + `filestore/`) matching the backup server (`container2backup` v4.7.0+) and the restore added in 0.31.2. Implemented symmetrically: a Python `tarfile` stream is piped into the `zstd` CLI (no `zstandard` package needed). Well suited to large databases with a big filestore. A new `--level/-l` option sets the zstd compression level (1=fastest .. 19/22=smallest, default 5). The interactive picker lists `TAR.ZST` alongside `SQL` and `ZIP`; the command fails early with an install hint when the `zstd` CLI is missing.
 
 **Version 0.31.3:**
 - **Fixed:** `odoodev db restore`'s interactive `Backup file:` prompt rejected valid paths with surrounding whitespace — a pasted or autocompleted trailing space/newline caused "File not found" even though the file existed. Path inputs are now stripped before `~` expansion.

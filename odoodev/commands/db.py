@@ -21,6 +21,7 @@ from odoodev.core.database import (
     cleanup_restore_temp,
     copy_database,
     copy_filestore,
+    create_backup_tar_zst,
     create_backup_zip,
     create_database,
     database_exists,
@@ -590,7 +591,7 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
     """Interactive backup type selection.
 
     Returns:
-        'sql' or 'zip', or None if aborted.
+        'sql', 'zip' or 'tar.zst', or None if aborted.
     """
     filestore_path = get_filestore_path(version, db_name)
     has_filestore = os.path.isdir(filestore_path)
@@ -600,8 +601,10 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
     ]
     if has_filestore:
         choices.append(questionary.Choice("ZIP — SQL + filestore", value="zip"))
+        choices.append(questionary.Choice("TAR.ZST — SQL + filestore (zstd stream)", value="tar.zst"))
     else:
         choices.append(questionary.Choice("ZIP — SQL only (no filestore found)", value="zip"))
+        choices.append(questionary.Choice("TAR.ZST — SQL only (no filestore found)", value="tar.zst"))
 
     try:
         return select("Backup type:", choices=choices)
@@ -612,7 +615,15 @@ def _select_backup_type(version: str, db_name: str) -> str | None:
 @db.command("backup")
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="Database name (interactive selection if omitted)")
-@click.option("-t", "--type", "backup_type", type=click.Choice(["sql", "zip"]), help="Backup type")
+@click.option("-t", "--type", "backup_type", type=click.Choice(["sql", "zip", "tar.zst"]), help="Backup type")
+@click.option(
+    "-l",
+    "--level",
+    type=click.IntRange(1, 22),
+    default=5,
+    show_default=True,
+    help="zstd compression level (tar.zst only): 1=fastest .. 19/22=smallest",
+)
 @click.option(
     "-o",
     "--output",
@@ -627,11 +638,14 @@ def db_backup(
     version: str | None,
     name: str | None,
     backup_type: str | None,
+    level: int,
     output_dir: str | None,
 ) -> None:
-    """Create a database backup (SQL dump or ZIP with filestore).
+    """Create a database backup (SQL dump, ZIP or tar.zst with filestore).
 
     Without options, interactively selects database and backup type.
+    The tar.zst type (TAR + Zstandard) matches the server stream-backup format
+    and is well suited to large databases with a big filestore.
     """
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
@@ -663,6 +677,13 @@ def db_backup(
         if not backup_type:
             raise SystemExit(1)
 
+    # tar.zst needs the zstd CLI — fail early before dumping anything
+    if backup_type == "tar.zst" and not shutil.which("zstd"):
+        print_error("zstd not found — required to create .tar.zst backups")
+        print_info("macOS: brew install zstd")
+        print_info("Linux/Debian: apt install zstd")
+        raise SystemExit(1)
+
     # Prepare output (default to the user's Downloads folder, same convention
     # as the TUI module-CSV export)
     output_dir = os.path.abspath(output_dir or str(Path.home() / "Downloads"))
@@ -681,7 +702,10 @@ def db_backup(
         print_success(f"Backup created: {output_file} ({size})")
 
     else:
-        # ZIP: dump SQL to temp, then create ZIP
+        # ZIP / tar.zst: dump SQL to temp, then bundle with the filestore
+        is_tar_zst = backup_type == "tar.zst"
+        extension = "tar.zst" if is_tar_zst else "zip"
+        label = "tar.zst" if is_tar_zst else "ZIP"
         tmp_dir = tempfile.mkdtemp(prefix="odoodev_backup_")
         try:
             sql_path = os.path.join(tmp_dir, "dump.sql")
@@ -694,14 +718,19 @@ def db_backup(
             filestore_path = get_filestore_path(version, name)
             fs_dir = filestore_path if os.path.isdir(filestore_path) else None
 
-            output_file = os.path.join(output_dir, f"{name}_{date_suffix}.zip")
-            print_info("Creating ZIP backup...")
+            output_file = os.path.join(output_dir, f"{name}_{date_suffix}.{extension}")
+            print_info(f"Creating {label} backup...")
 
             if fs_dir:
                 print_info(f"Including filestore: {fs_dir}")
 
-            if not create_backup_zip(sql_path, output_file, fs_dir):
-                print_error("ZIP creation failed")
+            if is_tar_zst:
+                created = create_backup_tar_zst(sql_path, output_file, fs_dir, level=level)
+            else:
+                created = create_backup_zip(sql_path, output_file, fs_dir)
+
+            if not created:
+                print_error(f"{label} creation failed")
                 raise SystemExit(1)
 
             size = format_size(os.path.getsize(output_file))

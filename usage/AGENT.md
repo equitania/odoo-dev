@@ -21,7 +21,7 @@ you must pass it explicitly.
 ## Capabilities at a glance
 - Start an Odoo server in several modes: normal, dev hot-reload, shell, test, prepare; optional TUI.
 - Spin Docker side-services (PostgreSQL + Mailpit) up/down and tail their logs.
-- Full database lifecycle: list, backup (SQL/ZIP+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize.
+- Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize.
 - **Safe-by-default restore:** deactivate cron, native neutralize, and anonymize PII unless opted out.
 - Clone/update Git repos and (re)generate the dated `odoo_*.conf` addons_path.
 - Manage per-version UV virtualenvs and `.env` files.
@@ -38,7 +38,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev config set` | Set a global configuration value. | KEY, VALUE |
 | `odoodev config show` | Show current platform, global config, and environment information. | — |
 | `odoodev config versions` | List all available Odoo versions with their configuration. | --plain, --json |
-| `odoodev db backup` | Create a database backup (SQL dump or ZIP with filestore). | [VERSION], -n/--name TEXT, -t/--type sql\|zip, -o/--output PATH |
+| `odoodev db backup` | Create a database backup (SQL dump, ZIP or tar.zst with filestore). | [VERSION], -n/--name TEXT, -t/--type sql\|zip\|tar.zst, -l/--level INT (1-22, tar.zst only, default 5), -o/--output PATH |
 | `odoodev db copy` | Copy a database (incl. filestore) under a new name. | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
 | `odoodev db drop` | Drop a database. | [VERSION], -n/--name TEXT, --yes/-y |
 | `odoodev db list` | List all databases. | [VERSION], --json |
@@ -100,6 +100,7 @@ odoodev start 19 --test -- -d test_db -i my_module
 ### Back up, then restore with PII anonymized (safe default)
 ```bash
 odoodev db backup 18 -n v18_exam -t zip               # ZIP incl. filestore
+odoodev db backup 18 -n v18_exam -t tar.zst           # tar.zst (zstd, large DBs); -l 19 for max compression
 odoodev db restore 18 -n v18_restored -z backup.zip   # cron off + neutralized + anonymized
 ```
 Restore post-processing (deactivate-cron, neutralize, anonymize) is **on by default**; pass the

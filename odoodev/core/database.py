@@ -623,6 +623,71 @@ def create_backup_zip(
         return False
 
 
+def create_backup_tar_zst(
+    sql_path: str,
+    output_path: str,
+    filestore_path: str | None = None,
+    level: int = 5,
+) -> bool:
+    """Create a TAR+Zstandard backup (dump.sql + filestore/).
+
+    Matches the container2backup.py server stream-backup format and the
+    counterpart restore in :func:`_extract_backup_inner`. A Python tar stream
+    is piped into the zstd CLI — no Python ``zstandard`` package is required.
+
+    Args:
+        sql_path: Path to the SQL dump file
+        output_path: Full path for the output .tar.zst file
+        filestore_path: Optional path to filestore directory
+        level: zstd compression level (1=fastest .. 19/22=smallest)
+
+    Returns:
+        True if the archive was created successfully.
+    """
+    import tarfile
+
+    zstd_bin = shutil.which("zstd")
+    if not zstd_bin:
+        logger.error(
+            "zstd not found — required to create .tar.zst backups. "
+            "Install: brew install zstd (macOS) / apt install zstd (Linux)"
+        )
+        return False
+
+    try:
+        # zstd reads the tar stream from stdin and writes the compressed archive
+        # directly to output_path. -T0 uses all CPU cores, -f overwrites partials.
+        proc = subprocess.Popen(
+            [zstd_bin, "-T0", f"-{level}", "-f", "-o", output_path],
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            # Stream mode "w|": single pass, no seeking — matches restore's "r|".
+            with tarfile.open(fileobj=proc.stdin, mode="w|") as tf:
+                tf.add(sql_path, arcname="dump.sql")
+                if filestore_path and os.path.isdir(filestore_path):
+                    for root, _dirs, files in os.walk(filestore_path):
+                        for fname in files:
+                            full_path = os.path.join(root, fname)
+                            arcname = os.path.join("filestore", os.path.relpath(full_path, filestore_path))
+                            tf.add(full_path, arcname=arcname)
+        finally:
+            if proc.stdin:
+                proc.stdin.close()
+            ret = proc.wait()
+        if ret != 0:
+            stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+            logger.error("zstd compression failed: %s", stderr)
+            return False
+
+        logger.info("Backup tar.zst created: %s", output_path)
+        return True
+    except Exception as e:
+        logger.error("Failed to create backup tar.zst: %s", e)
+        return False
+
+
 def deactivate_cronjobs(
     db_name: str,
     host: str = DEFAULT_DB_HOST,

@@ -26,6 +26,7 @@ from odoodev.core.database import (
     anonymize_users,
     cleanup_restore_temp,
     copy_filestore,
+    create_backup_tar_zst,
     detect_backup_type,
     extract_backup,
     format_size,
@@ -218,6 +219,66 @@ class TestExtractTarZst:
         extract_path = os.path.join(tmp_dir, "extracted")
         monkeypatch.setattr("odoodev.core.database.shutil.which", lambda name: None)
         assert extract_backup(archive, extract_path) is False
+
+
+class TestCreateBackupTarZst:
+    """Tests for the .tar.zst backup writer (symmetric to TestExtractTarZst)."""
+
+    @staticmethod
+    def _make_source(tmp_dir: str) -> tuple[str, str]:
+        """Create a dump.sql plus a filestore directory; return their paths."""
+        sql_path = os.path.join(tmp_dir, "dump.sql")
+        with open(sql_path, "w") as f:
+            f.write("SELECT 1;")
+        fs_dir = os.path.join(tmp_dir, "filestore_src")
+        os.makedirs(os.path.join(fs_dir, "ab"))
+        with open(os.path.join(fs_dir, "ab", "abcdef"), "w") as f:
+            f.write("blob")
+        return sql_path, fs_dir
+
+    def test_create_and_restore_roundtrip(self, tmp_dir):
+        """A created .tar.zst extracts back to dump.sql + filestore tree."""
+        import shutil
+
+        if shutil.which("zstd") is None:
+            pytest.skip("zstd binary not installed")
+
+        sql_path, fs_dir = self._make_source(tmp_dir)
+        output = os.path.join(tmp_dir, "backup.tar.zst")
+        assert create_backup_tar_zst(sql_path, output, fs_dir) is True
+        assert os.path.exists(output)
+
+        extract_path = os.path.join(tmp_dir, "extracted")
+        assert extract_backup(output, extract_path) is True
+        assert os.path.exists(os.path.join(extract_path, "dump.sql"))
+        assert os.path.exists(os.path.join(extract_path, "filestore", "ab", "abcdef"))
+
+        info = detect_backup_type(extract_path)
+        assert info is not None
+        assert info["sql_file"].endswith("dump.sql")
+        assert info["filestore"] is not None
+
+    def test_create_without_filestore(self, tmp_dir):
+        """A created .tar.zst without filestore still contains dump.sql."""
+        import shutil
+
+        if shutil.which("zstd") is None:
+            pytest.skip("zstd binary not installed")
+
+        sql_path, _ = self._make_source(tmp_dir)
+        output = os.path.join(tmp_dir, "backup.tar.zst")
+        assert create_backup_tar_zst(sql_path, output, None) is True
+
+        extract_path = os.path.join(tmp_dir, "extracted")
+        assert extract_backup(output, extract_path) is True
+        assert os.path.exists(os.path.join(extract_path, "dump.sql"))
+
+    def test_no_binary_returns_false(self, tmp_dir, monkeypatch):
+        """When zstd is not installed, creation fails gracefully (not a crash)."""
+        sql_path, fs_dir = self._make_source(tmp_dir)
+        output = os.path.join(tmp_dir, "backup.tar.zst")
+        monkeypatch.setattr("odoodev.core.database.shutil.which", lambda name: None)
+        assert create_backup_tar_zst(sql_path, output, fs_dir) is False
 
 
 class TestDetectBackupType:
