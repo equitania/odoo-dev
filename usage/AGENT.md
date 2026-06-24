@@ -23,6 +23,8 @@ you must pass it explicitly.
 - Spin Docker side-services (PostgreSQL + Mailpit) up/down and tail their logs.
 - Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize.
 - **Safe-by-default restore:** deactivate cron, native neutralize, and anonymize PII unless opted out.
+- **Space-aware, low-overhead restore:** pre-checks free disk space, moves the filestore instead of
+  copying it (no triple data-holding), and can delete the original backup afterwards.
 - Clone/update Git repos and (re)generate the dated `odoo_*.conf` addons_path.
 - Manage per-version UV virtualenvs and `.env` files.
 - Stand up a whole version environment from scratch (`init`) or via an interactive wizard (`setup`).
@@ -143,6 +145,10 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   `requirements.txt` SHA256 (offers an update if it changed).
 - **`start --clean-sessions`** wipes existing sessions; **`--allow-default-credentials`** disables a
   safety check — use only on disposable databases.
+- **`db restore` data handling:** a disk-space pre-check (`--no-check-space` to skip) warns + asks
+  before extracting if space is tight. The filestore is **moved** into `~/odoo-share/` (instant rename
+  on the same filesystem) — `--keep-temp` copies instead so the extracted temp survives. The original
+  backup is never auto-deleted; you are asked at the end (`--delete-backup` / `--keep-backup` for scripts).
 - **Version resolution:** auto-detected from CWD; outside a `vXX` directory the `[VERSION]` argument
   is mandatory or the command errors.
 - **Non-interactive use:** `init`, `env setup`, `setup` accept `--non-interactive`; destructive db/venv
