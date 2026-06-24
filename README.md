@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.31.4-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.32.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -168,6 +168,11 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.32.0:**
+- **Neu:** `odoodev db restore` prüft vor dem Entpacken den freien Speicherplatz — die entpackte Größe wird geschätzt (ZIP exakt, komprimierte Formate konservativ `Größe × 3`) und gegen den freien Platz auf Extraktions- und Filestore-Dateisystem geprüft. Bei Knappheit: Warnung mit konkreten Zahlen + Rückfrage „Continue anyway?" (Default Nein) statt Abbruch mitten im Kopieren. Abschaltbar mit `--no-check-space`.
+- **Neu:** `odoodev db restore` kann das Original-Backup am Ende optional löschen — nach erfolgreichem Restore Rückfrage „Delete original backup file?" (Default Nein, nie automatisch). Neue Flags `--delete-backup` (löschen ohne Frage) und `--keep-backup` (nie fragen/löschen) machen das skriptfähig.
+- **Geändert:** Schlankeres Restore-Datenhandling — der Filestore wird jetzt verschoben statt kopiert. Bisher lag der Filestore dreifach auf der Platte (Backup + entpacktes Temp + kopiertes Ziel). Der Zieltransfer nutzt nun `shutil.move` (Rename auf demselben Dateisystem = instant, sonst Fallback copy+delete) und vermeidet die doppelte Datenhaltung. `--keep-temp` kopiert weiterhin (Temp bleibt zum Debuggen erhalten). Der Playbook-Restore wurde angeglichen.
 
 **Version 0.31.4:**
 - **Neu:** `odoodev db backup` unterstützt jetzt `.tar.zst`-Stream-Backups (`--type tar.zst`) — erzeugt ein Zstandard-komprimiertes tar (`dump.sql` + `filestore/`) passend zum Backup-Server (`container2backup` v4.7.0+) und zum Restore aus 0.31.2. Symmetrisch implementiert: ein Python-`tarfile`-Stream wird in die `zstd`-CLI gepipet (kein `zstandard`-Package nötig). Ideal für große Datenbanken mit umfangreichem Filestore. Die neue Option `--level/-l` setzt das zstd-Kompressionslevel (1=schnell .. 19/22=kleinste, Standard 5). Die interaktive Auswahl listet `TAR.ZST` neben `SQL` und `ZIP`; fehlt die `zstd`-CLI, bricht der Befehl frühzeitig mit Installationshinweis ab.
@@ -381,6 +386,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.32.0:**
+- **Added:** `odoodev db restore` checks free disk space before extracting — the uncompressed size is estimated (exact for ZIP, conservative `size × 3` for compressed formats) and compared against the free space on the extraction and filestore filesystems. If space is tight: a warning with concrete numbers plus a `Continue anyway?` prompt (default no) instead of failing mid-copy. Disable with `--no-check-space`.
+- **Added:** `odoodev db restore` can optionally delete the original backup afterwards — after a successful restore it asks `Delete original backup file?` (default no, never automatic). New flags `--delete-backup` (delete without prompting) and `--keep-backup` (never ask/delete) make it scriptable.
+- **Changed:** Leaner restore data handling — the filestore is now moved instead of copied. Previously it lived on disk three times (backup + extracted temp + copied destination). The destination transfer now uses `shutil.move` (instant rename on the same filesystem, copy+delete fallback across filesystems), eliminating the double storage. `--keep-temp` still copies (temp kept for debugging). The playbook restore path was aligned.
 
 **Version 0.31.4:**
 - **Added:** `odoodev db backup` now supports `.tar.zst` stream backups (`--type tar.zst`) — produces a Zstandard-compressed tar (`dump.sql` + `filestore/`) matching the backup server (`container2backup` v4.7.0+) and the restore added in 0.31.2. Implemented symmetrically: a Python `tarfile` stream is piped into the `zstd` CLI (no `zstandard` package needed). Well suited to large databases with a big filestore. A new `--level/-l` option sets the zstd compression level (1=fastest .. 19/22=smallest, default 5). The interactive picker lists `TAR.ZST` alongside `SQL` and `ZIP`; the command fails early with an install hint when the `zstd` CLI is missing.

@@ -483,17 +483,17 @@ def handle_db_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
 @_timed
 def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Restore a database from backup file (non-interactive)."""
-    import shutil
-    import tempfile
-
     from odoodev.core.database import (
-        copy_filestore,
+        check_restore_space,
+        cleanup_restore_temp,
         create_database,
         deactivate_cronjobs,
         detect_backup_type,
         drop_database,
         extract_backup,
         get_filestore_path,
+        get_restore_temp_dir,
+        move_filestore,
         restore_database,
         run_neutralize,
     )
@@ -518,8 +518,15 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
     if do_drop:
         drop_database(name, **params)
 
-    # Extract
-    extract_path = tempfile.mkdtemp(prefix="odoodev_restore_")
+    # Extract — use the shared temp-dir logic (disk-backed on Linux, not tmpfs)
+    extract_path = get_restore_temp_dir(backup_file)
+
+    # Disk-space pre-check — non-interactive, so only warn (restore proceeds)
+    filestore_dest = get_filestore_path(version_cfg.version, name)
+    enough, space_msg, _ = check_restore_space(backup_file, extract_path, filestore_dest)
+    if not enough:
+        logger.warning(space_msg)
+
     try:
         if not extract_backup(backup_file, extract_path):
             return _step_error("db.restore", "db.restore", "Backup extraction failed", 0)
@@ -537,10 +544,9 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         if not restore_database(name, sql_file, **params):
             return _step_error("db.restore", "db.restore", "Database restore failed", 0)
 
-        # Filestore
+        # Filestore — move (no double storage); dest computed above
         if filestore_src and os.path.isdir(filestore_src):
-            filestore_dest = get_filestore_path(version_cfg.version, name)
-            copy_filestore(filestore_src, filestore_dest)
+            move_filestore(filestore_src, filestore_dest)
 
         # Post-restore
         if deactivate_cron_flag:
@@ -559,10 +565,7 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         return _step_ok("db.restore", "db.restore", f"Database '{name}' restored", 0)
 
     finally:
-        try:
-            shutil.rmtree(extract_path)
-        except OSError as e:
-            logger.warning("Could not remove temp directory %s: %s", extract_path, e)
+        cleanup_restore_temp(extract_path)
 
 
 @_timed

@@ -18,6 +18,7 @@ from odoodev.core.database import (
     anonymize_database,
     anonymize_users,
     backup_database_sql,
+    check_restore_space,
     cleanup_restore_temp,
     copy_database,
     copy_filestore,
@@ -34,6 +35,7 @@ from odoodev.core.database import (
     get_filestore_path,
     get_restore_temp_dir,
     list_databases,
+    move_filestore,
     neutralize_bank_sync,
     rename_database,
     restore_database,
@@ -372,7 +374,22 @@ def db_rename(
     show_default=True,
     help="Dev password set on anonymized users (only with --anonymize-users)",
 )
-@click.option("--keep-temp", is_flag=True, help="Keep extracted temp files")
+@click.option("--keep-temp", is_flag=True, help="Keep extracted temp files (filestore is copied, not moved)")
+@click.option(
+    "--check-space/--no-check-space",
+    default=True,
+    help="Check free disk space before extracting the backup — on by default",
+)
+@click.option(
+    "--delete-backup",
+    is_flag=True,
+    help="Delete the original backup file after a successful restore (no prompt)",
+)
+@click.option(
+    "--keep-backup",
+    is_flag=True,
+    help="Never delete or ask about the original backup file (for scripts)",
+)
 @click.pass_context
 def db_restore(
     ctx: click.Context,
@@ -386,6 +403,9 @@ def db_restore(
     anon_users: bool,
     user_password: str,
     keep_temp: bool,
+    check_space: bool,
+    delete_backup: bool,
+    keep_backup: bool,
 ) -> None:
     """Restore a database from backup file.
 
@@ -424,6 +444,18 @@ def db_restore(
 
     # Extract backup — choose temp dir with enough space
     extract_path = get_restore_temp_dir(backup_file)
+
+    # Disk-space pre-check — warn early instead of failing mid-copy
+    if check_space:
+        filestore_dest = get_filestore_path(version, name)
+        enough, space_msg, _ = check_restore_space(backup_file, extract_path, filestore_dest)
+        if not enough:
+            print_warning(space_msg)
+            if not confirm("Continue anyway?", default=False):
+                print_info("Aborted.")
+                cleanup_restore_temp(extract_path)
+                raise SystemExit(0)
+
     print_info(f"Extracting backup to {extract_path}...")
     if not extract_backup(backup_file, extract_path):
         print_error("Backup extraction failed")
@@ -451,14 +483,21 @@ def db_restore(
 
     print_success(f"Database '{name}' restored successfully")
 
-    # Copy filestore
+    # Transfer filestore. Default: move (rename on same filesystem = no double
+    # storage). With --keep-temp we copy instead, so the extracted temp dir
+    # stays intact for debugging.
     if filestore_src and os.path.isdir(filestore_src):
         filestore_dest = get_filestore_path(version, name)
-        print_info(f"Copying filestore to {filestore_dest}...")
-        if copy_filestore(filestore_src, filestore_dest):
-            print_success("Filestore copied")
+        if keep_temp:
+            print_info(f"Copying filestore to {filestore_dest}...")
+            ok_fs = copy_filestore(filestore_src, filestore_dest)
         else:
-            print_warning("Filestore copy failed — attachments may be missing")
+            print_info(f"Moving filestore to {filestore_dest}...")
+            ok_fs = move_filestore(filestore_src, filestore_dest)
+        if ok_fs:
+            print_success("Filestore transferred")
+        else:
+            print_warning("Filestore transfer failed — attachments may be missing")
 
     # Post-restore operations
     if deactivate_cron:
@@ -508,6 +547,25 @@ def db_restore(
         cleanup_restore_temp(extract_path)
 
     print_success(f"Database '{name}' restore complete")
+
+    # Optionally remove the original backup. Never automatic: a restore can be
+    # imperfect and the backup may still be needed. Precedence:
+    # --delete-backup (delete, no prompt) > --keep-backup (never) > interactive.
+    if delete_backup:
+        do_delete = True
+    elif keep_backup:
+        do_delete = False
+    else:
+        do_delete = confirm(
+            f"Delete original backup file '{os.path.basename(backup_file)}'?",
+            default=False,
+        )
+    if do_delete:
+        try:
+            os.remove(backup_file)
+            print_success("Original backup deleted")
+        except OSError as e:
+            print_warning(f"Could not delete backup: {e}")
 
     console.print()
     print_start_hint(version, name)

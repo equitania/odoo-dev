@@ -523,6 +523,52 @@ def copy_filestore(src: str, dest: str) -> bool:
         return False
 
 
+def move_filestore(src: str, dest: str) -> bool:
+    """Move filestore contents to destination instead of copying them.
+
+    Sister of :func:`copy_filestore`. Uses ``shutil.move`` per top-level entry,
+    which is an instantaneous rename when source and destination live on the
+    same filesystem (the common case: both under ``$HOME``) — avoiding the
+    transient double-storage of the filestore during a restore. Across
+    filesystem boundaries ``shutil.move`` transparently falls back to
+    copy-then-delete.
+
+    Args:
+        src: Source filestore directory (its contents are consumed).
+        dest: Destination filestore directory.
+
+    Returns:
+        True if move successful.
+    """
+    if not os.path.isdir(src):
+        logger.error("Filestore source not found: %s", src)
+        return False
+
+    os.makedirs(dest, exist_ok=True)
+
+    try:
+        for entry in os.listdir(src):
+            # Skip the SQL dump — it is restored separately, not part of the filestore.
+            if entry == "dump.sql":
+                continue
+            src_entry = os.path.join(src, entry)
+            dest_entry = os.path.join(dest, entry)
+            # If the target already exists (idempotent re-runs), remove it first
+            # so shutil.move does not nest the source inside it.
+            if os.path.exists(dest_entry):
+                if os.path.isdir(dest_entry) and not os.path.islink(dest_entry):
+                    shutil.rmtree(dest_entry)
+                else:
+                    os.remove(dest_entry)
+            shutil.move(src_entry, dest_entry)
+
+        logger.info("Filestore moved to %s", dest)
+        return True
+    except Exception as e:
+        logger.error("Filestore move failed: %s", e)
+        return False
+
+
 def get_filestore_path(odoo_version: str, db_name: str) -> str:
     """Get the filestore path for a database.
 
@@ -1313,6 +1359,132 @@ def neutralize_bank_sync(
                 success = False
 
     return success
+
+
+# Heuristic multiplier for estimating the uncompressed size of compressed
+# backups whose contained sizes cannot be read cheaply (tar.zst, 7z, tar.gz,
+# gz). Filestores are largely incompressible (images/PDFs) while SQL dumps
+# compress well; 3x is a conservative middle ground.
+RESTORE_COMPRESSION_FACTOR = 3
+
+
+def estimate_uncompressed_size(backup_file: str) -> int:
+    """Estimate the on-disk size a backup occupies once extracted.
+
+    Exact for ZIP archives (the ZIP central directory carries each entry's
+    uncompressed size) and for already-uncompressed formats (.sql/.dump/.tar).
+    For opaquely-compressed formats (.tar.zst/.7z/.tar.gz/.tgz/.gz) it applies
+    :data:`RESTORE_COMPRESSION_FACTOR` to the compressed file size.
+
+    Args:
+        backup_file: Path to the backup file.
+
+    Returns:
+        Estimated uncompressed size in bytes (0 if the file is unreadable).
+    """
+    try:
+        compressed = os.path.getsize(backup_file)
+    except OSError:
+        return 0
+
+    name = os.path.basename(backup_file).lower()
+
+    if name.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(backup_file) as zf:
+                return sum(info.file_size for info in zf.infolist())
+        except (zipfile.BadZipFile, OSError):
+            return compressed * RESTORE_COMPRESSION_FACTOR
+
+    # Already uncompressed — extraction is effectively a copy of the same size.
+    if name.endswith((".sql", ".dump", ".tar")):
+        return compressed
+
+    # Opaquely compressed archives — apply the heuristic factor.
+    if name.endswith((".tar.zst", ".7z", ".tar.gz", ".tgz", ".tar.bz2", ".gz")):
+        return compressed * RESTORE_COMPRESSION_FACTOR
+
+    # Unknown extension — be conservative.
+    return compressed * RESTORE_COMPRESSION_FACTOR
+
+
+def _nearest_existing_dir(path: str) -> str:
+    """Return the closest existing ancestor directory of ``path``.
+
+    ``shutil.disk_usage`` needs an existing path; the filestore destination
+    usually does not exist yet before a restore.
+    """
+    current = os.path.abspath(path)
+    while current and not os.path.isdir(current):
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return current or os.path.sep
+
+
+def check_restore_space(
+    backup_file: str,
+    temp_dir: str,
+    filestore_dest: str,
+    margin: float = 1.15,
+) -> tuple[bool, str, int]:
+    """Check whether there is enough free disk space to restore a backup.
+
+    Estimates the uncompressed payload and compares it against the free space
+    on the extraction filesystem and on the filestore destination filesystem.
+    When both live on the same device the requirement is checked jointly;
+    otherwise each filesystem is conservatively checked against the full
+    estimate (the filestore/SQL split is unknown before extraction).
+
+    Pure computation — no output, no side effects.
+
+    Args:
+        backup_file: Path to the backup file.
+        temp_dir: Directory the backup is extracted into.
+        filestore_dest: Final filestore directory (may not exist yet).
+        margin: Safety multiplier applied to the estimate (default 1.15).
+
+    Returns:
+        Tuple ``(enough, message, estimated_bytes)``. ``message`` is a
+        human-readable, single-line summary suitable for ``print_warning``.
+    """
+    estimated = estimate_uncompressed_size(backup_file)
+    required = int(estimated * margin)
+
+    temp_anchor = _nearest_existing_dir(temp_dir)
+    dest_anchor = _nearest_existing_dir(filestore_dest)
+
+    try:
+        temp_free = shutil.disk_usage(temp_anchor).free
+        dest_free = shutil.disk_usage(dest_anchor).free
+    except OSError:
+        # Cannot determine free space — do not block the restore.
+        return True, "", estimated
+
+    try:
+        same_fs = os.stat(temp_anchor).st_dev == os.stat(dest_anchor).st_dev
+    except OSError:
+        same_fs = False
+
+    if same_fs:
+        # Extraction + filestore share the device; peak demand is the payload
+        # plus the filestore that is relocated (rename = no extra space).
+        enough = temp_free >= required
+        free_repr = format_size(temp_free)
+    else:
+        enough = temp_free >= required and dest_free >= required
+        free_repr = f"temp {format_size(temp_free)} / filestore {format_size(dest_free)}"
+
+    if enough:
+        msg = ""
+    else:
+        msg = (
+            f"Low disk space for restore: estimated need ~{format_size(required)} "
+            f"(uncompressed {format_size(estimated)} + {int((margin - 1) * 100)}% margin), "
+            f"available {free_repr}."
+        )
+    return enough, msg, estimated
 
 
 def format_size(size_bytes: int) -> str:

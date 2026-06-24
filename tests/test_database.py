@@ -16,6 +16,7 @@ from odoodev.core.database import (
     ANONYMIZE_STATIC_QUERIES,
     ANONYMIZE_STATIC_TABLES,
     ANONYMIZE_TABLES,
+    RESTORE_COMPRESSION_FACTOR,
     AnonTable,
     _build_anonymize_sql,
     _build_static_update,
@@ -24,14 +25,17 @@ from odoodev.core.database import (
     _sql_literal,
     anonymize_database,
     anonymize_users,
+    check_restore_space,
     cleanup_restore_temp,
     copy_filestore,
     create_backup_tar_zst,
     detect_backup_type,
+    estimate_uncompressed_size,
     extract_backup,
     format_size,
     get_filestore_path,
     get_restore_temp_dir,
+    move_filestore,
     neutralize_bank_sync,
     run_neutralize,
 )
@@ -630,6 +634,9 @@ class TestRestoreCliFlags:
         # New post-restore steps — mocked to True so the CLI flow never touches real psql.
         monkeypatch.setattr(db_cmd, "neutralize_bank_sync", lambda name, **k: True)
         monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: True)
+        # Disk-space check + delete-backup prompt — neutralized for deterministic flow.
+        monkeypatch.setattr(db_cmd, "check_restore_space", lambda b, t, d: (True, "", 0))
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
 
     def test_help_lists_neutralize_and_anonymize_flags(self):
         result = CliRunner().invoke(cli, ["db", "restore", "--help"])
@@ -1012,3 +1019,213 @@ class TestDbCopyRenameCommands:
         monkeypatch.setattr(db_cmd, "rename_database", lambda s, d, **k: False)
         result = CliRunner().invoke(cli, ["db", "rename", "18", "-s", "srcdb", "-d", "newdb", "-y"])
         assert result.exit_code == 1
+
+
+class TestEstimateUncompressedSize:
+    def test_zip_is_exact(self, tmp_path):
+        zip_path = tmp_path / "b.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("dump.sql", "X" * 1000)
+            zf.writestr("filestore/a.txt", "Y" * 500)
+        assert estimate_uncompressed_size(str(zip_path)) == 1500
+
+    def test_sql_is_file_size(self, tmp_path):
+        sql = tmp_path / "dump.sql"
+        sql.write_bytes(b"Z" * 2048)
+        assert estimate_uncompressed_size(str(sql)) == 2048
+
+    def test_compressed_uses_factor(self, tmp_path):
+        backup = tmp_path / "b.tar.zst"
+        backup.write_bytes(b"Q" * 100)
+        assert estimate_uncompressed_size(str(backup)) == 100 * RESTORE_COMPRESSION_FACTOR
+
+    def test_missing_file_returns_zero(self, tmp_path):
+        assert estimate_uncompressed_size(str(tmp_path / "nope.zip")) == 0
+
+
+class TestCheckRestoreSpace:
+    def test_enough_space(self, monkeypatch, tmp_path):
+        backup = tmp_path / "dump.sql"
+        backup.write_bytes(b"A" * 1000)
+        monkeypatch.setattr(
+            "odoodev.core.database.shutil.disk_usage",
+            lambda p: types.SimpleNamespace(total=0, used=0, free=10**9),
+        )
+        enough, msg, est = check_restore_space(str(backup), str(tmp_path), str(tmp_path / "fs"))
+        assert enough is True
+        assert msg == ""
+        assert est == 1000
+
+    def test_low_space_returns_message(self, monkeypatch, tmp_path):
+        backup = tmp_path / "dump.sql"
+        backup.write_bytes(b"A" * 10_000)
+        monkeypatch.setattr(
+            "odoodev.core.database.shutil.disk_usage",
+            lambda p: types.SimpleNamespace(total=0, used=0, free=5_000),
+        )
+        enough, msg, est = check_restore_space(str(backup), str(tmp_path), str(tmp_path / "fs"))
+        assert enough is False
+        assert "Low disk space" in msg
+        assert est == 10_000
+
+    def test_disk_usage_error_does_not_block(self, monkeypatch, tmp_path):
+        backup = tmp_path / "dump.sql"
+        backup.write_bytes(b"A" * 10)
+
+        def _raise(_p):
+            raise OSError("boom")
+
+        monkeypatch.setattr("odoodev.core.database.shutil.disk_usage", _raise)
+        enough, _msg, _est = check_restore_space(str(backup), str(tmp_path), str(tmp_path / "fs"))
+        assert enough is True
+
+
+class TestMoveFilestore:
+    def test_moves_contents_and_skips_dump(self, tmp_path):
+        src = tmp_path / "src"
+        (src / "sub").mkdir(parents=True)
+        (src / "dump.sql").write_text("SELECT 1;")
+        (src / "a.txt").write_text("a")
+        (src / "sub" / "b.txt").write_text("b")
+        dest = tmp_path / "dest"
+
+        assert move_filestore(str(src), str(dest)) is True
+        assert (dest / "a.txt").read_text() == "a"
+        assert (dest / "sub" / "b.txt").read_text() == "b"
+        # dump.sql is not part of the filestore
+        assert not (dest / "dump.sql").exists()
+        # source contents (except dump.sql) are gone — no double storage
+        assert not (src / "a.txt").exists()
+        assert not (src / "sub").exists()
+
+    def test_missing_source_returns_false(self, tmp_path):
+        assert move_filestore(str(tmp_path / "nope"), str(tmp_path / "dest")) is False
+
+    def test_overwrites_existing_dest_entry(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.txt").write_text("new")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "a.txt").write_text("old")
+        assert move_filestore(str(src), str(dest)) is True
+        assert (dest / "a.txt").read_text() == "new"
+
+
+class TestRestoreBackupHandling:
+    """Disk-space check, move-vs-copy, and delete-backup behavior of `db restore`."""
+
+    def _patch(self, monkeypatch, tmp_path, *, space_ok=True, fs_spy=None):
+        from odoodev.commands import db as db_cmd
+        from odoodev.commands import start as start_cmd
+
+        cfg = types.SimpleNamespace(
+            ports=types.SimpleNamespace(db=18432),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+        monkeypatch.setattr(db_cmd, "_print_migration_hint", lambda v: None)
+        monkeypatch.setattr(db_cmd, "drop_database", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "get_restore_temp_dir", lambda b: str(tmp_path / "extract"))
+        monkeypatch.setattr(db_cmd, "extract_backup", lambda b, e: True)
+        monkeypatch.setattr(db_cmd, "get_filestore_path", lambda v, n: str(tmp_path / "fs" / n))
+        monkeypatch.setattr(
+            db_cmd, "detect_backup_type", lambda e: {"sql_file": "/x", "filestore": str(tmp_path / "extract" / "fs")}
+        )
+        monkeypatch.setattr(db_cmd, "create_database", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "restore_database", lambda name, sql, **k: True)
+        monkeypatch.setattr(db_cmd, "deactivate_cronjobs", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "cleanup_restore_temp", lambda e: None)
+        monkeypatch.setattr(start_cmd, "resolve_odoo_invocation", lambda vc, ev: None)
+        monkeypatch.setattr(db_cmd, "neutralize_bank_sync", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "anonymize_database", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: True)
+        monkeypatch.setattr(db_cmd, "check_restore_space", lambda b, t, d: (space_ok, "" if space_ok else "low", 0))
+        # filestore source exists so the move/copy branch is exercised
+        (tmp_path / "extract" / "fs").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "extract" / "fs" / "x.txt").write_text("x")
+        if fs_spy is not None:
+            monkeypatch.setattr(db_cmd, "move_filestore", lambda s, d: (fs_spy.append("move"), True)[1])
+            monkeypatch.setattr(db_cmd, "copy_filestore", lambda s, d: (fs_spy.append("copy"), True)[1])
+        return db_cmd
+
+    def test_delete_backup_flag_removes_file(self, monkeypatch, tmp_path):
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch(monkeypatch, tmp_path)
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--delete-backup"])
+        assert result.exit_code == 0, result.output
+        assert not backup.exists()
+
+    def test_keep_backup_flag_keeps_file_without_prompt(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch(monkeypatch, tmp_path)
+        prompts: list[str] = []
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: (prompts.append("asked"), False)[1])
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--keep-backup"])
+        assert result.exit_code == 0, result.output
+        assert backup.exists()
+        assert prompts == []
+
+    def test_default_asks_to_delete_backup(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch(monkeypatch, tmp_path)
+        prompts: list[str] = []
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: (prompts.append("asked"), False)[1])
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        assert result.exit_code == 0, result.output
+        assert backup.exists()
+        assert prompts == ["asked"]
+
+    def test_low_space_aborts_when_declined(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch(monkeypatch, tmp_path, space_ok=False)
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        assert result.exit_code == 0
+        assert "Aborted" in result.output
+
+    def test_no_check_space_skips_check(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        called: list[str] = []
+        self._patch(monkeypatch, tmp_path, space_ok=False)
+        monkeypatch.setattr(db_cmd, "check_restore_space", lambda b, t, d: (called.append("x"), (False, "low", 0))[1])
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
+        result = CliRunner().invoke(
+            cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--no-check-space", "--keep-backup"]
+        )
+        assert result.exit_code == 0, result.output
+        assert called == []
+
+    def test_default_moves_filestore(self, monkeypatch, tmp_path):
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        spy: list[str] = []
+        self._patch(monkeypatch, tmp_path, fs_spy=spy)
+        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--keep-backup"])
+        assert result.exit_code == 0, result.output
+        assert spy == ["move"]
+
+    def test_keep_temp_copies_filestore(self, monkeypatch, tmp_path):
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        spy: list[str] = []
+        self._patch(monkeypatch, tmp_path, fs_spy=spy)
+        result = CliRunner().invoke(
+            cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--keep-temp", "--keep-backup"]
+        )
+        assert result.exit_code == 0, result.output
+        assert spy == ["copy"]

@@ -44,7 +44,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db list` | List all databases. | [VERSION], --json |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db restore` | Restore a database from backup file. | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --anonymize-users/--no-anonymize-users, --user-password TEXT, --keep-temp |
+| `odoodev db restore` | Restore a database from backup file. | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --anonymize-users/--no-anonymize-users, --user-password TEXT, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
 | `odoodev docker down` | Stop Docker services. | [VERSION] |
 | `odoodev docker logs` | View Docker service logs. | [VERSION], -f/--follow, -n/--tail INTEGER |
 | `odoodev docker status` | Show Docker service status. | [VERSION] |

@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.32.0 (24.06.2026)
+
+### Added
+- **`odoodev db restore` checks free disk space before extracting** — a new pre-check estimates the uncompressed payload (exact for ZIP via the central directory; conservative `size × 3` heuristic for opaquely-compressed `.tar.zst`/`.7z`/`.tar.gz`/`.gz`) and compares it against the free space on the extraction *and* filestore filesystems. When space is tight it warns with concrete numbers and asks `Continue anyway?` (default no) instead of failing mid-copy with "No space left on device". Toggle with `--no-check-space`. The non-interactive playbook path logs the same warning.
+- **`odoodev db restore` can delete the original backup afterwards** — after a successful restore you are asked `Delete original backup file?` (default no — a backup is never removed automatically, since a restore may need a retry). New flags `--delete-backup` (remove without prompting) and `--keep-backup` (never ask/delete) make this scriptable.
+
+### Changed
+- **Leaner restore data handling — the filestore is now moved, not copied** — previously the restore held the filestore three times on disk (original backup + extracted temp + copied destination). The destination transfer now uses `shutil.move`, which is an instantaneous rename when temp and `~/odoo-share` share a filesystem (the common case under `$HOME`) and transparently falls back to copy+delete across filesystems — eliminating the transient double-storage. `--keep-temp` still copies (so the extracted temp stays intact for debugging). The playbook restore path was aligned to the same logic and now also routes its temp dir through `get_restore_temp_dir` (disk-backed on Linux, not tmpfs).
+
 ## Version 0.31.4 (23.06.2026)
 
 ### Added
