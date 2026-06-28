@@ -17,11 +17,12 @@ without compose orchestration overhead skewing the numbers.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
 
-from odoodev.core.environment import command_exists
+from odoodev.core.environment import command_exists, detect_user
 
 # Runtime identifiers used across config, CLI flags and the factory.
 RUNTIME_DOCKER = "docker"
@@ -55,6 +56,9 @@ class PostgresSpec:
     password: str
     db_name: str = "postgres"
     shm_size: str = "1g"
+    # Host postgresql.conf to bind-mount (dev service mirrors the compose tuning).
+    # None → run with the image's stock config (used by the isolated benchmark).
+    conf_path: str | None = None
 
 
 def _postgres_run_args(spec: PostgresSpec) -> list[str]:
@@ -64,7 +68,8 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
     and ``container run``, so a single builder serves both backends. Returned as
     a list (no shell) — the backend prepends its CLI name.
     """
-    return [
+    conf_target = "/etc/postgresql/postgresql.conf"
+    args = [
         "run",
         "-d",
         "--name",
@@ -84,8 +89,14 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
         # PGDATA must be a subdirectory of the mount — see _PGDATA comment above.
         "-e",
         f"PGDATA={_PGDATA}",
-        spec.image,
     ]
+    if spec.conf_path:
+        args += ["-v", f"{spec.conf_path}:{conf_target}"]
+    args.append(spec.image)
+    if spec.conf_path:
+        # Mirror the compose 'command:' so postgres uses the mounted config.
+        args += ["postgres", "-c", f"config_file={conf_target}"]
+    return args
 
 
 class ContainerBackend:
@@ -121,6 +132,26 @@ class ContainerBackend:
 
     def stats(self, container_name: str) -> str | None:
         """Return a one-line resource-usage snapshot, or None if unsupported."""
+        raise NotImplementedError
+
+    # --- dev service lifecycle (the local PostgreSQL container) ---------------
+    # version_cfg + env (loaded from the version's .env) fully describe the dev
+    # service; each backend derives what it needs (compose dir vs run spec).
+
+    def service_up(self, version_cfg: object, env: dict[str, str]) -> int:
+        """Start the dev PostgreSQL service. Returns a process-style return code."""
+        raise NotImplementedError
+
+    def service_down(self, version_cfg: object, env: dict[str, str]) -> int:
+        """Stop the dev PostgreSQL service (persistent data is kept)."""
+        raise NotImplementedError
+
+    def service_status(self, version_cfg: object, env: dict[str, str]) -> int:
+        """Show the dev service status."""
+        raise NotImplementedError
+
+    def service_logs(self, version_cfg: object, env: dict[str, str], follow: bool, tail: int) -> int:
+        """Show the dev service logs."""
         raise NotImplementedError
 
     def _run(self, args: list[str], capture: bool = False) -> subprocess.CompletedProcess:
@@ -165,6 +196,27 @@ class DockerBackend(ContainerBackend):
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
         return None
+
+    # Docker keeps using docker-compose for the dev service — unchanged behaviour.
+    def service_up(self, version_cfg: object, env: dict[str, str]) -> int:
+        from odoodev.core.docker_compose import compose_up
+
+        return compose_up(version_cfg.paths.native_dir)  # type: ignore[attr-defined]
+
+    def service_down(self, version_cfg: object, env: dict[str, str]) -> int:
+        from odoodev.core.docker_compose import compose_down
+
+        return compose_down(version_cfg.paths.native_dir)  # type: ignore[attr-defined]
+
+    def service_status(self, version_cfg: object, env: dict[str, str]) -> int:
+        from odoodev.core.docker_compose import compose_ps
+
+        return compose_ps(version_cfg.paths.native_dir)  # type: ignore[attr-defined]
+
+    def service_logs(self, version_cfg: object, env: dict[str, str], follow: bool, tail: int) -> int:
+        from odoodev.core.docker_compose import compose_logs
+
+        return compose_logs(version_cfg.paths.native_dir, follow=follow, tail=tail)  # type: ignore[attr-defined]
 
 
 class AppleContainerBackend(ContainerBackend):
@@ -211,6 +263,34 @@ class AppleContainerBackend(ContainerBackend):
             return _parse_apple_stats(result.stdout)
         return None
 
+    # Apple Container has no compose — provision the dev postgres as a single
+    # `container run`, mirroring the compose service (name/volume/port/conf), with
+    # the persistent named volume kept across down/up (compose-like semantics).
+    def service_up(self, version_cfg: object, env: dict[str, str]) -> int:
+        spec = build_dev_spec(version_cfg, env)
+        # A stopped container with the same name would block 'run'; remove it
+        # first (the named volume — i.e. the data — persists independently).
+        self.stop_postgres(spec.container_name, remove=True)
+        result = self.run_postgres(spec)
+        return result.returncode
+
+    def service_down(self, version_cfg: object, env: dict[str, str]) -> int:
+        spec = build_dev_spec(version_cfg, env)
+        # Stop + remove the container but KEEP the named volume (dev data).
+        self.stop_postgres(spec.container_name, remove=True)
+        return 0
+
+    def service_status(self, version_cfg: object, env: dict[str, str]) -> int:
+        return self._run(["ls", "-a"]).returncode
+
+    def service_logs(self, version_cfg: object, env: dict[str, str], follow: bool, tail: int) -> int:
+        spec = build_dev_spec(version_cfg, env)
+        args = ["logs"]
+        if follow:
+            args.append("--follow")
+        args.append(spec.container_name)
+        return self._run(args).returncode
+
 
 def _parse_apple_stats(raw: str) -> str | None:
     """Compact ``container stats`` output into a one-line 'mem / CPU x%' string.
@@ -245,3 +325,77 @@ def get_backend(runtime: str) -> ContainerBackend:
     if runtime == RUNTIME_APPLE:
         return AppleContainerBackend()
     raise ValueError(f"Unknown container runtime '{runtime}'. Valid: {', '.join(VALID_RUNTIMES)}")
+
+
+def resolve_runtime(override: str | None = None) -> str:
+    """Resolve the active runtime: explicit override > global config default.
+
+    Raises:
+        ValueError: If an explicit override is not a valid runtime.
+    """
+    if override:
+        if override not in VALID_RUNTIMES:
+            raise ValueError(f"Unknown container runtime '{override}'. Valid: {', '.join(VALID_RUNTIMES)}")
+        return override
+    from odoodev.core.global_config import load_global_config
+
+    return load_global_config().container_runtime
+
+
+def get_active_backend(override: str | None = None) -> ContainerBackend:
+    """Return the backend for the active runtime (override or configured default)."""
+    return get_backend(resolve_runtime(override))
+
+
+def read_env_file(native_dir: str) -> dict[str, str]:
+    """Parse a version's ``.env`` into a dict (KEY=VALUE), expanding ``$USER``.
+
+    Returns an empty dict if the file is absent. Used to derive the dev service
+    spec for non-compose runtimes (Docker Compose reads ``.env`` itself).
+    """
+    env_file = os.path.join(native_dir, ".env")
+    values: dict[str, str] = {}
+    if not os.path.isfile(env_file):
+        return values
+    user = os.environ.get("USER", "odoo")
+    with open(env_file, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            value = value.strip().strip('"').strip("'")
+            value = value.replace("${USER}", user).replace("$USER", user)
+            values[key.strip()] = value
+    return values
+
+
+def build_dev_spec(version_cfg: object, env: dict[str, str]) -> PostgresSpec:
+    """Build the dev PostgreSQL spec, mirroring the docker-compose service.
+
+    Values come from the version's ``.env`` (when present) with config/registry
+    fallbacks, so a non-compose runtime provisions an equivalent container:
+    same name, named volume, published port, credentials and postgresql.conf.
+    """
+    from odoodev.core.global_config import load_global_config
+
+    cfg = load_global_config()
+    version = version_cfg.version  # type: ignore[attr-defined]
+    user = env.get("DEV_USER") or detect_user()
+    pg_version = env.get("POSTGRES_VERSION") or version_cfg.postgres  # type: ignore[attr-defined]
+    host_port = int(env.get("DB_PORT") or version_cfg.ports.db)  # type: ignore[attr-defined]
+    native_dir = version_cfg.paths.native_dir  # type: ignore[attr-defined]
+
+    conf = os.path.join(native_dir, "postgresql.conf")
+    conf_path = conf if os.path.isfile(conf) else None
+
+    return PostgresSpec(
+        image=f"postgres:{pg_version}",
+        container_name=f"{user}-dev-db-{version}-native",
+        volume_name=f"{user}-vol-dev-db-{version}-native",
+        host_port=host_port,
+        user=env.get("PGUSER") or cfg.database.user,
+        password=env.get("PGPASSWORD") or cfg.database.password,
+        db_name="postgres",
+        conf_path=conf_path,
+    )

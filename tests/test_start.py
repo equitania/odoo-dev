@@ -15,8 +15,41 @@ from odoodev.commands.start import (
     _get_config_value,
     _load_env_file,
     _resolve_tui_db_name,
+    _select_runtime,
     _write_pgpass,
 )
+
+
+class TestSelectRuntime:
+    """Test runtime selection for starting PostgreSQL in `odoodev start`."""
+
+    def test_override_wins(self):
+        # An explicit --runtime is honoured without touching config or prompts.
+        assert _select_runtime("apple", no_confirm=True) == "apple"
+        assert _select_runtime("docker", no_confirm=False) == "docker"
+
+    def test_non_interactive_uses_configured(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.resolve_runtime",
+            lambda override=None: override or "docker",
+        )
+        assert _select_runtime(None, no_confirm=True) == "docker"
+
+    def test_interactive_skip_returns_none(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.resolve_runtime",
+            lambda override=None: override or "docker",
+        )
+        monkeypatch.setattr("odoodev.output.select", lambda *a, **k: "skip")
+        assert _select_runtime(None, no_confirm=False) is None
+
+    def test_interactive_choice_returned(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.resolve_runtime",
+            lambda override=None: override or "docker",
+        )
+        monkeypatch.setattr("odoodev.output.select", lambda *a, **k: "apple")
+        assert _select_runtime(None, no_confirm=False) == "apple"
 
 
 class TestExtractDbFromArgs:

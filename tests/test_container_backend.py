@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,8 +15,124 @@ from odoodev.core.container_backend import (
     PostgresSpec,
     _parse_apple_stats,
     _postgres_run_args,
+    build_dev_spec,
     get_backend,
+    read_env_file,
+    resolve_runtime,
 )
+
+
+def _vcfg(native_dir: str):
+    return SimpleNamespace(
+        version="18",
+        postgres="16.11-alpine",
+        ports=SimpleNamespace(db=18432),
+        paths=SimpleNamespace(native_dir=native_dir),
+    )
+
+
+class TestResolveRuntime:
+    def test_override(self):
+        assert resolve_runtime("apple") == "apple"
+
+    def test_invalid_override(self):
+        with pytest.raises(ValueError):
+            resolve_runtime("podman")
+
+    def test_default_from_config(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(container_runtime="apple"),
+        )
+        assert resolve_runtime(None) == "apple"
+
+
+class TestReadEnvFile:
+    def test_parses_and_expands_user(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("USER", "alice")
+        (tmp_path / ".env").write_text('# comment\nDB_PORT=18432\nDEV_USER=${USER}\nPGUSER="ownerp"\n\n')
+        env = read_env_file(str(tmp_path))
+        assert env["DB_PORT"] == "18432"
+        assert env["DEV_USER"] == "alice"
+        assert env["PGUSER"] == "ownerp"
+
+    def test_missing_returns_empty(self, tmp_path):
+        assert read_env_file(str(tmp_path)) == {}
+
+
+class TestBuildDevSpec:
+    def test_mirrors_compose_naming(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="cfg", password="cfgpw")),
+        )
+        env = {
+            "DEV_USER": "tester",
+            "DB_PORT": "18432",
+            "POSTGRES_VERSION": "16.11-alpine",
+            "PGUSER": "ownerp",
+            "PGPASSWORD": "pw",
+        }
+        spec = build_dev_spec(_vcfg(str(tmp_path)), env)
+        assert spec.container_name == "tester-dev-db-18-native"
+        assert spec.volume_name == "tester-vol-dev-db-18-native"
+        assert spec.host_port == 18432
+        assert spec.image == "postgres:16.11-alpine"
+        assert spec.user == "ownerp"
+        assert spec.password == "pw"
+        assert spec.conf_path is None  # no postgresql.conf present
+
+    def test_falls_back_to_config_creds_and_registry(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="cfguser", password="cfgpw")),
+        )
+        spec = build_dev_spec(_vcfg(str(tmp_path)), {"DEV_USER": "t"})
+        assert spec.user == "cfguser"
+        assert spec.password == "cfgpw"
+        assert spec.host_port == 18432  # from registry ports.db
+        assert spec.image == "postgres:16.11-alpine"
+
+    def test_conf_path_when_file_exists(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="u", password="p")),
+        )
+        (tmp_path / "postgresql.conf").write_text("# tuning")
+        spec = build_dev_spec(_vcfg(str(tmp_path)), {"DEV_USER": "t"})
+        assert spec.conf_path == str(tmp_path / "postgresql.conf")
+        args = _postgres_run_args(spec)
+        assert f"{spec.conf_path}:/etc/postgresql/postgresql.conf" in args
+        assert args[-3:] == ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+
+class TestServiceDispatch:
+    def test_docker_service_up_delegates_to_compose(self, monkeypatch):
+        calls: dict = {}
+
+        def fake_compose_up(compose_dir):
+            calls["dir"] = compose_dir
+            return 0
+
+        monkeypatch.setattr("odoodev.core.docker_compose.compose_up", fake_compose_up)
+        rc = DockerBackend().service_up(_vcfg("/native"), {})
+        assert rc == 0
+        assert calls["dir"] == "/native"
+
+    @patch("odoodev.core.container_backend.subprocess.run")
+    def test_apple_service_up_runs_container(self, mock_run, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="u", password="p")),
+        )
+        mock_run.return_value = MagicMock(returncode=0)
+        rc = AppleContainerBackend().service_up(_vcfg(str(tmp_path)), {"DEV_USER": "t"})
+        assert rc == 0
+        argvs = [c.args[0] for c in mock_run.call_args_list]
+        assert any(a[:2] == ["container", "run"] for a in argvs)
+        run_argv = next(a for a in argvs if a[:2] == ["container", "run"])
+        assert "PGDATA=/var/lib/postgresql/data/pgdata" in run_argv
+        assert "t-dev-db-18-native" in run_argv
 
 
 class TestParseAppleStats:

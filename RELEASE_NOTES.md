@@ -1,5 +1,21 @@
 # Release Notes
 
+## Version 0.34.0 (28.06.2026)
+
+### Added
+- **Switchable container runtime: Docker or Apple Container** — the local PostgreSQL service can now run on Docker (via docker-compose, default, unchanged) **or** Apple Container (via a single `container run`, mirroring the compose service: name, named volume, published port, credentials and `postgresql.conf`). A new global setting `container_runtime` (`docker` | `apple`) selects the default:
+  - `odoodev config set container_runtime apple` / shown in `odoodev config show`.
+  - The interactive `odoodev setup` wizard asks for the runtime.
+  - `odoodev start --runtime docker|apple` overrides per call; when PostgreSQL is not running, `start` offers an interactive runtime choice (Docker / Apple Container / skip).
+  - `odoodev docker up|down|status|logs` now act on the configured runtime (with a `--runtime` override) — despite the group name, they manage whichever runtime is active.
+  - `odoodev init` starts the service via the configured runtime.
+  - `odoodev doctor` checks the configured runtime's prerequisites (Docker+Compose, or Apple Container).
+- **Container runtime abstraction extended** — `ContainerBackend` gained a dev-service lifecycle (`service_up/down/status/logs`); `DockerBackend` delegates to docker-compose (behaviour unchanged), `AppleContainerBackend` provisions the dev postgres directly. New helpers `build_dev_spec()`, `read_env_file()`, `resolve_runtime()`, `get_active_backend()`. The Apple data volume uses the `PGDATA` subdirectory workaround (EXT4 `lost+found`).
+
+### Notes
+- Docker remains the default — existing setups are unaffected until `container_runtime` is changed.
+- Apple Container requires macOS 26 on Apple silicon (see 0.33.0 / `odoodev bench`).
+
 ## Version 0.33.0 (28.06.2026)
 
 ### Added

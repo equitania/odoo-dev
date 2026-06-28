@@ -63,6 +63,19 @@ class TestConfigSet:
         assert result.exit_code != 0
         assert "99" in result.output
 
+    def test_set_container_runtime_valid(self, monkeypatch, tmp_path):
+        _isolate_config(monkeypatch, tmp_path)
+        result = CliRunner().invoke(cli, ["config", "set", "container_runtime", "apple"])
+        assert result.exit_code == 0
+        global_config.clear_config_cache()
+        assert global_config.load_global_config().container_runtime == "apple"
+
+    def test_set_container_runtime_invalid(self, monkeypatch, tmp_path):
+        _isolate_config(monkeypatch, tmp_path)
+        result = CliRunner().invoke(cli, ["config", "set", "container_runtime", "podman"])
+        assert result.exit_code != 0
+        assert "Invalid container_runtime" in result.output
+
     def test_set_unknown_key(self, monkeypatch, tmp_path):
         _isolate_config(monkeypatch, tmp_path)
         result = CliRunner().invoke(cli, ["config", "set", "bogus", "x"])

@@ -17,6 +17,10 @@ DEFAULT_DB_USER = "ownerp"
 DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
 DEFAULT_ACTIVE_VERSIONS = ["16", "17", "18", "19"]
 DEFAULT_LANGUAGE = "en"
+# Container runtime for the local PostgreSQL service: "docker" or "apple"
+# (Apple Container — github.com/apple/container, macOS 26+). Docker is the
+# default so existing setups keep their behaviour unchanged.
+DEFAULT_CONTAINER_RUNTIME = "docker"
 
 # Module-level cache to avoid repeated disk reads
 _cached_config: GlobalConfig | None = None
@@ -45,6 +49,7 @@ class GlobalConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     cli: CliConfig = field(default_factory=CliConfig)
     active_versions: list[str] = field(default_factory=lambda: list(DEFAULT_ACTIVE_VERSIONS))
+    container_runtime: str = DEFAULT_CONTAINER_RUNTIME
 
     @property
     def base_dir_expanded(self) -> str:
@@ -106,6 +111,7 @@ def load_global_config() -> GlobalConfig:
         database=db_config,
         cli=cli_config,
         active_versions=data.get("active_versions", list(DEFAULT_ACTIVE_VERSIONS)),
+        container_runtime=data.get("container_runtime", DEFAULT_CONTAINER_RUNTIME),
     )
     return _cached_config
 
@@ -135,6 +141,7 @@ def save_global_config(config: GlobalConfig) -> Path:
             "language": config.cli.language,
         },
         "active_versions": config.active_versions,
+        "container_runtime": config.container_runtime,
     }
 
     # 0o600: config.yaml contains the database password in plaintext

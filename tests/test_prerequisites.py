@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from odoodev.core.prerequisites import (
@@ -266,8 +267,13 @@ class TestRunAllChecks:
     @patch("odoodev.core.prerequisites.check_docker_compose", return_value=True)
     @patch("odoodev.core.prerequisites.check_docker", return_value=True)
     @patch("odoodev.core.prerequisites.check_uv", return_value=True)
+    @patch(
+        "odoodev.core.global_config.load_global_config",
+        return_value=SimpleNamespace(container_runtime="docker"),
+    )
     def test_results_contain_new_keys(self, *_mocks):
         results = run_all_checks(db_port=5432)
+        assert "docker" in results
         assert "node" in results
         assert "node_packages" in results
         assert "system_libs" in results
@@ -278,6 +284,26 @@ class TestRunAllChecks:
         assert results["system_libs"] is True
         assert results["7zip"] is True
         assert results["zstd"] is True
+
+    @patch("odoodev.core.prerequisites.check_zstd", return_value="/usr/bin/zstd")
+    @patch("odoodev.core.prerequisites.check_7zip", return_value="/usr/bin/7zz")
+    @patch("odoodev.core.prerequisites.check_system_libs", return_value=[])
+    @patch("odoodev.core.prerequisites.check_node_packages", return_value=[])
+    @patch("odoodev.core.prerequisites.check_node", return_value="/usr/bin/node")
+    @patch("odoodev.core.prerequisites.check_postgres_port", return_value=True)
+    @patch("odoodev.core.prerequisites.check_pg_tools", return_value="/usr/bin/pg_dump")
+    @patch("odoodev.core.prerequisites.check_wkhtmltopdf", return_value="/usr/bin/wkhtmltopdf")
+    @patch("odoodev.core.prerequisites.check_apple_container", return_value=True)
+    @patch("odoodev.core.prerequisites.check_uv", return_value=True)
+    @patch(
+        "odoodev.core.global_config.load_global_config",
+        return_value=SimpleNamespace(container_runtime="apple"),
+    )
+    def test_apple_runtime_checks_apple_not_docker(self, *_mocks):
+        results = run_all_checks(db_port=5432)
+        assert results.get("apple_container") is True
+        assert "docker" not in results
+        assert "docker_compose" not in results
 
 
 # ---------------------------------------------------------------------------

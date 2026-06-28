@@ -565,14 +565,19 @@ def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]
     Returns:
         Dictionary of check names to pass/fail status.
     """
-    results = {
-        "uv": check_uv(),
-        "docker": check_docker(),
-        "docker_compose": check_docker_compose(),
-        "wkhtmltopdf": check_wkhtmltopdf() is not None,
-        "pg_tools": check_pg_tools() is not None,
-        "postgres": check_postgres_port(db_port),
-    }
+    from odoodev.core.global_config import load_global_config
+
+    runtime = load_global_config().container_runtime
+    results = {"uv": check_uv()}
+    # Only check the configured container runtime's prerequisites.
+    if runtime == "apple":
+        results["apple_container"] = check_apple_container()
+    else:
+        results["docker"] = check_docker()
+        results["docker_compose"] = check_docker_compose()
+    results["wkhtmltopdf"] = check_wkhtmltopdf() is not None
+    results["pg_tools"] = check_pg_tools() is not None
+    results["postgres"] = check_postgres_port(db_port)
 
     results["node"] = check_node() is not None
     results["node_packages"] = len(check_node_packages()) == 0

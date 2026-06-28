@@ -561,6 +561,37 @@ def _check_odoo_config(ctx: click.Context, version: str, myconfs_dir: str) -> st
     return config_path
 
 
+def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | None:
+    """Decide which container runtime to start PostgreSQL with.
+
+    ``--runtime`` wins outright. Otherwise, when interactive, offer the choice
+    (default = configured runtime) plus a 'skip' option; non-interactive uses the
+    configured default. Returns the runtime id, or None to skip starting services.
+    """
+    from odoodev.core.container_backend import resolve_runtime
+
+    if runtime_override:
+        return resolve_runtime(runtime_override)
+    configured = resolve_runtime(None)
+    if no_confirm:
+        return configured
+
+    import questionary
+
+    from odoodev.output import select as _select
+
+    choice = _select(
+        "PostgreSQL is not running. Start it with which runtime?",
+        choices=[
+            questionary.Choice("Docker", value="docker"),
+            questionary.Choice("Apple Container", value="apple"),
+            questionary.Choice("Skip (continue without starting)", value="skip"),
+        ],
+        default=configured,
+    )
+    return None if choice == "skip" else choice
+
+
 def _check_services(
     env_vars: dict[str, str],
     version_cfg: object,
@@ -568,6 +599,7 @@ def _check_services(
     native_dir: str,
     venv_dir: str,
     no_confirm: bool,
+    runtime: str | None = None,
 ) -> None:
     """Check PostgreSQL, requirements freshness, and port conflicts.
 
@@ -581,23 +613,29 @@ def _check_services(
     if not check_port("localhost", db_port):
         print_warning(f"PostgreSQL not accessible on localhost:{db_port}")
 
-        # Migration redirect: start source container instead of target's
-        compose_cwd = native_dir
+        # Migration redirect: start the source version's container (shared DB).
+        effective_cfg = version_cfg
         try:
             from odoodev.core.migration_config import get_active_group
 
             group = get_active_group()
             if group and group.to_version == version:
-                source_cfg = get_version(group.from_version)
-                compose_cwd = source_cfg.paths.native_dir
+                effective_cfg = get_version(group.from_version)
                 print_info(f"[MIGRATION] Starting v{group.from_version}'s PostgreSQL container")
         except Exception:  # noqa: S110
             pass
 
-        if no_confirm or confirm("Start Docker services now?"):
-            docker_result = subprocess.run(["docker", "compose", "up", "-d"], cwd=compose_cwd)
-            if docker_result.returncode != 0:
-                print_error("'docker compose up -d' failed — check Docker daemon and compose file")
+        runtime_name = _select_runtime(runtime, no_confirm)
+        if runtime_name is None:
+            print_warning("Continuing without PostgreSQL — Odoo may fail to start")
+        else:
+            from odoodev.core.container_backend import get_backend, read_env_file
+
+            backend = get_backend(runtime_name)
+            svc_env = read_env_file(effective_cfg.paths.native_dir)  # type: ignore[attr-defined]
+            print_info(f"Starting PostgreSQL via {backend.name}...")
+            if backend.service_up(effective_cfg, svc_env) != 0:
+                print_error(f"Failed to start PostgreSQL via {backend.name}")
                 raise SystemExit(1)
             import time
 
@@ -605,8 +643,6 @@ def _check_services(
             if not check_port("localhost", db_port):
                 print_error(f"PostgreSQL still not accessible on port {db_port}")
                 raise SystemExit(1)
-        else:
-            print_warning("Continuing without PostgreSQL — Odoo may fail to start")
 
     # Check requirements freshness
     requirements = os.path.join(native_dir, "requirements.txt")
@@ -760,6 +796,13 @@ def _build_odoo_extra_args(
     is_flag=True,
     help="Allow the placeholder password 'CHANGE_AT_FIRST' (development/CI only).",
 )
+@click.option(
+    "--runtime",
+    "runtime",
+    type=click.Choice(["docker", "apple"]),
+    default=None,
+    help="Container runtime for PostgreSQL when it must be started (overrides config). docker | apple",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -778,6 +821,7 @@ def start(
     init: str | None,
     bind_host: str,
     allow_default_credentials: bool,
+    runtime: str | None,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -826,7 +870,7 @@ def start(
     _check_odoo_source(ctx, version, odoo_dir)
     config_path = _check_odoo_config(ctx, version, myconfs_dir)
     _clean_sessions(config_path, version, clean_sessions, no_confirm)
-    _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm)
+    _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm, runtime=runtime)
 
     # Show config info
     db_port = int(env_vars.get("DB_PORT", str(version_cfg.ports.db)))
