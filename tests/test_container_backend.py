@@ -12,9 +12,23 @@ from odoodev.core.container_backend import (
     AppleContainerBackend,
     DockerBackend,
     PostgresSpec,
+    _parse_apple_stats,
     _postgres_run_args,
     get_backend,
 )
+
+
+class TestParseAppleStats:
+    def test_extracts_mem_and_cpu(self):
+        raw = (
+            "Container ID  Cpu %  Memory Usage  Net Rx/Tx  Block I/O  Pids\n"
+            "odoodev-bench-pg-container  0.06%  186.79 MiB / 1.00 GiB  "
+            "10.14 KiB / 1.75 KiB  80.70 MiB / 50.40 MiB  6\n"
+        )
+        assert _parse_apple_stats(raw) == "186.79 MiB / 1.00 GiB / CPU 0.06%"
+
+    def test_returns_none_when_unparseable(self):
+        assert _parse_apple_stats("no useful numbers here") is None
 
 
 def _spec() -> PostgresSpec:
@@ -42,6 +56,9 @@ class TestPostgresRunArgs:
         assert "POSTGRES_USER=ownerp" in args
         assert "POSTGRES_PASSWORD=secret" in args
         assert "POSTGRES_DB=odoodev_bench" in args
+        # PGDATA points at a SUBDIRECTORY of the mount so Apple Container's
+        # EXT4-backed volume (with its lost+found root) doesn't break initdb.
+        assert "PGDATA=/var/lib/postgresql/data/pgdata" in args
         # shm-size matches the compose default.
         assert "--shm-size" in args and "1g" in args
         # Image is the final positional argument.

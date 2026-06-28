@@ -17,6 +17,7 @@ without compose orchestration overhead skewing the numbers.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 
@@ -26,6 +27,16 @@ from odoodev.core.environment import command_exists
 RUNTIME_DOCKER = "docker"
 RUNTIME_APPLE = "apple"
 VALID_RUNTIMES = (RUNTIME_DOCKER, RUNTIME_APPLE)
+
+# Mount the data volume here, but point PGDATA at a SUBDIRECTORY of it.
+# Apple Container backs each named volume with its own EXT4 block device, whose
+# root contains a 'lost+found' entry — so a volume mounted directly as the data
+# dir is "not empty" and the postgres image's initdb refuses to run. Using a
+# subdirectory (the postgres image's documented workaround for block-device
+# volumes) sidesteps this and is harmless on Docker, keeping both runtimes
+# identical for a fair benchmark.
+_DATA_MOUNT = "/var/lib/postgresql/data"
+_PGDATA = f"{_DATA_MOUNT}/pgdata"
 
 
 @dataclass(frozen=True)
@@ -61,7 +72,7 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
         "-p",
         f"{spec.host_port}:5432",
         "-v",
-        f"{spec.volume_name}:/var/lib/postgresql/data",
+        f"{spec.volume_name}:{_DATA_MOUNT}",
         "--shm-size",
         spec.shm_size,
         "-e",
@@ -70,6 +81,9 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
         f"POSTGRES_PASSWORD={spec.password}",
         "-e",
         f"POSTGRES_DB={spec.db_name}",
+        # PGDATA must be a subdirectory of the mount — see _PGDATA comment above.
+        "-e",
+        f"PGDATA={_PGDATA}",
         spec.image,
     ]
 
@@ -194,9 +208,27 @@ class AppleContainerBackend(ContainerBackend):
         # 'container stats' is not guaranteed across releases — best-effort only.
         result = self._run(["stats", "--no-stream", container_name], capture=True)
         if result.returncode == 0 and result.stdout.strip():
-            # Collapse to a single line for table display.
-            return " ".join(result.stdout.split())
+            return _parse_apple_stats(result.stdout)
         return None
+
+
+def _parse_apple_stats(raw: str) -> str | None:
+    """Compact ``container stats`` output into a one-line 'mem / CPU x%' string.
+
+    Apple's ``container stats`` prints a multi-column table (Container ID, Cpu %,
+    Memory Usage, ...) which is unreadable in a comparison cell. Extract just the
+    memory-usage pair and CPU percentage via regex; return None if neither parses.
+    """
+    mem = re.search(r"\d+(?:\.\d+)?\s*[KMG]i?B\s*/\s*\d+(?:\.\d+)?\s*[KMG]i?B", raw)
+    cpu = re.search(r"\d+(?:\.\d+)?%", raw)
+    if not mem and not cpu:
+        return None
+    parts = []
+    if mem:
+        parts.append(mem.group(0))
+    if cpu:
+        parts.append(f"CPU {cpu.group(0)}")
+    return " / ".join(parts)
 
 
 def get_backend(runtime: str) -> ContainerBackend:
