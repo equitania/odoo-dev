@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.33.0 (28.06.2026)
+
+### Added
+- **`odoodev bench` — PostgreSQL performance: Docker vs Apple Container** — a new benchmark command provisions an *isolated* PostgreSQL container (dedicated name/volume/port, on database `odoodev_bench` — existing dev databases are never touched) under each available runtime and compares **cold start**, **transaction throughput** (`pgbench`, with a psql-throughput fallback when pgbench is absent), **bulk I/O** (timed bulk `INSERT` + index build) and a best-effort **idle memory/CPU** snapshot. Results are shown side by side with the per-metric winner highlighted and a suggested default runtime. Both runtimes use the raw `run` path with identical flags (`-p`/`-v`/`--shm-size`/`-e`), so the comparison isolates the runtime/storage layer. Flags: `--runtime docker|apple|both` (default both), `--duration`, `--scale`, `--port`, `--keep`. Phase-1 decision gate for adopting Apple's `container` (https://github.com/apple/container, v1.0.0, macOS 26) as a Docker alternative — no configuration is changed yet.
+- **Container runtime abstraction (`core/container_backend.py`)** — a thin `ContainerBackend` interface with `DockerBackend` and `AppleContainerBackend` implementations (raw `run`/`stop`/`volume`/`pull`/`stats`) plus a `PostgresSpec` dataclass and `get_backend()` factory. Foundation for the upcoming switchable Docker/Apple Container runtime selection.
+- **`check_apple_container()` prerequisite** — probes the `container` CLI presence and a live `container system status`, mirroring the existing Docker check.
+
 ## Version 0.32.0 (24.06.2026)
 
 ### Added

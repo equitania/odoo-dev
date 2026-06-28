@@ -54,6 +54,31 @@ def check_docker_compose() -> bool:
     return False
 
 
+def check_apple_container() -> bool:
+    """Check if Apple Container is installed and running (macOS 26+, Apple silicon).
+
+    Apple's ``container`` (https://github.com/apple/container) is a native Docker
+    alternative. This probes the CLI presence and a live ``container system status``.
+    """
+    if not command_exists("container"):
+        print_error("Apple Container CLI ('container') not found")
+        print_info("Install: brew install container (requires macOS 26 on Apple silicon)")
+        return False
+
+    result = subprocess.run(
+        ["container", "system", "status"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print_warning("Apple Container is installed but not running")
+        print_info("Start it with: container system start")
+        return False
+
+    print_success("Apple Container is available and running")
+    return True
+
+
 def check_wkhtmltopdf() -> str | None:
     """Check if wkhtmltopdf is installed and return its path.
 

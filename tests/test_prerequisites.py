@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from odoodev.core.prerequisites import (
     MACOS_LIBS,
     check_7zip,
+    check_apple_container,
     check_node,
     check_node_packages,
     check_system_libs,
@@ -14,6 +15,27 @@ from odoodev.core.prerequisites import (
     check_zstd,
     run_all_checks,
 )
+
+
+class TestCheckAppleContainer:
+    """Tests for check_apple_container()."""
+
+    @patch("odoodev.core.prerequisites.command_exists", return_value=False)
+    def test_cli_missing(self, _cmd):
+        assert check_apple_container() is False
+
+    @patch("odoodev.core.prerequisites.command_exists", return_value=True)
+    @patch("subprocess.run")
+    def test_installed_and_running(self, mock_run, _cmd):
+        mock_run.return_value = MagicMock(returncode=0)
+        assert check_apple_container() is True
+
+    @patch("odoodev.core.prerequisites.command_exists", return_value=True)
+    @patch("subprocess.run")
+    def test_installed_not_running(self, mock_run, _cmd):
+        mock_run.return_value = MagicMock(returncode=1)
+        assert check_apple_container() is False
+
 
 # ---------------------------------------------------------------------------
 # check_node
