@@ -324,12 +324,38 @@ def _start_odoo(
     # Add extra arguments
     cmd.extend(extra_args)
 
-    # Execute Odoo
+    # The interactive Odoo shell (REPL) must stay in the terminal's foreground
+    # process group to read stdin — running it in its own session would trigger
+    # SIGTTIN. So shell mode keeps the simple inherit-and-run path.
+    if mode == "shell":
+        try:
+            result = subprocess.run(cmd, env=env, cwd=odoo_dir)
+            sys.exit(result.returncode)
+        except KeyboardInterrupt:
+            print_info("Odoo server stopped.")
+        return
+
+    # For long-running server modes (normal/dev/test) launch odoo-bin in its own
+    # session. Ctrl+C in the terminal then reaches only odoodev, which forwards a
+    # SIGTERM→SIGKILL to the whole Odoo process group — otherwise odoo-bin's
+    # forked workers survive and keep holding the port. Mirrors the TUI pattern
+    # in odoodev/tui/odoo_process.py.
+    from odoodev.core.process_manager import stop_process_group
+
+    proc = subprocess.Popen(cmd, env=env, cwd=odoo_dir, start_new_session=True)
     try:
-        result = subprocess.run(cmd, env=env, cwd=odoo_dir)
-        sys.exit(result.returncode)
+        proc.wait()
+        sys.exit(proc.returncode)
     except KeyboardInterrupt:
+        print_info("Stopping Odoo server...")
+        try:
+            pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            pgid = None
+        if pgid is not None:
+            stop_process_group(pgid, timeout=10)
         print_info("Odoo server stopped.")
+        sys.exit(0)
 
 
 def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env: dict[str, str]) -> None:
@@ -561,18 +587,43 @@ def _check_odoo_config(ctx: click.Context, version: str, myconfs_dir: str) -> st
     return config_path
 
 
+def _persist_runtime_if_confirmed(chosen: str, configured: str) -> None:
+    """Offer to save the chosen runtime as the new default when it differs.
+
+    Only called in interactive mode. Writes ``container_runtime`` to the global
+    config so the user is not forced to pass ``--runtime`` on every invocation.
+    """
+    if chosen == configured:
+        return
+    if not confirm(f"Save '{chosen}' as default runtime?", default=False):
+        return
+    import dataclasses
+
+    from odoodev.core.global_config import load_global_config, save_global_config
+
+    save_global_config(dataclasses.replace(load_global_config(), container_runtime=chosen))
+    print_success(f"Saved container_runtime = {chosen}")
+
+
 def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | None:
     """Decide which container runtime to start PostgreSQL with.
 
     ``--runtime`` wins outright. Otherwise, when interactive, offer the choice
     (default = configured runtime) plus a 'skip' option; non-interactive uses the
-    configured default. Returns the runtime id, or None to skip starting services.
+    configured default. When interactive and the effective runtime differs from
+    the stored default, offer to persist it. Returns the runtime id, or None to
+    skip starting services.
     """
     from odoodev.core.container_backend import resolve_runtime
 
-    if runtime_override:
-        return resolve_runtime(runtime_override)
     configured = resolve_runtime(None)
+
+    if runtime_override:
+        chosen = resolve_runtime(runtime_override)
+        if not no_confirm:
+            _persist_runtime_if_confirmed(chosen, configured)
+        return chosen
+
     if no_confirm:
         return configured
 
@@ -589,7 +640,10 @@ def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | Non
         ],
         default=configured,
     )
-    return None if choice == "skip" else choice
+    if choice == "skip":
+        return None
+    _persist_runtime_if_confirmed(choice, configured)
+    return choice
 
 
 def _check_services(
@@ -643,6 +697,14 @@ def _check_services(
             if not check_port("localhost", db_port):
                 print_error(f"PostgreSQL still not accessible on port {db_port}")
                 raise SystemExit(1)
+            # Apple Container has no compose/Desktop UI — surface the container
+            # name so the user can confirm it is running (`container ls`, NOT
+            # `container machine list`, which only lists VM infrastructure).
+            if runtime_name == "apple":
+                from odoodev.core.container_backend import build_dev_spec
+
+                name = build_dev_spec(effective_cfg, svc_env).container_name
+                print_success(f"Apple Container '{name}' is running — inspect with: container ls")
 
     # Check requirements freshness
     requirements = os.path.join(native_dir, "requirements.txt")

@@ -12,7 +12,14 @@ import os
 import click
 
 from odoodev.cli import resolve_version
-from odoodev.core.container_backend import RUNTIME_DOCKER, get_backend, read_env_file, resolve_runtime
+from odoodev.core.container_backend import (
+    RUNTIME_APPLE,
+    RUNTIME_DOCKER,
+    build_dev_spec,
+    get_backend,
+    read_env_file,
+    resolve_runtime,
+)
 from odoodev.core.version_registry import get_version
 from odoodev.output import print_error, print_info, print_success, print_warning
 
@@ -135,6 +142,10 @@ def docker_status(ctx: click.Context, version: str | None, runtime: str | None) 
 
     backend = get_backend(rt)
     env = read_env_file(version_cfg.paths.native_dir)
+    # Apple Container's `container ls -a` lists ALL containers unfiltered — name
+    # the one this version expects so the output is interpretable.
+    if rt == RUNTIME_APPLE:
+        print_info(f"Expected dev PostgreSQL container: {build_dev_spec(version_cfg, env).container_name}")
     backend.service_status(version_cfg, env)
 
 

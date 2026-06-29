@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.35.0 (29.06.2026)
+
+### Fixed
+- **`Ctrl+C` now stops the Odoo server cleanly** — server modes (normal/`--dev`/`--test`) launch `odoo-bin` in its own session (`start_new_session=True`), so `Ctrl+C` in the terminal reaches only `odoodev`, which forwards a `SIGTERM`→`SIGKILL` to the whole Odoo process group. Previously only the master process was killed and forked workers survived, keeping the Odoo port occupied (especially visible with the Apple Container runtime). The interactive `--shell` mode keeps the foreground process group (no `SIGTTIN` on the REPL).
+
+### Added
+- **Persist the runtime choice from `start`** — when PostgreSQL must be started and the selected runtime (interactive choice or `--runtime` override) differs from the stored default, `start` now offers `Save '<runtime>' as default runtime?` and writes `container_runtime` to the global config. No more passing `--runtime apple` on every invocation.
+- **Apple Container visibility** — after `start` provisions PostgreSQL via Apple Container it prints the container name (`{user}-dev-db-{version}-native`) with the hint to inspect via `container ls` (not `container machine list`, which only lists VM infrastructure). `odoodev docker status --runtime apple` now also names the expected container before listing.
+- **Apple Container end-to-end guide** — new `usage/apple-container.md` documents prerequisites (macOS 26, Apple silicon), how to set the runtime as default, start/status/stop, and troubleshooting. `usage/AGENT.md` regenerated for 0.35.0 (documents `bench` and `--runtime`).
+
 ## Version 0.34.0 (28.06.2026)
 
 ### Added

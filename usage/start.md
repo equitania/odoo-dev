@@ -84,6 +84,27 @@ Seit v0.4.50 bindet Odoo standardmaessig nur auf `127.0.0.1` (Loopback), damit d
 odoodev start 18 --host 0.0.0.0
 ```
 
+### Container-Runtime (`--runtime`)
+
+Muss `start` PostgreSQL erst hochfahren, nutzt es die konfigurierte Runtime
+(`container_runtime`, Standard `docker`). Mit `--runtime docker|apple` lässt sich das
+pro Aufruf überschreiben:
+
+```bash
+odoodev start 18 --runtime apple   # einmaliger Override
+```
+
+Weicht der gewählte Modus vom gespeicherten Standard ab, bietet odoodev an, ihn dauerhaft
+zu speichern (`Save 'apple' as default runtime?`). Details und Mac-Setup:
+[apple-container.md](apple-container.md).
+
+### Server stoppen (`Ctrl+C`)
+
+`Ctrl+C` beendet den Server seit v0.35.0 sauber inklusive aller Worker-Prozesse — der
+Server läuft in einer eigenen Session und wird per Prozessgruppen-Signal gestoppt, sodass
+der Port zuverlässig freigegeben wird. (Der interaktive `--shell`-Modus bleibt im
+Vordergrund, damit die REPL Eingaben lesen kann.)
+
 ### Start-Voraussetzungen
 
 Was `odoodev start` vor dem Start prueft:
@@ -192,6 +213,25 @@ Since v0.4.50 Odoo binds to `127.0.0.1` (loopback) only by default, so the dev s
 ```bash
 odoodev start 18 --host 0.0.0.0
 ```
+
+### Container Runtime (`--runtime`)
+
+When `start` has to bring PostgreSQL up, it uses the configured runtime
+(`container_runtime`, default `docker`). Override it per call with `--runtime docker|apple`:
+
+```bash
+odoodev start 18 --runtime apple   # one-off override
+```
+
+If the chosen mode differs from the stored default, odoodev offers to persist it
+(`Save 'apple' as default runtime?`). Details and Mac setup:
+[apple-container.md](apple-container.md).
+
+### Stopping the Server (`Ctrl+C`)
+
+Since v0.35.0 `Ctrl+C` stops the server cleanly including all worker processes — the server
+runs in its own session and is stopped via a process-group signal, so the port is reliably
+released. (The interactive `--shell` mode stays in the foreground so the REPL can read input.)
 
 ### Start Prerequisites
 

@@ -7,11 +7,12 @@
 # odoodev — Agent Capability Card
 
 > Unified CLI for native Odoo development across versions **16, 17, 18, 19**. Odoo runs natively on
-> the host; PostgreSQL and Mailpit run in Docker. Generates `.env`, `docker-compose.yml`, `odoo.conf`.
+> the host; PostgreSQL and Mailpit run on a switchable container runtime — **Docker** (default) or
+> **Apple Container** (macOS 26 / Apple silicon). Generates `.env`, `docker-compose.yml`, `odoo.conf`.
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.31.3  ·  **Framework:** Python / Click
+- **Version:** 0.35.0  ·  **Framework:** Python / Click
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
 **Version argument:** Almost every command takes an optional `[VERSION]` (`16`–`19`). If omitted, it
@@ -20,7 +21,10 @@ you must pass it explicitly.
 
 ## Capabilities at a glance
 - Start an Odoo server in several modes: normal, dev hot-reload, shell, test, prepare; optional TUI.
-- Spin Docker side-services (PostgreSQL + Mailpit) up/down and tail their logs.
+  `Ctrl+C` stops the server (and its forked workers) cleanly.
+- Spin local side-services (PostgreSQL + Mailpit) up/down and tail their logs, on Docker or Apple
+  Container (`--runtime`, persisted via `container_runtime`).
+- Benchmark PostgreSQL on Docker vs Apple Container (`odoodev bench`).
 - Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize.
 - **Safe-by-default restore:** deactivate cron, native neutralize, and anonymize PII unless opted out.
 - **Space-aware, low-overhead restore:** pre-checks free disk space, moves the filestore instead of
@@ -36,8 +40,9 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 
 | Command | Purpose | Args / Flags |
 |---|---|---|
+| `odoodev bench` | Benchmark PostgreSQL on Docker vs Apple Container (isolated container, dedicated port). | [VERSION], --runtime docker\|apple\|both, --duration INT, --scale INT, --port INT, --keep |
 | `odoodev config edit` | Open the global config file in $EDITOR (creates defaults if missing). | — |
-| `odoodev config set` | Set a global configuration value. | KEY, VALUE |
+| `odoodev config set` | Set a global configuration value. | KEY, VALUE (keys: base_dir, language, db.user, db.password, active_versions, **container_runtime** docker\|apple) |
 | `odoodev config show` | Show current platform, global config, and environment information. | — |
 | `odoodev config versions` | List all available Odoo versions with their configuration. | --plain, --json |
 | `odoodev db backup` | Create a database backup (SQL dump, ZIP or tar.zst with filestore). | [VERSION], -n/--name TEXT, -t/--type sql\|zip\|tar.zst, -l/--level INT (1-22, tar.zst only, default 5), -o/--output PATH |
@@ -47,10 +52,10 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
 | `odoodev db restore` | Restore a database from backup file. | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --anonymize-users/--no-anonymize-users, --user-password TEXT, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
-| `odoodev docker down` | Stop Docker services. | [VERSION] |
-| `odoodev docker logs` | View Docker service logs. | [VERSION], -f/--follow, -n/--tail INTEGER |
-| `odoodev docker status` | Show Docker service status. | [VERSION] |
-| `odoodev docker up` | Start Docker services. | [VERSION], -d/--detach |
+| `odoodev docker down` | Stop the local PostgreSQL service (data volume kept). | [VERSION], --runtime docker\|apple |
+| `odoodev docker logs` | View the local PostgreSQL service logs. | [VERSION], -f/--follow, -n/--tail INTEGER, --runtime docker\|apple |
+| `odoodev docker status` | Show the local PostgreSQL service status (Apple: names the expected container). | [VERSION], --runtime docker\|apple |
+| `odoodev docker up` | Start the local PostgreSQL service. | [VERSION], -d/--detach, --runtime docker\|apple |
 | `odoodev doctor` | Check the development environment health. | [VERSION] |
 | `odoodev env check` | Check if .env file exists and is complete. | [VERSION] |
 | `odoodev env dir` | Print the native environment directory path. | [VERSION] |
@@ -68,7 +73,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --var/-D TEXT |
 | `odoodev setup` | Interactive setup wizard for odoodev configuration. | --non-interactive, --reset |
 | `odoodev shell-setup` | Install odoodev shell wrapper function. | --shell fish\|bash\|zsh\|auto |
-| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --allow-default-credentials, [EXTRA_ARGS] |
+| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, --allow-default-credentials, [EXTRA_ARGS] |
 | `odoodev stop` | Stop Odoo server and Docker services for the given version. | [VERSION], --keep-docker, --force |
 | `odoodev venv activate` | Print the venv activation command for current shell. | [VERSION] |
 | `odoodev venv check` | Check venv status and requirements freshness. | [VERSION], --json |
@@ -130,6 +135,16 @@ A playbook step's `command` uses dotted names mirroring the CLI groups (`docker.
 `repos`); step `args` use the long option names (e.g. `config-only: true`). Pass variables with
 `--var KEY=VALUE`.
 
+### Use Apple Container instead of Docker (macOS)
+```bash
+odoodev config set container_runtime apple   # persist as default → no flag needed afterwards
+odoodev start 18                             # uses Apple Container; prints the container name
+container ls                                 # see it (NOT `container machine list`)
+odoodev docker status 18 --runtime apple     # names expected container + lists all
+```
+Per-call override: `odoodev start 18 --runtime apple` (offers to save when it differs from the
+default). Requires macOS 26 / Apple silicon. Full guide: `usage/apple-container.md`.
+
 ### Stand up a fresh version environment
 ```bash
 odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + docker
@@ -141,7 +156,8 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   `--terminate-connections`.
 - **`odoodev stop --force`** kills the Odoo process; `--keep-docker` leaves PostgreSQL/Mailpit running.
 - **`odoodev start` prerequisites** (checked before launch): `.env`, `.venv/`, `odoo-bin`, a dated
-  `odoo_*.conf`, a reachable PostgreSQL port (offers to start Docker), and an unchanged
+  `odoo_*.conf`, a reachable PostgreSQL port (offers to start the configured runtime — Docker or
+  Apple Container — and to save the choice as the new default), and an unchanged
   `requirements.txt` SHA256 (offers an update if it changed).
 - **`start --clean-sessions`** wipes existing sessions; **`--allow-default-credentials`** disables a
   safety check — use only on disposable databases.
@@ -164,5 +180,5 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 
 ## Deeper docs
 For background and edge cases see `usage/`: `start.md`, `db.md`, `data-protection.md`, `repos.md`,
-`migrate.md`, `run.md`, `docker.md`, `venv.md`, `config.md`, `setup.md`, `doctor.md`, `shell.md`,
-and the full `odoo-development-workflow.md`.
+`migrate.md`, `run.md`, `docker.md`, `apple-container.md`, `venv.md`, `config.md`, `setup.md`,
+`doctor.md`, `shell.md`, and the full `odoo-development-workflow.md`.
