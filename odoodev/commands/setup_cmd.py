@@ -8,6 +8,7 @@ from odoodev import i18n
 from odoodev.core.global_config import (
     DEFAULT_ACTIVE_VERSIONS,
     DEFAULT_BASE_DIR,
+    DEFAULT_CONTAINER_RUNTIME,
     DEFAULT_DB_PASSWORD,
     DEFAULT_DB_USER,
     CliConfig,
@@ -98,6 +99,21 @@ def _run_interactive_wizard() -> GlobalConfig:
         print_warning("No versions selected, using defaults.")
         active_versions = list(DEFAULT_ACTIVE_VERSIONS)
 
+    # Step 2b: Container runtime for the local PostgreSQL service
+    default_runtime = load_global_config().container_runtime if config_exists() else DEFAULT_CONTAINER_RUNTIME
+    runtime_choices = [
+        questionary.Choice("Docker (Docker Desktop / Docker Engine)", value="docker"),
+        questionary.Choice("Apple Container (macOS 26+, Apple silicon)", value="apple"),
+    ]
+    container_runtime = questionary.select(
+        i18n.t("setup.runtime_question"),
+        choices=runtime_choices,
+        default=default_runtime,
+        style=style,
+    ).ask()
+    if container_runtime is None:
+        raise SystemExit(0)
+
     # Step 3: Database Credentials
     default_user = load_global_config().database.user if config_exists() else DEFAULT_DB_USER
     default_pass = load_global_config().database.password if config_exists() else DEFAULT_DB_PASSWORD
@@ -125,6 +141,7 @@ def _run_interactive_wizard() -> GlobalConfig:
         database=DatabaseConfig(user=db_user, password=db_password),
         cli=CliConfig(language=lang),
         active_versions=sorted(active_versions),
+        container_runtime=container_runtime,
     )
 
     # Step 4: Summary & Confirm
@@ -133,6 +150,7 @@ def _run_interactive_wizard() -> GlobalConfig:
         {
             "Base Directory": config.base_dir,
             "Active Versions": ", ".join(f"v{v}" for v in config.active_versions),
+            "Container Runtime": config.container_runtime,
             "DB User": config.database.user,
             "DB Password": "***",
             "Config File": str(get_config_path()),

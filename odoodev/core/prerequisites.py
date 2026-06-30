@@ -54,6 +54,31 @@ def check_docker_compose() -> bool:
     return False
 
 
+def check_apple_container() -> bool:
+    """Check if Apple Container is installed and running (macOS 26+, Apple silicon).
+
+    Apple's ``container`` (https://github.com/apple/container) is a native Docker
+    alternative. This probes the CLI presence and a live ``container system status``.
+    """
+    if not command_exists("container"):
+        print_error("Apple Container CLI ('container') not found")
+        print_info("Install: brew install container (requires macOS 26 on Apple silicon)")
+        return False
+
+    result = subprocess.run(
+        ["container", "system", "status"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print_warning("Apple Container is installed but not running")
+        print_info("Start it with: container system start")
+        return False
+
+    print_success("Apple Container is available and running")
+    return True
+
+
 def check_wkhtmltopdf() -> str | None:
     """Check if wkhtmltopdf is installed and return its path.
 
@@ -540,14 +565,19 @@ def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]
     Returns:
         Dictionary of check names to pass/fail status.
     """
-    results = {
-        "uv": check_uv(),
-        "docker": check_docker(),
-        "docker_compose": check_docker_compose(),
-        "wkhtmltopdf": check_wkhtmltopdf() is not None,
-        "pg_tools": check_pg_tools() is not None,
-        "postgres": check_postgres_port(db_port),
-    }
+    from odoodev.core.global_config import load_global_config
+
+    runtime = load_global_config().container_runtime
+    results = {"uv": check_uv()}
+    # Only check the configured container runtime's prerequisites.
+    if runtime == "apple":
+        results["apple_container"] = check_apple_container()
+    else:
+        results["docker"] = check_docker()
+        results["docker_compose"] = check_docker_compose()
+    results["wkhtmltopdf"] = check_wkhtmltopdf() is not None
+    results["pg_tools"] = check_pg_tools() is not None
+    results["postgres"] = check_postgres_port(db_port)
 
     results["node"] = check_node() is not None
     results["node_packages"] = len(check_node_packages()) == 0

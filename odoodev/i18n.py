@@ -59,6 +59,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "setup.db_user_question": "PostgreSQL username:",
         "setup.db_password_question": "PostgreSQL password:",
         "setup.versions_question": "Active Odoo versions:",
+        "setup.runtime_question": "Container runtime for PostgreSQL:",
         "setup.saved": "Configuration saved to {path}",
         # --- init steps ---
         "init.header": "Initializing Odoo v{version} development environment",
@@ -178,6 +179,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "setup.db_user_question": "PostgreSQL-Benutzer:",
         "setup.db_password_question": "PostgreSQL-Passwort:",
         "setup.versions_question": "Aktive Odoo-Versionen:",
+        "setup.runtime_question": "Container-Runtime für PostgreSQL:",
         "setup.saved": "Konfiguration gespeichert unter {path}",
         # --- init steps ---
         "init.header": "Initialisiere Odoo v{version} Entwicklungsumgebung",

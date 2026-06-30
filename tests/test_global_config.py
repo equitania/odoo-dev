@@ -9,6 +9,7 @@ import yaml
 from odoodev.core.global_config import (
     DEFAULT_ACTIVE_VERSIONS,
     DEFAULT_BASE_DIR,
+    DEFAULT_CONTAINER_RUNTIME,
     DEFAULT_DB_PASSWORD,
     DEFAULT_DB_USER,
     DatabaseConfig,
@@ -54,6 +55,10 @@ class TestGlobalConfigDefaults:
     def test_default_active_versions(self):
         cfg = GlobalConfig()
         assert cfg.active_versions == list(DEFAULT_ACTIVE_VERSIONS)
+
+    def test_default_container_runtime(self):
+        cfg = GlobalConfig()
+        assert cfg.container_runtime == DEFAULT_CONTAINER_RUNTIME == "docker"
 
     def test_base_dir_expanded(self):
         cfg = GlobalConfig(base_dir="~/projects")
@@ -148,6 +153,7 @@ class TestSaveGlobalConfig:
             base_dir="~/my-odoo",
             database=DatabaseConfig(user="testuser", password="testpass"),
             active_versions=["18"],
+            container_runtime="apple",
         )
         save_global_config(original)
         clear_config_cache()
@@ -157,6 +163,7 @@ class TestSaveGlobalConfig:
         assert loaded.database.user == original.database.user
         assert loaded.database.password == original.database.password
         assert loaded.active_versions == original.active_versions
+        assert loaded.container_runtime == "apple"
 
     def test_save_updates_cache(self, config_dir):
         cfg = GlobalConfig(base_dir="~/cached-test")

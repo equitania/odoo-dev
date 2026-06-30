@@ -1,4 +1,4 @@
-# odoodev-equitania v0.32.0 | python/uv
+# odoodev-equitania v0.36.0 | python/uv
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▸ Setup:    uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Run:      odoodev --help
@@ -8,9 +8,11 @@
 ▸ Types:    mypy odoodev
 ▸ Build:    uv build
 ▸ Python:   3.12/3.13 (tested), >=3.12 (pyproject.toml)
+▸ Mac/Apple Container: odoodev config set container_runtime apple   # persistent default; then `odoodev start 18` just works. See usage/apple-container.md
+▸ Runtime:  odoodev start 18 --runtime apple     # one-off override; offers to save as default. Container: `container ls` (NOT `container machine list`)
 ▸ Restore:  odoodev db restore 18 -z bak.zip -n db   # ZIP/7z/tar/tar.zst/gz/SQL; neutralize + bank-sync + GDPR-anon (incl. HR) by default
 ▸ Anon-User: odoodev db restore 18 ... --anonymize-users   # opt-in: res_users -> user<id>/ownerp (admin kept)
 ▸ Restore+: odoodev db restore 18 ... --no-check-space --delete-backup   # disk pre-check (default on); filestore MOVED not copied; --delete/--keep-backup
 ▸ Neutral:  odoodev db neutralize 18 -n db           # native odoo-bin neutralize + bank-sync (--stdout dry-run)
 ▸ Backup:   odoodev db backup 18 -n db -t tar.zst -l 19  # sql/zip/tar.zst; -l zstd level (tar.zst); ~/Downloads/ (--output overrides)
-▸ TUI:      odoodev start 18 --tui                    # b=backup d=switch-db a=update-apps k=cleanup-modules x=export-csv
+▸ TUI:      odoodev start 18 --tui                    # b=backup d=switch-db a=update-apps k=cleanup-modules x=export-csv; mouse-select log -> auto-copy on release

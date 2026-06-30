@@ -545,6 +545,47 @@ class TestClipboard:
         assert OdooTuiApp._copy_to_clipboard("") is True
 
 
+class TestAutoCopyOnSelection:
+    """Test auto-copy of mouse text selection on mouse release (TextSelected)."""
+
+    async def test_text_selected_copies_to_clipboard(self, mock_cmd, tmp_path):
+        """A non-empty selection is copied automatically on mouse release."""
+        from unittest.mock import MagicMock
+
+        from textual import events
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            # Simulate a drag-selection result: the screen exposes selected text.
+            app.screen.get_selected_text = lambda: "selected line one\nselected line two"  # type: ignore[method-assign]
+            copy_mock = MagicMock()
+            app.copy_to_clipboard = copy_mock  # type: ignore[method-assign]
+
+            app.on_text_selected(events.TextSelected())
+            await pilot.pause(0.1)
+
+            copy_mock.assert_called_once_with("selected line one\nselected line two")
+
+    async def test_empty_selection_does_not_copy(self, mock_cmd, tmp_path):
+        """A plain click (no selection) must not overwrite the clipboard."""
+        from unittest.mock import MagicMock
+
+        from textual import events
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app.screen.get_selected_text = lambda: None  # type: ignore[method-assign]
+            copy_mock = MagicMock()
+            app.copy_to_clipboard = copy_mock  # type: ignore[method-assign]
+
+            app.on_text_selected(events.TextSelected())
+            await pilot.pause(0.1)
+
+            copy_mock.assert_not_called()
+
+
 class TestSaveLog:
     """Test the 's' log export action."""
 

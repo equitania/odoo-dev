@@ -19,13 +19,16 @@ PYPI_PACKAGE = "odoodev-equitania"
 PYPI_TIMEOUT = 2.0
 
 # Checks that fail the doctor run (exit code 1). Everything else is a soft warning.
-HARD_CHECKS = frozenset({"uv", "docker", "docker_compose", "pg_tools", "postgres", "python_packages"})
+HARD_CHECKS = frozenset(
+    {"uv", "docker", "docker_compose", "apple_container", "pg_tools", "postgres", "python_packages"}
+)
 
 # Short remediation hint per check, shown in the summary table on failure.
 HINTS = {
     "uv": "curl -LsSf https://astral.sh/uv/install.sh | sh",
     "docker": "Install/start Docker Desktop or Docker Engine",
     "docker_compose": "Install the Docker Compose v2 plugin",
+    "apple_container": "Install Apple Container (brew install container) and run 'container system start'",
     "wkhtmltopdf": "patched-Qt: macOS .pkg from wkhtmltopdf.org / Linux .deb from github.com/wkhtmltopdf/packaging",
     "pg_tools": "brew install libpq  /  apt install postgresql-client",
     "postgres": "odoodev docker up <version>",

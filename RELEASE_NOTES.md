@@ -1,5 +1,43 @@
 # Release Notes
 
+## Version 0.36.0 (30.06.2026)
+
+### Added
+- **TUI: auto-copy mouse text selection to clipboard on release** — in the runtime TUI's log view, selecting text with the mouse now copies it to the clipboard the moment the mouse button is released (Claude-Workbench-style), with a brief `N line(s) copied to clipboard` toast. No `Ctrl+C` keypress needed. A plain focus-click does **not** overwrite the clipboard (Textual clears a non-drag selection before the copy fires), and the existing `Ctrl+C`/`Cmd+C` and `c`/`e`/`w` copy paths are unchanged. Reuses the existing `pbcopy`/`xclip`/`xsel` clipboard backend with OSC-52 fallback.
+
+## Version 0.35.0 (29.06.2026)
+
+### Fixed
+- **`Ctrl+C` now stops the Odoo server cleanly** — server modes (normal/`--dev`/`--test`) launch `odoo-bin` in its own session (`start_new_session=True`), so `Ctrl+C` in the terminal reaches only `odoodev`, which forwards a `SIGTERM`→`SIGKILL` to the whole Odoo process group. Previously only the master process was killed and forked workers survived, keeping the Odoo port occupied (especially visible with the Apple Container runtime). The interactive `--shell` mode keeps the foreground process group (no `SIGTTIN` on the REPL).
+
+### Added
+- **Persist the runtime choice from `start`** — when PostgreSQL must be started and the selected runtime (interactive choice or `--runtime` override) differs from the stored default, `start` now offers `Save '<runtime>' as default runtime?` and writes `container_runtime` to the global config. No more passing `--runtime apple` on every invocation.
+- **Apple Container visibility** — after `start` provisions PostgreSQL via Apple Container it prints the container name (`{user}-dev-db-{version}-native`) with the hint to inspect via `container ls` (not `container machine list`, which only lists VM infrastructure). `odoodev docker status --runtime apple` now also names the expected container before listing.
+- **Apple Container end-to-end guide** — new `usage/apple-container.md` documents prerequisites (macOS 26, Apple silicon), how to set the runtime as default, start/status/stop, and troubleshooting. `usage/AGENT.md` regenerated for 0.35.0 (documents `bench` and `--runtime`).
+
+## Version 0.34.0 (28.06.2026)
+
+### Added
+- **Switchable container runtime: Docker or Apple Container** — the local PostgreSQL service can now run on Docker (via docker-compose, default, unchanged) **or** Apple Container (via a single `container run`, mirroring the compose service: name, named volume, published port, credentials and `postgresql.conf`). A new global setting `container_runtime` (`docker` | `apple`) selects the default:
+  - `odoodev config set container_runtime apple` / shown in `odoodev config show`.
+  - The interactive `odoodev setup` wizard asks for the runtime.
+  - `odoodev start --runtime docker|apple` overrides per call; when PostgreSQL is not running, `start` offers an interactive runtime choice (Docker / Apple Container / skip).
+  - `odoodev docker up|down|status|logs` now act on the configured runtime (with a `--runtime` override) — despite the group name, they manage whichever runtime is active.
+  - `odoodev init` starts the service via the configured runtime.
+  - `odoodev doctor` checks the configured runtime's prerequisites (Docker+Compose, or Apple Container).
+- **Container runtime abstraction extended** — `ContainerBackend` gained a dev-service lifecycle (`service_up/down/status/logs`); `DockerBackend` delegates to docker-compose (behaviour unchanged), `AppleContainerBackend` provisions the dev postgres directly. New helpers `build_dev_spec()`, `read_env_file()`, `resolve_runtime()`, `get_active_backend()`. The Apple data volume uses the `PGDATA` subdirectory workaround (EXT4 `lost+found`).
+
+### Notes
+- Docker remains the default — existing setups are unaffected until `container_runtime` is changed.
+- Apple Container requires macOS 26 on Apple silicon (see 0.33.0 / `odoodev bench`).
+
+## Version 0.33.0 (28.06.2026)
+
+### Added
+- **`odoodev bench` — PostgreSQL performance: Docker vs Apple Container** — a new benchmark command provisions an *isolated* PostgreSQL container (dedicated name/volume/port, on database `odoodev_bench` — existing dev databases are never touched) under each available runtime and compares **cold start**, **transaction throughput** (`pgbench`, with a psql-throughput fallback when pgbench is absent), **bulk I/O** (timed bulk `INSERT` + index build) and a best-effort **idle memory/CPU** snapshot. Results are shown side by side with the per-metric winner highlighted and a suggested default runtime. Both runtimes use the raw `run` path with identical flags (`-p`/`-v`/`--shm-size`/`-e`), so the comparison isolates the runtime/storage layer. Flags: `--runtime docker|apple|both` (default both), `--duration`, `--scale`, `--port`, `--keep`. Phase-1 decision gate for adopting Apple's `container` (https://github.com/apple/container, v1.0.0, macOS 26) as a Docker alternative — no configuration is changed yet.
+- **Container runtime abstraction (`core/container_backend.py`)** — a thin `ContainerBackend` interface with `DockerBackend` and `AppleContainerBackend` implementations (raw `run`/`stop`/`volume`/`pull`/`stats`) plus a `PostgresSpec` dataclass and `get_backend()` factory. Foundation for the upcoming switchable Docker/Apple Container runtime selection.
+- **`check_apple_container()` prerequisite** — probes the `container` CLI presence and a live `container system status`, mirroring the existing Docker check.
+
 ## Version 0.32.0 (24.06.2026)
 
 ### Added

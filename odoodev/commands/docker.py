@@ -1,20 +1,34 @@
-"""odoodev docker - Docker service management for native development."""
+"""odoodev docker - Local container service management for native development.
+
+Despite the name, this group controls the configured container runtime — Docker
+(via docker-compose) or Apple Container (via `container run`). The runtime
+defaults to the global config and can be overridden per call with ``--runtime``.
+"""
 
 from __future__ import annotations
 
 import os
-import subprocess
 
 import click
 
 from odoodev.cli import resolve_version
+from odoodev.core.container_backend import (
+    RUNTIME_APPLE,
+    RUNTIME_DOCKER,
+    build_dev_spec,
+    get_backend,
+    read_env_file,
+    resolve_runtime,
+)
 from odoodev.core.version_registry import get_version
 from odoodev.output import print_error, print_info, print_success, print_warning
 
-
-def _get_compose_dir(version_cfg) -> str:
-    """Get the directory containing docker-compose.yml for the version."""
-    return version_cfg.paths.native_dir
+_runtime_option = click.option(
+    "--runtime",
+    type=click.Choice(["docker", "apple"]),
+    default=None,
+    help="Container runtime (overrides config). docker | apple",
+)
 
 
 def _check_migration_redirect(version: str) -> tuple[bool, str | None]:
@@ -34,72 +48,61 @@ def _check_migration_redirect(version: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def _run_compose(compose_dir: str, args: list[str], capture: bool = False) -> subprocess.CompletedProcess:
-    """Run docker compose command in the given directory."""
-    cmd = ["docker", "compose"] + args
-    return subprocess.run(
-        cmd,
-        cwd=compose_dir,
-        capture_output=capture,
-        text=True,
-    )
+def _has_compose_file(version_cfg) -> bool:
+    """True if a docker-compose.yml exists for the version (Docker runtime only)."""
+    return os.path.exists(os.path.join(version_cfg.paths.native_dir, "docker-compose.yml"))
 
 
 @click.group()
 def docker() -> None:
-    """Manage Docker services (PostgreSQL, Mailpit)."""
+    """Manage local container services (PostgreSQL) for the configured runtime."""
 
 
 @docker.command("up")
 @click.argument("version", required=False)
 @click.option("-d", "--detach", is_flag=True, default=True, help="Run in background (default)")
+@_runtime_option
 @click.pass_context
-def docker_up(ctx: click.Context, version: str | None, detach: bool) -> None:
-    """Start Docker services."""
+def docker_up(ctx: click.Context, version: str | None, detach: bool, runtime: str | None) -> None:
+    """Start the local PostgreSQL service."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
-    compose_dir = _get_compose_dir(version_cfg)
+    rt = resolve_runtime(runtime)
 
-    if not os.path.exists(os.path.join(compose_dir, "docker-compose.yml")):
-        print_error(f"No docker-compose.yml found in {compose_dir}")
+    is_target, source_version = _check_migration_redirect(version)
+    if is_target and source_version:
+        print_warning(
+            f"[MIGRATION] v{version} shares v{source_version}'s PostgreSQL container. Using v{source_version}."
+        )
+        version = source_version
+        version_cfg = get_version(version)
+
+    backend = get_backend(rt)
+    if rt == RUNTIME_DOCKER and not _has_compose_file(version_cfg):
+        print_error(f"No docker-compose.yml found in {version_cfg.paths.native_dir}")
         print_info(f"Run: odoodev init {version}")
         raise SystemExit(1)
 
-    is_target, source_version = _check_migration_redirect(version)
-    if is_target:
-        print_warning(
-            f"[MIGRATION] v{version} shares v{source_version}'s PostgreSQL container. "
-            f"Use: odoodev docker up {source_version}"
-        )
-        source_cfg = get_version(source_version)
-        compose_dir = _get_compose_dir(source_cfg)
-        if not os.path.exists(os.path.join(compose_dir, "docker-compose.yml")):
-            print_error(f"No docker-compose.yml found in {compose_dir}")
-            raise SystemExit(1)
-        version = source_version
-
-    print_info(f"Starting Docker services for v{version}...")
-    args = ["up"]
-    if detach:
-        args.append("-d")
-    result = _run_compose(compose_dir, args)
-    if result.returncode == 0:
-        print_success(f"Docker services for v{version} started")
+    print_info(f"Starting PostgreSQL for v{version} via {backend.name}...")
+    env = read_env_file(version_cfg.paths.native_dir)
+    if backend.service_up(version_cfg, env) == 0:
+        print_success(f"PostgreSQL for v{version} started ({backend.name})")
     else:
-        print_error("Failed to start Docker services")
-        raise SystemExit(result.returncode)
+        print_error(f"Failed to start PostgreSQL via {backend.name}")
+        raise SystemExit(1)
 
 
 @docker.command("down")
 @click.argument("version", required=False)
+@_runtime_option
 @click.pass_context
-def docker_down(ctx: click.Context, version: str | None) -> None:
-    """Stop Docker services."""
+def docker_down(ctx: click.Context, version: str | None, runtime: str | None) -> None:
+    """Stop the local PostgreSQL service (persistent data is kept)."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
-    compose_dir = _get_compose_dir(version_cfg)
+    rt = resolve_runtime(runtime)
 
-    # Warn if this is a source container used by a migration target
+    # Warn if this is a source container shared with a migration target.
     try:
         from odoodev.core.migration_config import get_active_group
 
@@ -113,43 +116,51 @@ def docker_down(ctx: click.Context, version: str | None) -> None:
     except Exception:  # noqa: S110 — intentional safety guard
         pass
 
-    print_info(f"Stopping Docker services for v{version}...")
-    result = _run_compose(compose_dir, ["down"])
-    if result.returncode == 0:
-        print_success(f"Docker services for v{version} stopped")
+    backend = get_backend(rt)
+    print_info(f"Stopping PostgreSQL for v{version} via {backend.name}...")
+    env = read_env_file(version_cfg.paths.native_dir)
+    if backend.service_down(version_cfg, env) == 0:
+        print_success(f"PostgreSQL for v{version} stopped ({backend.name})")
     else:
-        print_error("Failed to stop Docker services")
-        raise SystemExit(result.returncode)
+        print_error(f"Failed to stop PostgreSQL via {backend.name}")
+        raise SystemExit(1)
 
 
 @docker.command("status")
 @click.argument("version", required=False)
+@_runtime_option
 @click.pass_context
-def docker_status(ctx: click.Context, version: str | None) -> None:
-    """Show Docker service status."""
+def docker_status(ctx: click.Context, version: str | None, runtime: str | None) -> None:
+    """Show the local PostgreSQL service status."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
-    compose_dir = _get_compose_dir(version_cfg)
+    rt = resolve_runtime(runtime)
 
-    if not os.path.exists(os.path.join(compose_dir, "docker-compose.yml")):
-        print_warning(f"No docker-compose.yml found in {compose_dir}")
+    if rt == RUNTIME_DOCKER and not _has_compose_file(version_cfg):
+        print_warning(f"No docker-compose.yml found in {version_cfg.paths.native_dir}")
         return
 
-    _run_compose(compose_dir, ["ps"])
+    backend = get_backend(rt)
+    env = read_env_file(version_cfg.paths.native_dir)
+    # Apple Container's `container ls -a` lists ALL containers unfiltered — name
+    # the one this version expects so the output is interpretable.
+    if rt == RUNTIME_APPLE:
+        print_info(f"Expected dev PostgreSQL container: {build_dev_spec(version_cfg, env).container_name}")
+    backend.service_status(version_cfg, env)
 
 
 @docker.command("logs")
 @click.argument("version", required=False)
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
 @click.option("-n", "--tail", type=int, default=100, help="Number of lines to show")
+@_runtime_option
 @click.pass_context
-def docker_logs(ctx: click.Context, version: str | None, follow: bool, tail: int) -> None:
-    """View Docker service logs."""
+def docker_logs(ctx: click.Context, version: str | None, follow: bool, tail: int, runtime: str | None) -> None:
+    """View the local PostgreSQL service logs."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
-    compose_dir = _get_compose_dir(version_cfg)
+    rt = resolve_runtime(runtime)
 
-    args = ["logs", f"--tail={tail}"]
-    if follow:
-        args.append("-f")
-    _run_compose(compose_dir, args)
+    backend = get_backend(rt)
+    env = read_env_file(version_cfg.paths.native_dir)
+    backend.service_logs(version_cfg, env, follow=follow, tail=tail)

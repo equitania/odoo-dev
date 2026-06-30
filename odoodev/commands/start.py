@@ -324,12 +324,38 @@ def _start_odoo(
     # Add extra arguments
     cmd.extend(extra_args)
 
-    # Execute Odoo
+    # The interactive Odoo shell (REPL) must stay in the terminal's foreground
+    # process group to read stdin — running it in its own session would trigger
+    # SIGTTIN. So shell mode keeps the simple inherit-and-run path.
+    if mode == "shell":
+        try:
+            result = subprocess.run(cmd, env=env, cwd=odoo_dir)
+            sys.exit(result.returncode)
+        except KeyboardInterrupt:
+            print_info("Odoo server stopped.")
+        return
+
+    # For long-running server modes (normal/dev/test) launch odoo-bin in its own
+    # session. Ctrl+C in the terminal then reaches only odoodev, which forwards a
+    # SIGTERM→SIGKILL to the whole Odoo process group — otherwise odoo-bin's
+    # forked workers survive and keep holding the port. Mirrors the TUI pattern
+    # in odoodev/tui/odoo_process.py.
+    from odoodev.core.process_manager import stop_process_group
+
+    proc = subprocess.Popen(cmd, env=env, cwd=odoo_dir, start_new_session=True)
     try:
-        result = subprocess.run(cmd, env=env, cwd=odoo_dir)
-        sys.exit(result.returncode)
+        proc.wait()
+        sys.exit(proc.returncode)
     except KeyboardInterrupt:
+        print_info("Stopping Odoo server...")
+        try:
+            pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            pgid = None
+        if pgid is not None:
+            stop_process_group(pgid, timeout=10)
         print_info("Odoo server stopped.")
+        sys.exit(0)
 
 
 def _start_interactive_shell(odoo_dir: str, venv_dir: str, config_path: str, env: dict[str, str]) -> None:
@@ -561,6 +587,65 @@ def _check_odoo_config(ctx: click.Context, version: str, myconfs_dir: str) -> st
     return config_path
 
 
+def _persist_runtime_if_confirmed(chosen: str, configured: str) -> None:
+    """Offer to save the chosen runtime as the new default when it differs.
+
+    Only called in interactive mode. Writes ``container_runtime`` to the global
+    config so the user is not forced to pass ``--runtime`` on every invocation.
+    """
+    if chosen == configured:
+        return
+    if not confirm(f"Save '{chosen}' as default runtime?", default=False):
+        return
+    import dataclasses
+
+    from odoodev.core.global_config import load_global_config, save_global_config
+
+    save_global_config(dataclasses.replace(load_global_config(), container_runtime=chosen))
+    print_success(f"Saved container_runtime = {chosen}")
+
+
+def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | None:
+    """Decide which container runtime to start PostgreSQL with.
+
+    ``--runtime`` wins outright. Otherwise, when interactive, offer the choice
+    (default = configured runtime) plus a 'skip' option; non-interactive uses the
+    configured default. When interactive and the effective runtime differs from
+    the stored default, offer to persist it. Returns the runtime id, or None to
+    skip starting services.
+    """
+    from odoodev.core.container_backend import resolve_runtime
+
+    configured = resolve_runtime(None)
+
+    if runtime_override:
+        chosen = resolve_runtime(runtime_override)
+        if not no_confirm:
+            _persist_runtime_if_confirmed(chosen, configured)
+        return chosen
+
+    if no_confirm:
+        return configured
+
+    import questionary
+
+    from odoodev.output import select as _select
+
+    choice = _select(
+        "PostgreSQL is not running. Start it with which runtime?",
+        choices=[
+            questionary.Choice("Docker", value="docker"),
+            questionary.Choice("Apple Container", value="apple"),
+            questionary.Choice("Skip (continue without starting)", value="skip"),
+        ],
+        default=configured,
+    )
+    if choice == "skip":
+        return None
+    _persist_runtime_if_confirmed(choice, configured)
+    return choice
+
+
 def _check_services(
     env_vars: dict[str, str],
     version_cfg: object,
@@ -568,6 +653,7 @@ def _check_services(
     native_dir: str,
     venv_dir: str,
     no_confirm: bool,
+    runtime: str | None = None,
 ) -> None:
     """Check PostgreSQL, requirements freshness, and port conflicts.
 
@@ -581,23 +667,29 @@ def _check_services(
     if not check_port("localhost", db_port):
         print_warning(f"PostgreSQL not accessible on localhost:{db_port}")
 
-        # Migration redirect: start source container instead of target's
-        compose_cwd = native_dir
+        # Migration redirect: start the source version's container (shared DB).
+        effective_cfg = version_cfg
         try:
             from odoodev.core.migration_config import get_active_group
 
             group = get_active_group()
             if group and group.to_version == version:
-                source_cfg = get_version(group.from_version)
-                compose_cwd = source_cfg.paths.native_dir
+                effective_cfg = get_version(group.from_version)
                 print_info(f"[MIGRATION] Starting v{group.from_version}'s PostgreSQL container")
         except Exception:  # noqa: S110
             pass
 
-        if no_confirm or confirm("Start Docker services now?"):
-            docker_result = subprocess.run(["docker", "compose", "up", "-d"], cwd=compose_cwd)
-            if docker_result.returncode != 0:
-                print_error("'docker compose up -d' failed — check Docker daemon and compose file")
+        runtime_name = _select_runtime(runtime, no_confirm)
+        if runtime_name is None:
+            print_warning("Continuing without PostgreSQL — Odoo may fail to start")
+        else:
+            from odoodev.core.container_backend import get_backend, read_env_file
+
+            backend = get_backend(runtime_name)
+            svc_env = read_env_file(effective_cfg.paths.native_dir)  # type: ignore[attr-defined]
+            print_info(f"Starting PostgreSQL via {backend.name}...")
+            if backend.service_up(effective_cfg, svc_env) != 0:
+                print_error(f"Failed to start PostgreSQL via {backend.name}")
                 raise SystemExit(1)
             import time
 
@@ -605,8 +697,14 @@ def _check_services(
             if not check_port("localhost", db_port):
                 print_error(f"PostgreSQL still not accessible on port {db_port}")
                 raise SystemExit(1)
-        else:
-            print_warning("Continuing without PostgreSQL — Odoo may fail to start")
+            # Apple Container has no compose/Desktop UI — surface the container
+            # name so the user can confirm it is running (`container ls`, NOT
+            # `container machine list`, which only lists VM infrastructure).
+            if runtime_name == "apple":
+                from odoodev.core.container_backend import build_dev_spec
+
+                name = build_dev_spec(effective_cfg, svc_env).container_name
+                print_success(f"Apple Container '{name}' is running — inspect with: container ls")
 
     # Check requirements freshness
     requirements = os.path.join(native_dir, "requirements.txt")
@@ -760,6 +858,13 @@ def _build_odoo_extra_args(
     is_flag=True,
     help="Allow the placeholder password 'CHANGE_AT_FIRST' (development/CI only).",
 )
+@click.option(
+    "--runtime",
+    "runtime",
+    type=click.Choice(["docker", "apple"]),
+    default=None,
+    help="Container runtime for PostgreSQL when it must be started (overrides config). docker | apple",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -778,6 +883,7 @@ def start(
     init: str | None,
     bind_host: str,
     allow_default_credentials: bool,
+    runtime: str | None,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -826,7 +932,7 @@ def start(
     _check_odoo_source(ctx, version, odoo_dir)
     config_path = _check_odoo_config(ctx, version, myconfs_dir)
     _clean_sessions(config_path, version, clean_sessions, no_confirm)
-    _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm)
+    _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm, runtime=runtime)
 
     # Show config info
     db_port = int(env_vars.get("DB_PORT", str(version_cfg.ports.db)))

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+
+import pytest
 
 # Import cli first to resolve the circular import chain (cli → start → cli)
 import odoodev.cli  # noqa: F401
@@ -15,8 +18,84 @@ from odoodev.commands.start import (
     _get_config_value,
     _load_env_file,
     _resolve_tui_db_name,
+    _select_runtime,
+    _start_odoo,
     _write_pgpass,
 )
+
+
+class TestSelectRuntime:
+    """Test runtime selection for starting PostgreSQL in `odoodev start`.
+
+    The configured default is stubbed to ``docker`` so the persist-prompt logic
+    (which fires only when the chosen runtime differs from the default) is
+    deterministic and never touches the user's real ~/.config/odoodev.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _stub(self, monkeypatch):
+        # configured default = "docker"; an explicit override is echoed back
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.resolve_runtime",
+            lambda override=None: override or "docker",
+        )
+        # record persistence without writing to disk
+        from odoodev.core.global_config import GlobalConfig
+
+        self.saved: list[str] = []
+        monkeypatch.setattr("odoodev.core.global_config.load_global_config", lambda: GlobalConfig())
+        monkeypatch.setattr(
+            "odoodev.core.global_config.save_global_config",
+            lambda cfg: self.saved.append(cfg.container_runtime),
+        )
+        # default: confirm says "yes" — individual tests override as needed
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda *a, **k: True)
+
+    def test_override_noconfirm_no_persist(self):
+        # --runtime + non-interactive: honoured, no prompt, nothing saved.
+        assert _select_runtime("apple", no_confirm=True) == "apple"
+        assert self.saved == []
+
+    def test_override_same_as_default_no_prompt(self, monkeypatch):
+        # Override equals the stored default → no persist prompt at all.
+        monkeypatch.setattr(
+            "odoodev.commands.start.confirm",
+            lambda *a, **k: pytest.fail("confirm must not be called when runtime == default"),
+        )
+        assert _select_runtime("docker", no_confirm=False) == "docker"
+        assert self.saved == []
+
+    def test_override_differs_persists_on_yes(self):
+        assert _select_runtime("apple", no_confirm=False) == "apple"
+        assert self.saved == ["apple"]
+
+    def test_override_differs_declined(self, monkeypatch):
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda *a, **k: False)
+        assert _select_runtime("apple", no_confirm=False) == "apple"
+        assert self.saved == []
+
+    def test_non_interactive_uses_configured(self):
+        assert _select_runtime(None, no_confirm=True) == "docker"
+        assert self.saved == []
+
+    def test_interactive_skip_returns_none(self, monkeypatch):
+        monkeypatch.setattr("odoodev.output.select", lambda *a, **k: "skip")
+        assert _select_runtime(None, no_confirm=False) is None
+        assert self.saved == []
+
+    def test_interactive_choice_persists_on_yes(self, monkeypatch):
+        monkeypatch.setattr("odoodev.output.select", lambda *a, **k: "apple")
+        assert _select_runtime(None, no_confirm=False) == "apple"
+        assert self.saved == ["apple"]
+
+    def test_interactive_choice_equals_default_no_prompt(self, monkeypatch):
+        monkeypatch.setattr("odoodev.output.select", lambda *a, **k: "docker")
+        monkeypatch.setattr(
+            "odoodev.commands.start.confirm",
+            lambda *a, **k: pytest.fail("confirm must not be called when runtime == default"),
+        )
+        assert _select_runtime(None, no_confirm=False) == "docker"
+        assert self.saved == []
 
 
 class TestExtractDbFromArgs:
@@ -410,3 +489,75 @@ class TestCleanSessions:
         runner = CliRunner()
         result = runner.invoke(start, ["--help"], catch_exceptions=False)
         assert "--clean-sessions" in result.output
+
+
+class TestStartOdooProcessGroup:
+    """Ctrl+C handling: server modes get their own session + group shutdown,
+    while the interactive shell stays in the foreground process group."""
+
+    def _patch_common(self, monkeypatch):
+        monkeypatch.setattr("odoodev.commands.start.get_venv_python", lambda venv_dir: "python")
+        # neutralise the v19 log-handler mutation (needs no real version data)
+        monkeypatch.setattr("odoodev.commands.start._add_v19_log_handlers", lambda cmd, version: None)
+
+    def test_shell_mode_uses_subprocess_run(self, monkeypatch, tmp_path):
+        self._patch_common(monkeypatch)
+        calls = {"run": 0, "popen": 0}
+
+        class _Result:
+            returncode = 0
+
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.__setitem__("run", calls["run"] + 1) or _Result())
+        monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: calls.__setitem__("popen", calls["popen"] + 1) or None)
+
+        with pytest.raises(SystemExit) as exc:
+            _start_odoo(str(tmp_path), "/tmp/odoo.conf", "shell", (), {}, str(tmp_path), version="18")
+        assert exc.value.code == 0
+        assert calls["run"] == 1
+        assert calls["popen"] == 0
+
+    def test_server_mode_uses_popen_new_session(self, monkeypatch, tmp_path):
+        self._patch_common(monkeypatch)
+        captured = {}
+
+        class _FakeProc:
+            pid = 4321
+            returncode = 0
+
+            def wait(self):
+                return 0
+
+        def _fake_popen(cmd, **kwargs):
+            captured.update(kwargs)
+            return _FakeProc()
+
+        monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("server mode must not use subprocess.run"))
+
+        with pytest.raises(SystemExit) as exc:
+            _start_odoo(str(tmp_path), "/tmp/odoo.conf", "normal", (), {}, str(tmp_path), version="18")
+        assert exc.value.code == 0
+        assert captured.get("start_new_session") is True
+
+    def test_server_mode_ctrl_c_stops_process_group(self, monkeypatch, tmp_path):
+        self._patch_common(monkeypatch)
+        stopped = {}
+
+        class _FakeProc:
+            pid = 4321
+            returncode = 0
+
+            def wait(self):
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _FakeProc())
+        monkeypatch.setattr("odoodev.commands.start.os.getpgid", lambda pid: 9999)
+        monkeypatch.setattr(
+            "odoodev.core.process_manager.stop_process_group",
+            lambda pgid, timeout=5, force=False: stopped.__setitem__("pgid", pgid) or True,
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            _start_odoo(str(tmp_path), "/tmp/odoo.conf", "normal", (), {}, str(tmp_path), version="18")
+        assert exc.value.code == 0
+        assert stopped.get("pgid") == 9999

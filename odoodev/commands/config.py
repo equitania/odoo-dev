@@ -12,7 +12,7 @@ from odoodev.core.environment import detect_arch, detect_docker_platform, detect
 from odoodev.core.version_registry import available_versions, load_versions
 from odoodev.output import print_header, print_info, print_success, print_table, print_version_table, print_warning
 
-_SETTABLE_KEYS = ("base_dir", "language", "db.user", "db.password", "active_versions")
+_SETTABLE_KEYS = ("base_dir", "language", "db.user", "db.password", "active_versions", "container_runtime")
 
 
 def _parse_and_validate(key: str, raw_value: str) -> str | list[str]:
@@ -36,6 +36,12 @@ def _parse_and_validate(key: str, raw_value: str) -> str | list[str]:
                 f"Invalid versions: {', '.join(unknown) or '(empty)'}. Known: {', '.join(sorted(known))}"
             )
         return requested
+    if key == "container_runtime":
+        from odoodev.core.container_backend import VALID_RUNTIMES
+
+        if raw_value not in VALID_RUNTIMES:
+            raise click.UsageError(f"Invalid container_runtime '{raw_value}'. Valid: {', '.join(VALID_RUNTIMES)}")
+        return raw_value
     if key in ("base_dir", "db.user", "db.password"):
         if not raw_value.strip():
             raise click.UsageError(f"Value for '{key}' must not be empty")
@@ -98,6 +104,7 @@ def config_set(key: str, value: str) -> None:
         db.user          PostgreSQL user
         db.password      PostgreSQL password
         active_versions  Comma-separated list, e.g. 16,17,18,19
+        container_runtime  Container runtime for PostgreSQL (docker, apple)
     """
     from odoodev.core.global_config import load_global_config, save_global_config
 
@@ -112,6 +119,8 @@ def config_set(key: str, value: str) -> None:
         updated = dataclasses.replace(cfg, database=dataclasses.replace(cfg.database, user=str(parsed)))
     elif key == "db.password":
         updated = dataclasses.replace(cfg, database=dataclasses.replace(cfg.database, password=str(parsed)))
+    elif key == "container_runtime":
+        updated = dataclasses.replace(cfg, container_runtime=str(parsed))
     else:  # active_versions — _parse_and_validate already rejected unknown keys
         updated = dataclasses.replace(cfg, active_versions=list(parsed))
 
@@ -162,6 +171,7 @@ def config_show() -> None:
         "Base Directory": global_cfg.base_dir,
         "Active Versions": ", ".join(f"v{v}" for v in global_cfg.active_versions),
         "DB User": global_cfg.database.user,
+        "Container Runtime": global_cfg.container_runtime,
     }
     print_table("Global Configuration", config_info)
 

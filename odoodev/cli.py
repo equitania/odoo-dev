@@ -90,6 +90,7 @@ def cli(ctx: click.Context, lang: str | None) -> None:
 
 
 # Register command groups
+from odoodev.commands.bench import bench  # noqa: E402
 from odoodev.commands.config import config  # noqa: E402
 from odoodev.commands.db import db  # noqa: E402
 from odoodev.commands.docker import docker  # noqa: E402
@@ -115,6 +116,7 @@ cli.add_command(db)
 cli.add_command(env)
 cli.add_command(venv)
 cli.add_command(docker)
+cli.add_command(bench)
 cli.add_command(doctor)
 cli.add_command(config)
 cli.add_command(migrate)

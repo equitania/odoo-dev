@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.32.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.36.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -78,14 +78,15 @@ odoodev start 18 --dev
 |--------|--------------|---------|
 | `odoodev setup` | Interaktiver Setup-Wizard | [setup.md](usage/setup.md) |
 | `odoodev init [VERSION]` | Neue Entwicklungsumgebung initialisieren | [setup.md](usage/setup.md) |
-| `odoodev start [VERSION]` | Odoo-Server starten | [start.md](usage/start.md) |
+| `odoodev start [VERSION]` | Odoo-Server starten (`--runtime docker\|apple`) | [start.md](usage/start.md) |
 | `odoodev stop [VERSION]` | Odoo-Server und Docker stoppen | [start.md](usage/start.md) |
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Schneller `git pull` aller Repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, neutralize, list, drop) | [db.md](usage/db.md) |
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
-| `odoodev docker [SUB] [VERSION]` | Docker-Services steuern | [docker.md](usage/docker.md) |
+| `odoodev docker [SUB] [VERSION]` | Lokale Container-Services steuern (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
+| `odoodev bench [VERSION]` | PostgreSQL-Benchmark Docker vs Apple Container | [apple-container.md](usage/apple-container.md) |
 | `odoodev doctor [VERSION]` | Umgebungs-Checks + PyPI-Update-Hinweis | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Konfiguration und Versionen (inkl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps (`--list`, `--var`) | [run.md](usage/run.md) |
@@ -168,6 +169,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.36.0:**
+- **Neu:** Im TUI-Modus (`odoodev start … --tui`) wird mit der Maus markierter Log-Text beim Loslassen der Maustaste automatisch in die Zwischenablage kopiert (Claude-Workbench-Stil, kurze Bestätigungsmeldung) — ohne Tastendruck. Ein einfacher Klick überschreibt die Zwischenablage nicht; `Ctrl+C`/`Cmd+C` und die Tasten `c`/`e`/`w` funktionieren unverändert. Nutzt das bestehende `pbcopy`/`xclip`/`xsel`-Backend mit OSC-52-Fallback.
 
 **Version 0.32.0:**
 - **Neu:** `odoodev db restore` prüft vor dem Entpacken den freien Speicherplatz — die entpackte Größe wird geschätzt (ZIP exakt, komprimierte Formate konservativ `Größe × 3`) und gegen den freien Platz auf Extraktions- und Filestore-Dateisystem geprüft. Bei Knappheit: Warnung mit konkreten Zahlen + Rückfrage „Continue anyway?" (Default Nein) statt Abbruch mitten im Kopieren. Abschaltbar mit `--no-check-space`.
@@ -296,14 +300,15 @@ odoodev start 18 --dev
 |---------|-------------|---------|
 | `odoodev setup` | Interactive setup wizard | [setup.md](usage/setup.md) |
 | `odoodev init [VERSION]` | Initialize new development environment | [setup.md](usage/setup.md) |
-| `odoodev start [VERSION]` | Start Odoo server | [start.md](usage/start.md) |
+| `odoodev start [VERSION]` | Start Odoo server (`--runtime docker\|apple`) | [start.md](usage/start.md) |
 | `odoodev stop [VERSION]` | Stop Odoo server and Docker | [start.md](usage/start.md) |
 | `odoodev repos [VERSION]` | Clone/update repositories | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Quick `git pull` across all repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, neutralize, list, drop) | [db.md](usage/db.md) |
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
-| `odoodev docker [SUB] [VERSION]` | Docker service control | [docker.md](usage/docker.md) |
+| `odoodev docker [SUB] [VERSION]` | Local container service control (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
+| `odoodev bench [VERSION]` | PostgreSQL benchmark Docker vs Apple Container | [apple-container.md](usage/apple-container.md) |
 | `odoodev doctor [VERSION]` | Environment checks + PyPI update notice | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Configuration and versions (incl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML playbook or inline steps (`--list`, `--var`) | [run.md](usage/run.md) |

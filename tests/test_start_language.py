@@ -48,7 +48,22 @@ class TestStartOdooCommandBuilding:
 
             return R()
 
+        def mock_popen(cmd, **kwargs):
+            # Server modes (non-shell) launch odoo-bin via Popen now; capture the
+            # built command here too so command-construction assertions still hold.
+            captured.extend(cmd)
+
+            class P:
+                pid = 1234
+                returncode = 0
+
+                def wait(self):
+                    return 0
+
+            return P()
+
         monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "Popen", mock_popen)
         monkeypatch.setattr("os.chdir", lambda x: None)
 
         # Import after monkeypatching to avoid circular import at module level
@@ -106,7 +121,22 @@ class TestStartOdooCommandBuilding:
 
             return R()
 
+        def mock_popen(cmd, **kwargs):
+            # Server modes (non-shell) launch odoo-bin via Popen now; capture the
+            # built command here too so command-construction assertions still hold.
+            captured.extend(cmd)
+
+            class P:
+                pid = 1234
+                returncode = 0
+
+                def wait(self):
+                    return 0
+
+            return P()
+
         monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "Popen", mock_popen)
         monkeypatch.setattr("os.chdir", lambda x: None)
 
         import os
@@ -159,7 +189,22 @@ class TestStartOdooCommandBuilding:
 
             return R()
 
+        def mock_popen(cmd, **kwargs):
+            # Server modes (non-shell) launch odoo-bin via Popen now; capture the
+            # built command here too so command-construction assertions still hold.
+            captured.extend(cmd)
+
+            class P:
+                pid = 1234
+                returncode = 0
+
+                def wait(self):
+                    return 0
+
+            return P()
+
         monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "Popen", mock_popen)
         monkeypatch.setattr("os.chdir", lambda x: None)
 
         import os
@@ -213,7 +258,22 @@ class TestStartOdooCommandBuilding:
 
             return R()
 
+        def mock_popen(cmd, **kwargs):
+            # Server modes (non-shell) launch odoo-bin via Popen now; capture the
+            # built command here too so command-construction assertions still hold.
+            captured.extend(cmd)
+
+            class P:
+                pid = 1234
+                returncode = 0
+
+                def wait(self):
+                    return 0
+
+            return P()
+
         monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "Popen", mock_popen)
         monkeypatch.setattr("os.chdir", lambda x: None)
 
         import os
@@ -263,7 +323,22 @@ class TestStartOdooCommandBuilding:
 
             return R()
 
+        def mock_popen(cmd, **kwargs):
+            # Server modes (non-shell) launch odoo-bin via Popen now; capture the
+            # built command here too so command-construction assertions still hold.
+            captured.extend(cmd)
+
+            class P:
+                pid = 1234
+                returncode = 0
+
+                def wait(self):
+                    return 0
+
+            return P()
+
         monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "Popen", mock_popen)
         monkeypatch.setattr("os.chdir", lambda x: None)
 
         import os

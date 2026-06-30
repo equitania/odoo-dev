@@ -118,18 +118,21 @@ def init(
             )
             print_info(f"Start the shared container with: odoodev docker up {_mig.from_version}")
         else:
-            if non_interactive or confirm("Start Docker services (PostgreSQL)?"):
-                print_info("Starting Docker services...")
-                import subprocess
+            if non_interactive or confirm("Start the PostgreSQL service?"):
+                from odoodev.core.container_backend import get_active_backend, read_env_file
 
-                result = subprocess.run(["docker", "compose", "up", "-d"], cwd=native_dir)
-                if result.returncode == 0:
+                backend = get_active_backend()
+                print_info(f"Starting PostgreSQL via {backend.name}...")
+                env = read_env_file(native_dir)
+                if backend.service_up(version_cfg, env) == 0:
                     if _mig and _mig.from_version == version:
-                        print_success(f"Docker services started (shared with migration target v{_mig.to_version})")
+                        print_success(
+                            f"PostgreSQL started ({backend.name}, shared with migration target v{_mig.to_version})"
+                        )
                     else:
-                        print_success("Docker services started")
+                        print_success(f"PostgreSQL started ({backend.name})")
                 else:
-                    print_warning("Docker services failed to start — continue manually")
+                    print_warning("PostgreSQL failed to start — continue manually")
 
     # Step 5: Create virtual environment
     venv_dir = os.path.join(native_dir, ".venv")
