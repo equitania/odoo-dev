@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.36.0 (30.06.2026)
+
+### Added
+- **TUI: auto-copy mouse text selection to clipboard on release** — in the runtime TUI's log view, selecting text with the mouse now copies it to the clipboard the moment the mouse button is released (Claude-Workbench-style), with a brief `N line(s) copied to clipboard` toast. No `Ctrl+C` keypress needed. A plain focus-click does **not** overwrite the clipboard (Textual clears a non-drag selection before the copy fires), and the existing `Ctrl+C`/`Cmd+C` and `c`/`e`/`w` copy paths are unchanged. Reuses the existing `pbcopy`/`xclip`/`xsel` clipboard backend with OSC-52 fallback.
+
 ## Version 0.35.0 (29.06.2026)
 
 ### Fixed

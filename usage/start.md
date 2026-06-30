@@ -52,6 +52,8 @@ Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und 
 
 Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tatsächlich bediente DB) und ist im Export-Dialog als editierbares Feld vorbelegt. Die odoodev-Version wird unten rechts angezeigt.
 
+**Maus-Selektion:** Text im Log mit der Maus markieren und die Maustaste loslassen kopiert die Markierung automatisch in die Zwischenablage (kurze Bestätigungsmeldung), ganz ohne Tastendruck. Ein einfacher Klick überschreibt die Zwischenablage nicht. Alternativ funktioniert `Ctrl+C`/`Cmd+C` nach einer Markierung weiterhin.
+
 | Taste | Funktion |
 |-------|----------|
 | `q` / `Ctrl+Q` | Beenden (stoppt den Server) |
@@ -181,6 +183,8 @@ odoodev start 18 --host 0.0.0.0
 TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and clipboard export. To keep the footer readable on narrow terminals it now shows only `q Quit | m Menu | ? Help`. Press `m` for a menu that folds up from the bottom (arrow keys + Enter), grouping every action by View / Log / Export / Server. All direct keys still work. Press `?` for the full keybinding reference at any time.
 
 The displayed database name is detected live from the Odoo log lines (the database actually served) and pre-fills the editable field in the export dialog. The odoodev version is shown in the bottom-right.
+
+**Mouse selection:** Selecting log text with the mouse and releasing the button copies the selection to the clipboard automatically (with a brief confirmation toast) — no keypress needed. A plain click does not overwrite the clipboard. `Ctrl+C`/`Cmd+C` after a selection still works too.
 
 | Key | Action |
 |-----|--------|

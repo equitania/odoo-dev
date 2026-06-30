@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.32.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.36.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -169,6 +169,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.36.0:**
+- **Neu:** Im TUI-Modus (`odoodev start … --tui`) wird mit der Maus markierter Log-Text beim Loslassen der Maustaste automatisch in die Zwischenablage kopiert (Claude-Workbench-Stil, kurze Bestätigungsmeldung) — ohne Tastendruck. Ein einfacher Klick überschreibt die Zwischenablage nicht; `Ctrl+C`/`Cmd+C` und die Tasten `c`/`e`/`w` funktionieren unverändert. Nutzt das bestehende `pbcopy`/`xclip`/`xsel`-Backend mit OSC-52-Fallback.
 
 **Version 0.32.0:**
 - **Neu:** `odoodev db restore` prüft vor dem Entpacken den freien Speicherplatz — die entpackte Größe wird geschätzt (ZIP exakt, komprimierte Formate konservativ `Größe × 3`) und gegen den freien Platz auf Extraktions- und Filestore-Dateisystem geprüft. Bei Knappheit: Warnung mit konkreten Zahlen + Rückfrage „Continue anyway?" (Default Nein) statt Abbruch mitten im Kopieren. Abschaltbar mit `--no-check-space`.
