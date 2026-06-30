@@ -6,7 +6,6 @@ import platform
 import shutil
 import subprocess
 
-from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Footer, Static
@@ -584,19 +583,3 @@ class OdooTuiApp(App):
         """
         if not self._copy_to_clipboard(text):
             super().copy_to_clipboard(text)
-
-    def on_text_selected(self, event: events.TextSelected) -> None:
-        """Auto-copy mouse-selected log text to the clipboard on mouse release.
-
-        Textual posts TextSelected from the screen on every mouse-up. After a
-        real drag-select the screen keeps the selection populated; after a plain
-        click it clears it first, so get_selected_text() returns None and we
-        skip. Mirrors the Claude Workbench behaviour: release the mouse and the
-        text is already on the clipboard — no extra ctrl+c needed.
-        """
-        text = self.screen.get_selected_text()
-        if not text:
-            return
-        self.copy_to_clipboard(text)
-        line_count = text.count("\n") + 1
-        self.notify(f"{line_count} line(s) copied to clipboard", severity="information", timeout=2)

@@ -52,7 +52,7 @@ Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und 
 
 Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tatsächlich bediente DB) und ist im Export-Dialog als editierbares Feld vorbelegt. Die odoodev-Version wird unten rechts angezeigt.
 
-**Maus-Selektion:** Text im Log mit der Maus markieren und die Maustaste loslassen kopiert die Markierung automatisch in die Zwischenablage (kurze Bestätigungsmeldung), ganz ohne Tastendruck. Ein einfacher Klick überschreibt die Zwischenablage nicht. Alternativ funktioniert `Ctrl+C`/`Cmd+C` nach einer Markierung weiterhin.
+**Maus-Selektion:** Text im Log mit der Maus markieren (der gezogene Bereich wird hervorgehoben) und mit `Ctrl+C` kopieren — kopiert wird **nur** der markierte Bereich. (Unter macOS fängt das Terminal `Cmd+C` oft selbst ab; `Ctrl+C` ist der zuverlässige Weg.) Für ganze Zeilenblöcke gibt es weiterhin `c`/`e`/`w`.
 
 | Taste | Funktion |
 |-------|----------|
@@ -184,7 +184,7 @@ TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and 
 
 The displayed database name is detected live from the Odoo log lines (the database actually served) and pre-fills the editable field in the export dialog. The odoodev version is shown in the bottom-right.
 
-**Mouse selection:** Selecting log text with the mouse and releasing the button copies the selection to the clipboard automatically (with a brief confirmation toast) — no keypress needed. A plain click does not overwrite the clipboard. `Ctrl+C`/`Cmd+C` after a selection still works too.
+**Mouse selection:** Mark log text with the mouse (the dragged region is highlighted) and copy it with `Ctrl+C` — **only** the marked region is copied. (On macOS the terminal often intercepts `Cmd+C`; `Ctrl+C` is the reliable key.) For whole line blocks, use `c`/`e`/`w`.
 
 | Key | Action |
 |-----|--------|

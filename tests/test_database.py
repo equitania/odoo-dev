@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import types
 import zipfile
 
@@ -988,7 +989,11 @@ class TestDbCopyRenameCommands:
         monkeypatch.setattr(db_cmd, "copy_database", lambda s, d, **k: True)
         result = CliRunner().invoke(cli, ["db", "copy", "18", "-s", "srcdb", "-d", "newdb", "-y"])
         assert result.exit_code == 1
-        assert "active connection" in result.output
+        # Normalize: strip ANSI colour codes and collapse whitespace so the
+        # assertion is robust to Rich line-wrapping (which may break the phrase
+        # "active connection(s)" across lines depending on console width).
+        clean = " ".join(re.sub(r"\x1b\[[0-9;]*m", "", result.output).split())
+        assert "active connection" in clean
 
     def test_copy_terminate_connections_flag(self, monkeypatch):
         db_cmd = self._patch_common(monkeypatch, connections=2)

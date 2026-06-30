@@ -622,6 +622,7 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "Clipboard & Export",
         (
+            ("Mouse + Ctrl+C", "Mark text with the mouse, then Ctrl+C to copy the marked selection"),
             ("c", "Copy visible (filtered) lines to clipboard"),
             ("e", "Copy ERROR/CRITICAL lines to clipboard"),
             ("w", "Copy WARN + ERROR + CRIT lines to clipboard"),

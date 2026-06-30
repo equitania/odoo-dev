@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.37.0 (30.06.2026)
+
+### Changed
+- **TUI mouse copy reworked — mark + `Ctrl+C` instead of auto-copy on release.** The v0.36.0 auto-copy-on-mouse-release proved unusable in a live, auto-scrolling log: every button release grabbed some (often large) selection and copied "all visible lines" with a toast. Now the mouse only **marks** a region (the dragged area is highlighted) and copying happens **only** on a deliberate `Ctrl+C`/`Cmd+C`, which copies **exactly** the marked selection. (On macOS the terminal often intercepts `Cmd+C`; `Ctrl+C` is the reliable key.) The `c`/`e`/`w` line-copy shortcuts are unchanged. The `on_text_selected` auto-copy handler was removed; the underlying `SelectableRichLog.get_selection` and `pbcopy`/`xclip`/`xsel` clipboard backend remain.
+
+### Fixed
+- **Brittle `db copy` test made robust.** `test_copy_active_connections_abort_without_flag` asserted on raw Rich output and broke when the warning line wrapped "active connection(s)" across lines (console-width dependent). The assertion now strips ANSI codes and collapses whitespace before checking — the command behaviour (exit 1 + active-connection warning) is unchanged.
+
 ## Version 0.36.0 (30.06.2026)
 
 ### Added

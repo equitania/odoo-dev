@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.36.0  ·  **Framework:** Python / Click
+- **Version:** 0.37.0  ·  **Framework:** Python / Click
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
 **Version argument:** Almost every command takes an optional `[VERSION]` (`16`–`19`). If omitted, it
