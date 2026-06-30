@@ -58,6 +58,7 @@ class OdooTuiApp(App):
         Binding("c", "copy_visible", "Copy", show=False),
         Binding("e", "copy_errors", "Copy Errors", show=False),
         Binding("w", "copy_warnings", "Copy Warn+Err", show=False),
+        Binding("y", "copy_selection", "Copy marked selection", show=False),
         Binding("s", "save_log", "Save Log", show=False),
         Binding("x", "export_modules", "Export CSV", show=False),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
@@ -315,6 +316,25 @@ class OdooTuiApp(App):
         count = text.count("\n") + 1
         if self._copy_to_clipboard(text):
             self.notify(f"{count} warning/error lines copied to clipboard", severity="information")
+        else:
+            self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
+
+    def action_copy_selection(self) -> None:
+        """Copy the mouse-marked selection to the clipboard (press 'y' after marking).
+
+        A deliberate, terminal-independent key: Ctrl+C/Cmd+C are intercepted by
+        virtually every terminal (Terminus, iTerm, Terminal.app, Linux terminals)
+        as interrupt / their own copy and never reach the TUI, so a dedicated
+        letter key ('y' = vim-style yank) is the reliable cross-platform choice.
+        Mark a region with the mouse (it stays highlighted), then press 'y'.
+        """
+        text = self.screen.get_selected_text()
+        if not text:
+            self.notify("No text marked — drag over the log with the mouse first", severity="warning")
+            return
+        if self._copy_to_clipboard(text):
+            line_count = text.count("\n") + 1
+            self.notify(f"Marked selection copied ({line_count} line(s))", severity="information", timeout=2)
         else:
             self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
 

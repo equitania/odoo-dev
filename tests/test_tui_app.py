@@ -545,6 +545,43 @@ class TestClipboard:
         assert OdooTuiApp._copy_to_clipboard("") is True
 
 
+class TestCopySelection:
+    """Test the 'y' shortcut that copies the mouse-marked selection."""
+
+    async def test_y_copies_marked_selection(self, mock_cmd, tmp_path):
+        """Pressing 'y' copies exactly the marked selection (not all visible lines)."""
+        from unittest.mock import MagicMock
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            # Simulate a mouse-marked region exposed by the screen.
+            app.screen.get_selected_text = lambda: "marked fragment"  # type: ignore[method-assign]
+            copy_mock = MagicMock(return_value=True)
+            app._copy_to_clipboard = copy_mock  # type: ignore[method-assign,assignment]
+
+            await pilot.press("y")
+            await pilot.pause(0.1)
+
+            copy_mock.assert_called_once_with("marked fragment")
+
+    async def test_y_without_selection_does_not_copy(self, mock_cmd, tmp_path):
+        """Pressing 'y' with nothing marked must not copy/overwrite the clipboard."""
+        from unittest.mock import MagicMock
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app.screen.get_selected_text = lambda: None  # type: ignore[method-assign]
+            copy_mock = MagicMock(return_value=True)
+            app._copy_to_clipboard = copy_mock  # type: ignore[method-assign,assignment]
+
+            await pilot.press("y")
+            await pilot.pause(0.1)
+
+            copy_mock.assert_not_called()
+
+
 class TestSaveLog:
     """Test the 's' log export action."""
 

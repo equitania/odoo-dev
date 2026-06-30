@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.38.0 (30.06.2026)
+
+### Changed
+- **TUI: copy the mouse-marked selection with the `y` key (yank), not `Ctrl+C`.** `Ctrl+C`/`Cmd+C` are intercepted by virtually every terminal (Terminus, iTerm, Terminal.app, Linux terminals) as interrupt / their own copy and never reach the TUI, so they were unusable. Copying the marked selection is now bound to a dedicated, terminal-independent letter key — `y` (vim-style yank): mark a region with the mouse (it stays highlighted), then press `y` to copy **exactly** that region. With nothing marked, `y` is a no-op with a hint. The `c`/`e`/`w` line-copy shortcuts are unchanged.
+
 ## Version 0.37.0 (30.06.2026)
 
 ### Changed

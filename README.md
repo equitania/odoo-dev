@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.37.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.38.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -169,6 +169,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.38.0:**
+- **Geändert:** Den mit der Maus markierten Bereich kopiert im TUI jetzt die Taste `y` (yank) statt `Ctrl+C`. `Ctrl+C`/`Cmd+C` werden von praktisch jedem Terminal (Terminus, iTerm, Terminal.app) selbst abgefangen und erreichen die TUI nicht — daher eine eigene, terminal-unabhängige Taste: Bereich markieren (bleibt hervorgehoben), dann `y` drücken → kopiert **genau** die Markierung. `c`/`e`/`w` unverändert.
 
 **Version 0.37.0:**
 - **Geändert:** TUI-Maus-Kopieren überarbeitet. Das automatische Kopieren beim Loslassen der Maustaste (0.36.0) erwies sich im live mitlaufenden Log als unbrauchbar (kopierte ungewollt alle sichtbaren Zeilen). Jetzt **markiert** die Maus nur einen Bereich (sichtbar hervorgehoben), und kopiert wird **ausschließlich** auf bewusstes `Ctrl+C`/`Cmd+C` — und zwar **genau** der markierte Bereich. (Unter macOS fängt das Terminal `Cmd+C` oft selbst ab; `Ctrl+C` ist der zuverlässige Weg.) Die Tasten `c`/`e`/`w` (sichtbare/Error/Warn-Zeilen) sind unverändert.
