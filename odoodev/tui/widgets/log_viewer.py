@@ -7,6 +7,7 @@ from collections import deque
 from rich.text import Text
 from textual.reactive import reactive
 from textual.selection import Selection
+from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import RichLog
 
@@ -32,13 +33,28 @@ MAX_BUFFER_SIZE = 10_000
 
 
 class SelectableRichLog(RichLog):
-    """RichLog subclass with working mouse text selection.
+    """RichLog subclass with working, mode-gated mouse text selection.
 
-    The base RichLog inherits get_selection() from Widget, which calls
-    self._render(). For ScrollView this returns a debug Panel, so selection
-    always returns None. This subclass overrides get_selection() to extract
-    plain text directly from the internal Strip line buffer.
+    Stock RichLog has no mouse selection at all: unlike Textual's ``Log``
+    widget (which calls ``Strip.apply_offsets`` in its ``_render_line``),
+    ``RichLog.render_line`` never embeds the ``"offset"`` style meta that the
+    compositor needs to map a mouse position to a content offset. Without it
+    ``screen.selections`` stays empty forever, so no selection is tracked, no
+    highlight is drawn, and the terminal emulator's own selection takes over
+    (grabbing "all visible lines"). ``render_line`` below fixes that by
+    embedding the offsets and drawing the ``screen--selection`` highlight.
+
+    Selection is gated on ``_select_enabled`` (driven by the LogViewer mark
+    mode) via the ``allow_select`` property, so the app only claims the mouse
+    while the user is deliberately marking.
     """
+
+    _select_enabled: bool = False
+
+    @property
+    def allow_select(self) -> bool:
+        """Only allow mouse text selection while mark mode is active."""
+        return self._select_enabled
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         """Extract selected text from the Strip-based line buffer.
@@ -60,6 +76,46 @@ class SelectableRichLog(RichLog):
             return None
         return extracted, "\n"
 
+    def render_line(self, y: int) -> Strip:
+        """Embed mouse offsets and draw the selection highlight.
+
+        Two things stock RichLog never does:
+
+        1. ``strip.apply_offsets(scroll_x, scroll_y + y)`` embeds the ``"offset"``
+           style meta the compositor needs to turn a mouse position into a content
+           offset. Without this call ``screen.selections`` stays empty for this
+           widget and NOTHING downstream works (no tracking, no highlight, no
+           copy). It runs on every line, selection or not, so a drag can start.
+        2. The ``screen--selection`` highlight over the selected span, mirroring
+           Textual's own per-line selection rendering. Coordinates are
+           content-absolute (``self.lines`` index), matching ``get_selection`` so
+           the highlight and the copied text cover exactly the same region.
+
+        ``apply_offsets`` runs last, on the (possibly highlighted) strip, so the
+        colour-only selection style can't clobber the offset meta.
+        """
+        strip = super().render_line(y)
+        # render_line(y) shows content row scroll_y + y; get_span expects that row.
+        content_y = self.scroll_offset.y + y
+        selection = self.text_selection
+        if selection is not None:
+            span = selection.get_span(content_y)
+            if span is not None:
+                start, end = span
+                if end == -1:  # -1 means "to end of line" (interior lines of a multi-line selection)
+                    end = strip.cell_length
+                start = max(0, min(start, strip.cell_length))
+                end = max(start, min(end, strip.cell_length))
+                if start != end:
+                    sel_style = self.screen.get_component_rich_style("screen--selection")
+                    # crop (not divide) so edge spans — start at 0 or end at
+                    # cell_length — need no assumption about the piece count.
+                    before = strip.crop(0, start)
+                    middle = strip.crop(start, end).apply_style(sel_style)
+                    after = strip.crop(end, strip.cell_length)
+                    strip = Strip.join([before, middle, after])
+        return strip.apply_offsets(self.scroll_offset.x, content_y)
+
 
 class LogViewer(Widget):
     """Log viewer with multi-toggle level filtering, search highlighting, and auto-scroll.
@@ -79,6 +135,7 @@ class LogViewer(Widget):
     active_levels: reactive[frozenset[str]] = reactive(FILTERABLE_LEVELS)
     search_term: reactive[str] = reactive("")
     auto_scroll: reactive[bool] = reactive(True)
+    mark_mode: reactive[bool] = reactive(False)
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -88,6 +145,7 @@ class LogViewer(Widget):
         self._buffer: deque[tuple[OdooLogEntry, str]] = deque(maxlen=MAX_BUFFER_SIZE)
         self._last_real_level: str = DEFAULT_RAW_LEVEL
         self._rich_log: SelectableRichLog | None = None
+        self._scroll_was_auto: bool | None = None
 
     def compose(self):
         """Create the selectable RichLog widget."""
@@ -96,6 +154,34 @@ class LogViewer(Widget):
     def on_mount(self) -> None:
         """Get reference to the RichLog after mounting."""
         self._rich_log = self.query_one("#log-output", SelectableRichLog)
+
+    def watch_mark_mode(self, active: bool) -> None:
+        """Enter/leave the explicit selection (copy) mode.
+
+        Marking only works when the content stands still — otherwise the live,
+        auto-scrolling log re-maps the same screen row to a different content
+        line mid-drag (the old "grabs all visible lines" bug). So mark mode
+        freezes auto-scroll, enables mouse selection on the RichLog, and adds
+        the ``mark-mode`` class (accent border). Leaving restores the previous
+        auto-scroll state and clears any active selection.
+        """
+        if self._rich_log is None:
+            return
+        if active:
+            self._scroll_was_auto = self.auto_scroll
+            self.auto_scroll = False
+            self._rich_log._select_enabled = True
+            self._rich_log.add_class("mark-mode")
+        else:
+            self._rich_log._select_enabled = False
+            self._rich_log.remove_class("mark-mode")
+            try:
+                self.screen.clear_selection()
+            except Exception:  # noqa: S110 — screen may be gone during teardown
+                pass
+            if self._scroll_was_auto is not None:
+                self.auto_scroll = self._scroll_was_auto
+                self._scroll_was_auto = None
 
     def write_line(self, line: str) -> OdooLogEntry:
         """Parse and display a raw log line.

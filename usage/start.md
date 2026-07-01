@@ -52,7 +52,7 @@ Der TUI-Modus (`odoodev start 18 --tui`) zeigt Logs mit Level-Filter, Suche und 
 
 Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tatsächlich bediente DB) und ist im Export-Dialog als editierbares Feld vorbelegt. Die odoodev-Version wird unten rechts angezeigt.
 
-**Maus-Selektion:** Text im Log mit der Maus markieren (der gezogene Bereich wird hervorgehoben) und mit der Taste `y` (yank) kopieren — kopiert wird **nur** der markierte Bereich. Bewusst eine eigene Taste statt `Ctrl+C`/`Cmd+C`, weil diese von praktisch jedem Terminal (Terminus, iTerm, Terminal.app) selbst abgefangen werden und die TUI gar nicht erreichen. Für ganze Zeilenblöcke gibt es weiterhin `c`/`e`/`w`.
+**Markierungsmodus:** Die Taste `y` schaltet einen bewussten Markierungsmodus ein (wie der tmux-Copy-Mode): Das Auto-Scrollen friert ein, das Log bekommt einen farbigen Rahmen und die Statusleiste zeigt `● MARK`. Jetzt mit der Maus über das Log ziehen — der Bereich wird sichtbar hervorgehoben. `y` erneut kopiert **genau** diesen Bereich in die Zwischenablage und verlässt den Modus; `Esc` bricht ohne Kopieren ab. Außerhalb des Modus gehört die Maus wie gewohnt dem Terminal, es wird nie automatisch kopiert. Für ganze Zeilenblöcke gibt es weiterhin `c`/`e`/`w`.
 
 | Taste | Funktion |
 |-------|----------|
@@ -72,7 +72,8 @@ Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tats�
 | `/` | Log durchsuchen (`Escape` loescht die Suche) |
 | `Space` | Auto-Scroll umschalten |
 | `Ctrl+L` | Log-Anzeige leeren |
-| `y` | Mit der Maus markierten Bereich kopieren (markieren, dann `y`) |
+| `y` | Markierungsmodus an/aus (dann mit der Maus ziehen zum Markieren) |
+| Maus ziehen (im Modus) | Bereich markieren — `y` kopiert genau diesen Bereich, `Esc` bricht ab |
 | `c` | Sichtbare (gefilterte) Zeilen in die Zwischenablage kopieren |
 | `e` | Nur ERROR/CRITICAL kopieren |
 | `w` | WARN + ERROR + CRIT kopieren |
@@ -185,7 +186,7 @@ TUI mode (`odoodev start 18 --tui`) shows logs with level filtering, search and 
 
 The displayed database name is detected live from the Odoo log lines (the database actually served) and pre-fills the editable field in the export dialog. The odoodev version is shown in the bottom-right.
 
-**Mouse selection:** Mark log text with the mouse (the dragged region is highlighted) and copy it with the `y` key (yank) — **only** the marked region is copied. A dedicated key rather than `Ctrl+C`/`Cmd+C`, because virtually every terminal (Terminus, iTerm, Terminal.app) intercepts those itself and they never reach the TUI. For whole line blocks, use `c`/`e`/`w`.
+**Mark mode:** The `y` key toggles a deliberate selection mode (tmux-copy-mode style): auto-scroll freezes, the log gets an accent border and the status bar shows `● MARK`. Now drag over the log with the mouse — the region is visibly highlighted. Press `y` again to copy exactly that region to the clipboard and leave the mode; `Esc` cancels without copying. Outside the mode the mouse behaves normally and nothing is auto-copied. For whole line blocks, use `c`/`e`/`w`.
 
 | Key | Action |
 |-----|--------|
@@ -205,7 +206,8 @@ The displayed database name is detected live from the Odoo log lines (the databa
 | `/` | Search log output (`Escape` clears) |
 | `Space` | Toggle auto-scroll |
 | `Ctrl+L` | Clear log display |
-| `y` | Copy the mouse-marked selection (mark, then `y`) |
+| `y` | Toggle mark mode (then drag with the mouse to select) |
+| Mouse drag (in mode) | Mark a region — `y` copies exactly that region, `Esc` cancels |
 | `c` | Copy visible (filtered) lines to clipboard |
 | `e` | Copy ERROR/CRITICAL lines only |
 | `w` | Copy WARN + ERROR + CRIT lines |

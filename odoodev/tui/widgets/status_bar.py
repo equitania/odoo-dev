@@ -36,6 +36,7 @@ class StatusBar(Widget):
     version: reactive[str] = reactive("")
     port: reactive[int] = reactive(0)
     db_name: reactive[str] = reactive("")
+    mark_mode: reactive[bool] = reactive(False)
 
     def compose(self):
         """Create the status display."""
@@ -57,7 +58,11 @@ class StatusBar(Widget):
         else:
             state = "[red]Stopped[/red]"
 
-        parts = [state]
+        parts = []
+        if self.mark_mode:
+            # Unmistakable badge so the user always knows selection mode is on.
+            parts.append("[black on yellow] ● MARK [/]")
+        parts.append(state)
         if self.version:
             parts.append(f"v{self.version}")
         if self.port:
@@ -79,6 +84,10 @@ class StatusBar(Widget):
 
     def watch_db_name(self) -> None:
         """Update display when the detected database changes."""
+        self._update_display()
+
+    def watch_mark_mode(self) -> None:
+        """Update display when the selection (mark) mode toggles."""
         self._update_display()
 
     def _update_display(self) -> None:

@@ -58,7 +58,7 @@ class OdooTuiApp(App):
         Binding("c", "copy_visible", "Copy", show=False),
         Binding("e", "copy_errors", "Copy Errors", show=False),
         Binding("w", "copy_warnings", "Copy Warn+Err", show=False),
-        Binding("y", "copy_selection", "Copy marked selection", show=False),
+        Binding("y", "toggle_mark_mode", "Mark / copy", show=False),
         Binding("s", "save_log", "Save Log", show=False),
         Binding("x", "export_modules", "Export CSV", show=False),
         Binding("space", "toggle_scroll", "Auto-scroll", show=False),
@@ -273,8 +273,12 @@ class OdooTuiApp(App):
         self.push_screen(SearchDialog(), handle_search)
 
     def action_clear_search(self) -> None:
-        """Clear the current search term."""
+        """Esc: leave mark mode if active, otherwise clear the search term."""
         log_viewer = self.query_one("#log-viewer", LogViewer)
+        if log_viewer.mark_mode:
+            log_viewer.mark_mode = False
+            self.query_one("#status-bar", StatusBar).mark_mode = False
+            return
         log_viewer.search_term = ""
         self._update_filter_bar()
 
@@ -319,18 +323,34 @@ class OdooTuiApp(App):
         else:
             self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
 
-    def action_copy_selection(self) -> None:
-        """Copy the mouse-marked selection to the clipboard (press 'y' after marking).
+    def action_toggle_mark_mode(self) -> None:
+        """Toggle the log selection (copy) mode — 'y' both enters and yanks.
 
-        A deliberate, terminal-independent key: Ctrl+C/Cmd+C are intercepted by
-        virtually every terminal (Terminus, iTerm, Terminal.app, Linux terminals)
-        as interrupt / their own copy and never reach the TUI, so a dedicated
-        letter key ('y' = vim-style yank) is the reliable cross-platform choice.
-        Mark a region with the mouse (it stays highlighted), then press 'y'.
+        First press enters mark mode: auto-scroll freezes so the content holds
+        still, the log gets an accent border, the status bar shows a MARK badge,
+        and mouse selection is enabled. Drag over the log to mark a region (it
+        is highlighted). Press 'y' again to copy the marked text and leave the
+        mode; press Esc to leave without copying. This deliberate mode replaces
+        the old auto-copy-on-release, which grabbed everything visible.
         """
+        log_viewer = self.query_one("#log-viewer", LogViewer)
+        status_bar = self.query_one("#status-bar", StatusBar)
+        if not log_viewer.mark_mode:
+            log_viewer.mark_mode = True
+            status_bar.mark_mode = True
+            self.notify(
+                "Mark mode — drag over the log to select, 'y' copies, Esc cancels",
+                severity="information",
+                timeout=3,
+            )
+            return
+        # Second press: read the selection BEFORE leaving (leaving clears it),
+        # copy it if present, then drop back to normal auto-scrolling mode.
         text = self.screen.get_selected_text()
+        log_viewer.mark_mode = False
+        status_bar.mark_mode = False
         if not text:
-            self.notify("No text marked — drag over the log with the mouse first", severity="warning")
+            self.notify("Mark mode off — nothing was marked", severity="warning", timeout=2)
             return
         if self._copy_to_clipboard(text):
             line_count = text.count("\n") + 1

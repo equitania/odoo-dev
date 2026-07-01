@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.40.0 (01.07.2026)
+
+### Fixed
+- **TUI: mouse selection in the log finally works — you can now see what you mark.** The real root cause behind four failed attempts (v0.36–0.39): unlike Textual's `Log` widget, `RichLog.render_line` never calls `Strip.apply_offsets`, so it never embeds the `"offset"` style meta the compositor needs to map a mouse position to a content offset. Without it `screen.selections` stayed **empty forever** — the selection was never tracked, the highlight code was never reached (nothing visible), and the terminal emulator's own selection took over, grabbing "all visible lines". `SelectableRichLog.render_line` now embeds the offsets on every line, so selection, the `screen--selection` highlight, and copying all work.
+
+### Changed
+- **TUI: explicit selection ("mark") mode, toggled with `y`.** Marking is now a deliberate, tmux-copy-mode-style state instead of always-on auto-copy. Press `y` to enter mark mode: auto-scroll freezes so the content holds still, the log gets an accent border and the status bar shows a `● MARK` badge, and mouse selection is enabled. Drag over the log to mark a region (visibly highlighted). Press `y` again to copy exactly that region and leave the mode, or `Esc` to leave without copying. Outside mark mode the mouse behaves normally (the app no longer claims it) and nothing is ever auto-copied. Selection is gated per-widget via an `allow_select` override; the old auto-copy-on-release handler and the drag-only auto-scroll freeze are removed.
+
+## Version 0.39.0 (30.06.2026)
+
+### Fixed
+- **TUI: the mouse selection is now visibly highlighted while marking.** Marking text was effectively blind — `RichLog.render_line` returns its pre-built strips directly and bypasses Textual's Visual/styles pipeline, so the selection (tracked in `screen.selections`, which is what `y` copies) was never drawn on screen. `SelectableRichLog.render_line` now applies the `screen--selection` component style to the selected span of each line (mirroring Textual's own per-line selection rendering), using content-absolute coordinates that match `get_selection` — so the highlight and the copied text cover exactly the same region. The selection style is also made opaque/high-contrast (`background: $accent; color: $text`) instead of Textual's barely-visible default (`$primary 50%`).
+- **TUI: dragging the mouse over the log now copies on release — no key needed (Claude-Workbench-style).** Reinstates the v0.36.0 `on_text_selected` auto-copy that was reverted in v0.37.0 because every release "grabbed all visible lines" in the live, auto-scrolling log. Root cause: Textual maps the screen cursor position to a log row against the widget's *current* scroll offset on every mouse-move, so a log that keeps auto-scrolling mid-drag makes the same screen position land on a different row each time. `LogViewer` now freezes `auto_scroll` for the duration of a click/drag and restores it on release, so the mapping — and the resulting selection and copy — stays pinned to what was actually dragged. The `y` key remains as a manual fallback.
+
 ## Version 0.38.0 (30.06.2026)
 
 ### Changed

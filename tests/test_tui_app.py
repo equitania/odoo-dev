@@ -64,6 +64,66 @@ class TestLogViewer:
         assert "yellow" in LEVEL_STYLES["WARNING"]
 
 
+class TestLogViewerMarkMode:
+    """Mark mode freezes the log and gates mouse selection.
+
+    Marking only works when the content stands still — otherwise the live,
+    auto-scrolling log re-maps the same screen row to a different content line
+    mid-drag (the old "grabs all visible lines" bug). Mark mode is the
+    deliberate, visible state that freezes auto-scroll and enables selection.
+    """
+
+    async def test_mark_mode_freezes_auto_scroll(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            log_viewer.auto_scroll = True
+            log_viewer.mark_mode = True
+            await pilot.pause(0.05)
+            assert log_viewer.auto_scroll is False
+
+    async def test_leaving_mark_mode_restores_auto_scroll(self, mock_cmd, tmp_path):
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            log_viewer.auto_scroll = True
+            log_viewer.mark_mode = True
+            await pilot.pause(0.05)
+            log_viewer.mark_mode = False
+            await pilot.pause(0.05)
+            assert log_viewer.auto_scroll is True
+
+    async def test_leaving_mark_mode_keeps_scroll_off_if_already_off(self, mock_cmd, tmp_path):
+        """If auto-scroll was already off, leaving mark mode must not re-enable it."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            log_viewer.auto_scroll = False
+            log_viewer.mark_mode = True
+            await pilot.pause(0.05)
+            log_viewer.mark_mode = False
+            await pilot.pause(0.05)
+            assert log_viewer.auto_scroll is False
+
+    async def test_allow_select_gated_on_mark_mode(self, mock_cmd, tmp_path):
+        """The RichLog only claims mouse selection while mark mode is active."""
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            rich_log = app.query_one("#log-output", SelectableRichLog)
+            assert rich_log.allow_select is False
+            log_viewer.mark_mode = True
+            await pilot.pause(0.05)
+            assert rich_log.allow_select is True
+            log_viewer.mark_mode = False
+            await pilot.pause(0.05)
+            assert rich_log.allow_select is False
+
+
 class TestStatusBar:
     """Test StatusBar widget functionality."""
 
@@ -533,6 +593,49 @@ class TestSelectableRichLog:
         text, _ = result
         assert text == "World"
 
+    async def test_render_line_highlights_selection(self, mock_cmd, tmp_path):
+        """render_line must visibly highlight the selected span (RichLog itself does not)."""
+        from textual.geometry import Offset
+        from textual.selection import Selection
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            rich_log = app.query_one("#log-output", SelectableRichLog)
+            rich_log.write("hello selectable world")
+            await pilot.pause(0.1)
+
+            plain = list(rich_log.render_line(0))  # no selection yet
+
+            # Select the first 5 cells of content row 0.
+            app.screen.selections = {rich_log: Selection(Offset(0, 0), Offset(5, 0))}
+            await pilot.pause(0.1)
+            highlighted = list(rich_log.render_line(0))
+
+            # Same text, but styling over the span must differ (highlight applied).
+            assert "".join(seg.text for seg in highlighted) == "".join(seg.text for seg in plain)
+            assert highlighted != plain
+
+    async def test_render_line_embeds_offset_meta(self, mock_cmd, tmp_path):
+        """render_line must embed the 'offset' meta — without it no selection is ever tracked.
+
+        This is the true root cause the earlier attempts missed: unlike Textual's
+        Log widget, RichLog.render_line never calls Strip.apply_offsets, so the
+        compositor can never map a mouse position to a content offset and
+        screen.selections stays empty forever (invisible highlight, terminal
+        grabs 'all visible lines'). Guard that the offset meta is present.
+        """
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            rich_log = app.query_one("#log-output", SelectableRichLog)
+            rich_log.write("hello selectable world")
+            await pilot.pause(0.1)
+
+            strip = rich_log.render_line(0)
+            offsets = [seg.style.meta.get("offset") for seg in strip if seg.style and seg.style.meta]
+            assert any(o is not None for o in offsets), "render_line must embed 'offset' style meta"
+
 
 class TestClipboard:
     """Test clipboard copy functionality."""
@@ -546,40 +649,85 @@ class TestClipboard:
 
 
 class TestCopySelection:
-    """Test the 'y' shortcut that copies the mouse-marked selection."""
+    """Test the 'y' toggle: enter mark mode, then yank the marked selection."""
 
-    async def test_y_copies_marked_selection(self, mock_cmd, tmp_path):
-        """Pressing 'y' copies exactly the marked selection (not all visible lines)."""
+    async def test_first_y_enters_mark_mode_without_copying(self, mock_cmd, tmp_path):
+        """The first 'y' only enters mark mode — it must not copy anything yet."""
         from unittest.mock import MagicMock
 
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause(0.3)
-            # Simulate a mouse-marked region exposed by the screen.
-            app.screen.get_selected_text = lambda: "marked fragment"  # type: ignore[method-assign]
             copy_mock = MagicMock(return_value=True)
             app._copy_to_clipboard = copy_mock  # type: ignore[method-assign,assignment]
 
             await pilot.press("y")
+            await pilot.pause(0.1)
+
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.mark_mode is True
+            copy_mock.assert_not_called()
+
+    async def test_second_y_copies_and_leaves_mark_mode(self, mock_cmd, tmp_path):
+        """In mark mode, 'y' copies exactly the marked selection and exits the mode."""
+        from unittest.mock import MagicMock
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            copy_mock = MagicMock(return_value=True)
+            app._copy_to_clipboard = copy_mock  # type: ignore[method-assign,assignment]
+
+            await pilot.press("y")  # enter mark mode
+            await pilot.pause(0.05)
+            # Simulate a mouse-marked region exposed by the screen.
+            app.screen.get_selected_text = lambda: "marked fragment"  # type: ignore[method-assign]
+            await pilot.press("y")  # yank + exit
             await pilot.pause(0.1)
 
             copy_mock.assert_called_once_with("marked fragment")
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.mark_mode is False
 
-    async def test_y_without_selection_does_not_copy(self, mock_cmd, tmp_path):
-        """Pressing 'y' with nothing marked must not copy/overwrite the clipboard."""
+    async def test_y_exit_without_selection_does_not_copy(self, mock_cmd, tmp_path):
+        """Leaving mark mode with nothing marked must not copy/overwrite the clipboard."""
         from unittest.mock import MagicMock
 
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause(0.3)
-            app.screen.get_selected_text = lambda: None  # type: ignore[method-assign]
             copy_mock = MagicMock(return_value=True)
             app._copy_to_clipboard = copy_mock  # type: ignore[method-assign,assignment]
 
-            await pilot.press("y")
+            await pilot.press("y")  # enter
+            await pilot.pause(0.05)
+            app.screen.get_selected_text = lambda: None  # type: ignore[method-assign]
+            await pilot.press("y")  # exit, nothing marked
             await pilot.pause(0.1)
 
             copy_mock.assert_not_called()
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.mark_mode is False
+
+    async def test_escape_leaves_mark_mode_without_copying(self, mock_cmd, tmp_path):
+        """Esc cancels mark mode without copying, even if a selection exists."""
+        from unittest.mock import MagicMock
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            copy_mock = MagicMock(return_value=True)
+            app._copy_to_clipboard = copy_mock  # type: ignore[method-assign,assignment]
+
+            await pilot.press("y")  # enter
+            await pilot.pause(0.05)
+            app.screen.get_selected_text = lambda: "marked fragment"  # type: ignore[method-assign]
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+
+            copy_mock.assert_not_called()
+            log_viewer = app.query_one("#log-viewer", LogViewer)
+            assert log_viewer.mark_mode is False
 
 
 class TestSaveLog:

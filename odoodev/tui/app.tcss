@@ -19,6 +19,24 @@ Screen {
 #log-output {
     height: 1fr;
     scrollbar-size: 1 1;
+    /* Border reserved (background-coloured = invisible) so toggling the accent
+       mark-mode border below adds no layout reflow. */
+    border: round $background;
+}
+
+/* Selection (mark) mode active — accent border frames the log so the mode is
+   obvious at a glance, alongside the status-bar MARK badge. */
+#log-output.mark-mode {
+    border: round $accent;
+}
+
+/* Mouse text selection in the log — opaque and high-contrast so the marked
+   region is unmistakable. Textual's default (.screen--selection: $primary 50%)
+   is semi-transparent and barely visible on the dark log background. Kept
+   distinct from the search highlight (bold reverse green in log_viewer.py). */
+.screen--selection {
+    background: $accent;
+    color: $text;
 }
 
 Footer {
