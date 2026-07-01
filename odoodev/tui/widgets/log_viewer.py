@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
+from rich.segment import Segment
 from rich.text import Text
 from textual.reactive import reactive
 from textual.selection import Selection
@@ -111,10 +112,37 @@ class SelectableRichLog(RichLog):
                     # crop (not divide) so edge spans — start at 0 or end at
                     # cell_length — need no assumption about the piece count.
                     before = strip.crop(0, start)
-                    middle = strip.crop(start, end).apply_style(sel_style)
                     after = strip.crop(end, strip.cell_length)
+                    # Overlay the selection style so it WINS over each segment's own
+                    # style. Strip.apply_style / Segment.apply_style combine as
+                    # (sel_style + seg.style) — i.e. the segment's existing background
+                    # overrides ours, leaving the highlight invisible. Combine the
+                    # other way (seg.style + sel_style) so the selection colour wins.
+                    middle_src = strip.crop(start, end)
+                    middle = Strip(
+                        [
+                            Segment(seg.text, (seg.style + sel_style) if seg.style else sel_style, seg.control)
+                            for seg in middle_src
+                        ],
+                        middle_src.cell_length,
+                    )
                     strip = Strip.join([before, middle, after])
         return strip.apply_offsets(self.scroll_offset.x, content_y)
+
+    def selection_updated(self, selection: Selection | None) -> None:
+        """Repaint on selection change — clear RichLog's own line cache too.
+
+        Textual notifies the selected widget via ``selection_updated`` whenever
+        ``screen.selections`` changes, but the base ``Widget`` default only calls
+        ``self.refresh()``, which clears ``_styles_cache`` and NOT RichLog's own
+        ``_line_cache`` (keyed without any selection info). So the stale,
+        un-highlighted strips survive: the highlight never appears, and an old
+        highlight lingers until some unrelated repaint (scroll/new line/resize)
+        happens to clear it — the "old + new" artefact. Textual's own ``Log``
+        widget solves the identical problem the same way (see ``_log.py``).
+        """
+        self._line_cache.clear()
+        self.refresh()
 
 
 class LogViewer(Widget):
@@ -174,11 +202,13 @@ class LogViewer(Widget):
             self._rich_log.add_class("mark-mode")
         else:
             self._rich_log._select_enabled = False
-            self._rich_log.remove_class("mark-mode")
+            # Clear the selection first so its highlight-removing repaint runs
+            # before the class change; then drop the accent border.
             try:
                 self.screen.clear_selection()
             except Exception:  # noqa: S110 — screen may be gone during teardown
                 pass
+            self._rich_log.remove_class("mark-mode")
             if self._scroll_was_auto is not None:
                 self.auto_scroll = self._scroll_was_auto
                 self._scroll_was_auto = None

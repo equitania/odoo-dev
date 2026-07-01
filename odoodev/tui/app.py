@@ -90,7 +90,7 @@ class OdooTuiApp(App):
         yield LogViewer(id="log-viewer")
         yield Footer()
         # Version label on its own thin row just above the footer (right-aligned)
-        yield Static(f"odoodev v{__version__}", id="app-version")
+        yield Static(self._mark_hint(), id="app-version")
 
     def on_mount(self) -> None:
         """Start the Odoo process and begin polling."""
@@ -276,8 +276,7 @@ class OdooTuiApp(App):
         """Esc: leave mark mode if active, otherwise clear the search term."""
         log_viewer = self.query_one("#log-viewer", LogViewer)
         if log_viewer.mark_mode:
-            log_viewer.mark_mode = False
-            self.query_one("#status-bar", StatusBar).mark_mode = False
+            self._set_mark_mode(False)
             return
         log_viewer.search_term = ""
         self._update_filter_bar()
@@ -334,10 +333,8 @@ class OdooTuiApp(App):
         the old auto-copy-on-release, which grabbed everything visible.
         """
         log_viewer = self.query_one("#log-viewer", LogViewer)
-        status_bar = self.query_one("#status-bar", StatusBar)
         if not log_viewer.mark_mode:
-            log_viewer.mark_mode = True
-            status_bar.mark_mode = True
+            self._set_mark_mode(True)
             self.notify(
                 "Mark mode — drag over the log to select, 'y' copies, Esc cancels",
                 severity="information",
@@ -347,16 +344,39 @@ class OdooTuiApp(App):
         # Second press: read the selection BEFORE leaving (leaving clears it),
         # copy it if present, then drop back to normal auto-scrolling mode.
         text = self.screen.get_selected_text()
-        log_viewer.mark_mode = False
-        status_bar.mark_mode = False
+        self._set_mark_mode(False)
         if not text:
             self.notify("Mark mode off — nothing was marked", severity="warning", timeout=2)
             return
         if self._copy_to_clipboard(text):
             line_count = text.count("\n") + 1
-            self.notify(f"Marked selection copied ({line_count} line(s))", severity="information", timeout=2)
+            # A partial-line selection isn't "1 line" — say so accurately.
+            msg = "Marked text copied to clipboard" if line_count == 1 else f"Copied {line_count} lines to clipboard"
+            self.notify(msg, severity="information", timeout=2)
         else:
             self.notify("No clipboard tool found (need pbcopy, xclip, or xsel)", severity="error")
+
+    @staticmethod
+    def _mark_hint() -> str:
+        """Footer hint shown in normal mode — reminds that 'y' enters mark mode."""
+        return f"[dim]y = mark mode[/]   ·   odoodev v{__version__}"
+
+    def _set_mark_mode(self, active: bool) -> None:
+        """Central mark-mode switch — keeps widget state, badge and footer hint in sync.
+
+        Beyond the log's own freeze/border (LogViewer.watch_mark_mode) this makes
+        the mode unmistakable at the places the user actually looks: the status-bar
+        ``● MARK`` badge, the FilterBar auto-scroll indicator (via _update_filter_bar),
+        and the always-visible hint line above the footer.
+        """
+        self.query_one("#log-viewer", LogViewer).mark_mode = active
+        self.query_one("#status-bar", StatusBar).mark_mode = active
+        hint = self.query_one("#app-version", Static)
+        if active:
+            hint.update("[black on yellow] ◉ MARK [/]  drag to select · y copies · Esc cancels · auto-scroll paused")
+        else:
+            hint.update(self._mark_hint())
+        self._update_filter_bar()
 
     def action_save_log(self) -> None:
         """Save the currently visible (filtered) log lines to ~/odoodev-logs/."""

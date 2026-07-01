@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.40.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.41.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -160,7 +160,7 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (905)
+pytest                                  # Tests (907)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type-Check
 uv build                                # Paket bauen
@@ -169,6 +169,10 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.41.0:**
+- **Behoben:** Der markierte Text im TUI-Log wird jetzt tatsächlich hervorgehoben. Zwei Ursachen: (1) `render_line` trug die Selektionsfarbe per `apply_style` auf, das aber als `(Selektionsstil + Segmentstil)` kombiniert — der eigene Log-Hintergrund jedes Segments übermalte die Markierung, sie blieb unsichtbar. Der Bereich wird jetzt umgekehrt zusammengesetzt (`Segmentstil + Selektionsstil`), sodass die Selektionsfarbe gewinnt. (2) Textuals `selection_updated` löste keinen vollständigen Repaint aus (RichLogs eigener `_line_cache` blieb ungeleert), wodurch alte Markierungen „einbrannten" — jetzt wie in Textuals `Log`-Widget behoben.
+- **Geändert:** Markiermodus deutlich sichtbar — dauerhafter Hinweis `y = mark mode` über dem Footer, im Modus `◉ MARK · drag · y copies · Esc cancels · auto-scroll paused`, Statusleisten-Badge `● MARK` und FilterBar-Scroll-Indikator zeigen den Modus. Die Kopier-Meldung unterscheidet jetzt Teilzeile vs. mehrere Zeilen.
 
 **Version 0.40.0:**
 - **Behoben:** Das Markieren mit der Maus im TUI-Log funktioniert endlich — und man sieht, was man markiert. Wahre Ursache hinter vier Fehlversuchen (0.36–0.39): Textuals `RichLog.render_line` bettet (anders als das `Log`-Widget) nie das `offset`-Meta ein, das der Compositor braucht, um eine Mausposition auf eine Textstelle abzubilden — dadurch blieb die Selektion intern immer leer (kein Highlight; das Terminal griff ein und kopierte „alles Sichtbare"). Jetzt werden die Offsets gesetzt, Selektion, Hervorhebung und Kopieren funktionieren.
@@ -396,7 +400,7 @@ odoodev/
 ```bash
 uv venv && source .venv/bin/activate.fish
 uv pip install -e ".[dev]"
-pytest                                  # Tests (905)
+pytest                                  # Tests (907)
 ruff check . && ruff format --check .   # Linting
 mypy odoodev                            # Type checking
 uv build                                # Build package
@@ -405,6 +409,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.41.0:**
+- **Fixed:** The marked text in the TUI log is now actually highlighted. Two causes: (1) `render_line` applied the selection colour via `apply_style`, which combines as `(selection + segment)` — each segment's own log background overrode the selection, leaving it invisible. The span is now rebuilt as `(segment + selection)` so the selection colour wins. (2) Textual's `selection_updated` didn't force a full repaint (RichLog's own `_line_cache` was never cleared), so old selections lingered — now fixed the same way Textual's `Log` widget does.
+- **Changed:** Mark mode is now clearly visible — persistent `y = mark mode` hint above the footer, `◉ MARK · drag · y copies · Esc cancels · auto-scroll paused` while marking, a `● MARK` status-bar badge, and the FilterBar auto-scroll indicator. The copy toast now distinguishes a partial-line selection from multiple lines.
 
 **Version 0.40.0:**
 - **Fixed:** Mouse selection in the TUI log finally works — and you can see what you mark. The real root cause behind four failed attempts (0.36–0.39): unlike Textual's `Log` widget, `RichLog.render_line` never embeds the `offset` meta the compositor needs to map a mouse position to a content offset, so the selection stayed empty forever (no highlight; the terminal took over and grabbed "all visible lines"). Offsets are now embedded, so selection, highlight and copy all work.

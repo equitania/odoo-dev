@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.41.0 (01.07.2026)
+
+### Fixed
+- **TUI: the marked text in the log is now actually highlighted on screen.** Two distinct root causes, both fixed:
+  1. **Style overlay order.** `render_line` drew the selection via `Strip.apply_style(sel_style)`, but `Segment.apply_style` combines as `(sel_style + segment.style)` — so each segment's *own* background (the log surface colour) overrode the selection background, leaving the highlight invisible even though it was "applied". The span is now rebuilt as `(segment.style + sel_style)` so the selection colour wins. (The old test only checked "something differs", which is why it never caught this — it now asserts the actual selection background is present.)
+  2. **Missing repaint.** Textual notifies the widget via `selection_updated`, but the inherited default only calls `self.refresh()`, which clears `_styles_cache` and **not** RichLog's own `_line_cache` (keyed without selection info) — so stale strips survived and an old selection lingered until an unrelated repaint ("old + new" artefact). `SelectableRichLog` now overrides `selection_updated` to clear `_line_cache` and refresh, mirroring Textual's own `Log` widget.
+
+### Changed
+- **TUI: mark mode is now unmistakable at a glance.** A persistent hint line above the footer shows `y = mark mode` in normal use; while marking it switches to `◉ MARK · drag to select · y copies · Esc cancels · auto-scroll paused`, the status bar shows the `● MARK` badge, and the FilterBar auto-scroll indicator reflects the paused scroll. The three mode-toggle sites are consolidated into a single `_set_mark_mode()` helper.
+
 ## Version 0.40.0 (01.07.2026)
 
 ### Fixed

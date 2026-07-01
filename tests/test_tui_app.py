@@ -123,6 +123,25 @@ class TestLogViewerMarkMode:
             await pilot.pause(0.05)
             assert rich_log.allow_select is False
 
+    async def test_footer_hint_reflects_mark_mode(self, mock_cmd, tmp_path):
+        """The hint line above the footer shows the y-hint normally and the mode line while marking."""
+        from textual.widgets import Static
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.2)
+            hint = app.query_one("#app-version", Static)
+            assert "mark mode" in str(hint.render()).lower()  # persistent y-hint
+
+            await pilot.press("y")  # enter
+            await pilot.pause(0.05)
+            rendered = str(hint.render())
+            assert "MARK" in rendered and "auto-scroll paused" in rendered
+
+            await pilot.press("escape")  # leave
+            await pilot.pause(0.05)
+            assert "mark mode" in str(hint.render()).lower()
+
 
 class TestStatusBar:
     """Test StatusBar widget functionality."""
@@ -616,6 +635,16 @@ class TestSelectableRichLog:
             assert "".join(seg.text for seg in highlighted) == "".join(seg.text for seg in plain)
             assert highlighted != plain
 
+            # The selection style must actually WIN over the segment's own background,
+            # otherwise the highlight is invisible on screen (the real 0.39–0.41 bug:
+            # apply_style combined the other way and the log background overrode it).
+            sel_bg = app.screen.get_component_rich_style("screen--selection").bgcolor
+            assert sel_bg is not None
+            first = highlighted[0]  # the selected span (cells 0..5)
+            assert first.style is not None and first.style.bgcolor == sel_bg, (
+                "selected span must carry the selection background, not the log's own"
+            )
+
     async def test_render_line_embeds_offset_meta(self, mock_cmd, tmp_path):
         """render_line must embed the 'offset' meta — without it no selection is ever tracked.
 
@@ -635,6 +664,26 @@ class TestSelectableRichLog:
             strip = rich_log.render_line(0)
             offsets = [seg.style.meta.get("offset") for seg in strip if seg.style and seg.style.meta]
             assert any(o is not None for o in offsets), "render_line must embed 'offset' style meta"
+
+    def test_selection_updated_clears_line_cache_and_refreshes(self):
+        """On selection change the highlight must repaint — clear _line_cache AND refresh.
+
+        The invisible-highlight + lingering-selection bugs both came from relying on
+        the inherited default (refresh only, which does NOT clear RichLog's own
+        _line_cache). Mirror Textual's Log widget: clear the line cache and refresh.
+        """
+        from textual.strip import Strip
+
+        log = SelectableRichLog()
+        log._line_cache[(0, 0, 0, 0)] = Strip([])  # seed a stale cached line
+        assert len(log._line_cache) == 1
+        refreshed: list[bool] = []
+        log.refresh = lambda *a, **k: refreshed.append(True)  # type: ignore[method-assign]
+
+        log.selection_updated(None)
+
+        assert len(log._line_cache) == 0, "stale line cache must be cleared on selection change"
+        assert refreshed, "selection change must trigger a refresh"
 
 
 class TestClipboard:
