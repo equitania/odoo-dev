@@ -90,7 +90,7 @@ def _clean_sessions(config_path: str, version: str, force: bool, no_confirm: boo
 
 def _load_env_file(env_file: str) -> dict[str, str]:
     """Load .env file and return as dict."""
-    env_vars = {}
+    env_vars: dict[str, str] = {}
     if not os.path.exists(env_file):
         return env_vars
     with open(env_file, encoding="utf-8") as f:

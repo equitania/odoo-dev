@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.41.1 (02.07.2026)
+
+### Fixed
+- **Type safety: two mypy errors resolved** (18 → 16 remaining, rest is the known `cli.py` registration backlog):
+  - `commands/start.py`: `_load_env_file()` — explicit `dict[str, str]` annotation for `env_vars`.
+  - `commands/env.py`: `env show` — values from `dotenv_values()` (typed `str | None`) are normalized with `(v or "")` before display; a key without a value now renders as empty instead of `None`.
+- **Dev dependencies: 13 known CVEs eliminated** (security review 02.07.2026): aiohttp 3.13.5 → 3.14.1 (11 CVEs), idna 3.12 → 3.18 (PYSEC-2026-215), msgpack 1.1.2 → 1.2.1 (GHSA-6v7p-g79w-8964) — all from the textual-dev chain, runtime dependencies were not affected. `pip-audit` is clean.
+
 ## Version 0.41.0 (01.07.2026)
 
 ### Fixed

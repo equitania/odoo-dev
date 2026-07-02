@@ -170,7 +170,7 @@ def env_show(ctx: click.Context, version: str | None) -> None:
 
     values = dotenv_values(env_file)
     _sensitive_keys = {"PGPASSWORD", "DB_PASSWORD", "PASSWORD"}
-    display = {k: ("***" if k.upper() in _sensitive_keys else v) for k, v in values.items()}
+    display = {k: ("***" if k.upper() in _sensitive_keys else (v or "")) for k, v in values.items()}
     print_table(f"Environment v{version} ({env_file})", display)
 
 
