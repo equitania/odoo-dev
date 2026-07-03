@@ -15,6 +15,26 @@ def tmp_dir():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_migration_config(monkeypatch, tmp_path):
+    """Keep every test independent of the developer machine's real migration.yaml.
+
+    Since DB-port resolution consults the active migration group (resolve_db_port),
+    an active migration in ~/.config/odoodev/ would silently change ports in
+    unrelated tests. Points the config path at an empty tmp location and clears
+    the module cache around each test. Migration tests re-patch the path locally.
+    """
+    from odoodev.core.migration_config import clear_migration_cache
+
+    clear_migration_cache()
+    monkeypatch.setattr(
+        "odoodev.core.migration_config.get_migration_config_path",
+        lambda: tmp_path / "migration.yaml",
+    )
+    yield
+    clear_migration_cache()
+
+
+@pytest.fixture(autouse=True)
 def _force_host_pg_tools(monkeypatch):
     """Default every test to host-mode psql/pg_dump resolution.
 

@@ -193,6 +193,7 @@ odoodev config versions
 | Problem | Ursache | Loesung |
 |---------|---------|---------|
 | Zielversion kann sich nicht mit DB verbinden | Quell-Container laeuft nicht | `odoodev docker up {quelle}` |
+| `db backup {ziel}` / `start {ziel}` versucht den regulaeren Port statt des geteilten (z.B. 18432 statt 16432) | odoodev < 0.42.1: `.env`-`DB_PORT` der Zielversion uebersteuerte die Migration | Update auf >= 0.42.1 (`uv tool upgrade odoodev-equitania`) |
 | Filestore nicht gefunden | Geteiltes Verzeichnis nicht angelegt | Pruefe `~/odoo-share/migration/{name}/filestore/` |
 | Migration nach `deactivate` weiterhin aktiv | Cache-Problem | Terminal-Session neu starten |
 | Port-Konflikt | Beide Versionen mit eigenem Container gestartet | Container der Zielversion stoppen, Quell-Container nutzen |
@@ -405,6 +406,7 @@ odoodev config versions
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | Target version cannot connect to DB | Source container not running | `odoodev docker up {source}` |
+| `db backup {target}` / `start {target}` tries the regular port instead of the shared one (e.g. 18432 instead of 16432) | odoodev < 0.42.1: the target's `.env` `DB_PORT` overrode the migration | Update to >= 0.42.1 (`uv tool upgrade odoodev-equitania`) |
 | Filestore not found | Shared directory not created | Check `~/odoo-share/migration/{name}/filestore/` |
 | Migration still active after `deactivate` | Cache issue | Restart the terminal session |
 | Port conflict | Both versions started with own containers | Stop target's container, use source's |

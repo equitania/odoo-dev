@@ -144,6 +144,39 @@ def get_active_group() -> MigrationGroup | None:
     return None
 
 
+def migration_target_port(version: str | None) -> int | None:
+    """Return the shared DB port when ``version`` is the active migration's target, else None.
+
+    The target version's .env keeps its regular DB_PORT during a migration; that
+    stale value must never win over the shared source port.
+    """
+    if version is None:
+        return None
+    group = get_active_group()
+    if group is not None and group.to_version == str(version):
+        return group.shared_db_port
+    return None
+
+
+def resolve_db_port(version: str | None, default_port: int, env_vars: dict[str, str] | None = None) -> int:
+    """Effective PostgreSQL host port for a version.
+
+    Precedence: active-migration target override > .env ``DB_PORT`` > ``default_port``.
+    Every port resolution that honors .env must go through this helper — otherwise the
+    target version's stale .env port silently overrides an active migration.
+    """
+    override = migration_target_port(version)
+    if override is not None:
+        return override
+    raw = (env_vars or {}).get("DB_PORT", "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return int(default_port)
+
+
 def create_migration_group(
     from_version: str,
     to_version: str,

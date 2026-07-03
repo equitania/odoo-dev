@@ -521,6 +521,15 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
                     f"Invalid GEVENT_PORT in .env: {env_vars['GEVENT_PORT']!r}, falling back to {gevent_port}"
                 )
 
+    # Active migration: the shared source port must win over repos.yaml/.env values,
+    # otherwise a regenerated target config points at the wrong PostgreSQL.
+    from odoodev.core.migration_config import migration_target_port
+
+    shared_port = migration_target_port(version_cfg.version)
+    if shared_port is not None and db_port != shared_port:
+        print_info(f"[MIGRATION] Config uses shared DB port {shared_port} (instead of {db_port})")
+        db_port = shared_port
+
     output = create_odoo_config(
         template_path=template_path,
         config_dir=config_dir,

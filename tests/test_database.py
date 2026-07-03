@@ -614,6 +614,7 @@ class TestRestoreCliFlags:
         from odoodev.commands import start as start_cmd
 
         cfg = types.SimpleNamespace(
+            version="18",
             ports=types.SimpleNamespace(db=18432),
             paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
         )
@@ -947,6 +948,7 @@ class TestDbCopyRenameCommands:
             db_cmd,
             "get_version",
             lambda v: types.SimpleNamespace(
+                version="18",
                 paths=types.SimpleNamespace(native_dir="/nonexistent"),
                 ports=types.SimpleNamespace(db=18432),
             ),
@@ -1125,6 +1127,7 @@ class TestRestoreBackupHandling:
         from odoodev.commands import start as start_cmd
 
         cfg = types.SimpleNamespace(
+            version="18",
             ports=types.SimpleNamespace(db=18432),
             paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
         )

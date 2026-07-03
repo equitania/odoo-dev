@@ -88,12 +88,18 @@ def _suggest_db_name(backup_file: str) -> str:
 
 
 def _get_db_params(version_cfg, env_vars: dict[str, str] | None = None) -> dict:
-    """Get database connection parameters."""
+    """Get database connection parameters.
+
+    Port resolution goes through ``resolve_db_port`` so an active migration's
+    shared port wins over the target version's stale .env DB_PORT.
+    """
+    from odoodev.core.migration_config import resolve_db_port
+
     if env_vars is None:
         env_vars = {}
     return {
         "host": env_vars.get("PGHOST", "localhost"),
-        "port": int(env_vars.get("DB_PORT", str(version_cfg.ports.db))),
+        "port": resolve_db_port(version_cfg.version, version_cfg.ports.db, env_vars),
         "user": env_vars.get("PGUSER", "ownerp"),
     }
 

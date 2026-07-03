@@ -13,6 +13,7 @@ from odoodev.cli import cli
 
 def _fake_version_cfg(tmp_path):
     return SimpleNamespace(
+        version="18",
         paths=SimpleNamespace(native_dir=str(tmp_path)),
         ports=SimpleNamespace(db=18432),
         python="3.13",

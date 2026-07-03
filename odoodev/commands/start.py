@@ -112,7 +112,9 @@ def _load_env_file(env_file: str) -> dict[str, str]:
     return env_vars
 
 
-def _set_environment(env_vars: dict[str, str], bind_host: str = "127.0.0.1") -> dict[str, str]:
+def _set_environment(
+    env_vars: dict[str, str], bind_host: str = "127.0.0.1", version: str | None = None
+) -> dict[str, str]:
     """Set up environment variables for Odoo execution.
 
     Uses .pgpass file for PostgreSQL authentication instead of
@@ -124,7 +126,11 @@ def _set_environment(env_vars: dict[str, str], bind_host: str = "127.0.0.1") -> 
             (loopback only) to avoid exposing the dev server on all
             interfaces. Use ``0.0.0.0`` to accept connections from VMs
             or shared networks.
+        version: Odoo version string — required so an active migration's shared
+            DB port wins over the target version's stale .env DB_PORT (PGPORT).
     """
+    from odoodev.core.migration_config import resolve_db_port
+
     env = os.environ.copy()
     # Export .env values
     for key, value in env_vars.items():
@@ -132,7 +138,7 @@ def _set_environment(env_vars: dict[str, str], bind_host: str = "127.0.0.1") -> 
 
     # Set PostgreSQL connection vars
     pg_host = "localhost"
-    pg_port = env_vars.get("DB_PORT", "18432")
+    pg_port = str(resolve_db_port(version, 18432, env_vars))
     pg_user = env_vars.get("PGUSER", "ownerp")
     pg_password = env_vars.get("PGPASSWORD", "CHANGE_AT_FIRST")
 
@@ -173,7 +179,7 @@ def resolve_odoo_invocation(version_cfg, env_vars: dict[str, str]) -> dict | Non
         "venv_python": venv_python,
         "odoo_bin": odoo_bin,
         "config_path": config_path,
-        "env": _set_environment(env_vars),
+        "env": _set_environment(env_vars, version=version_cfg.version),
         "cwd": version_cfg.paths.server_dir,
     }
 
@@ -662,8 +668,10 @@ def _check_services(
     """
     ports = version_cfg.ports  # type: ignore[attr-defined]
 
-    # Check PostgreSQL
-    db_port = int(env_vars.get("DB_PORT", str(ports.db)))
+    # Check PostgreSQL — migration-aware: the shared port wins over stale .env DB_PORT
+    from odoodev.core.migration_config import resolve_db_port
+
+    db_port = resolve_db_port(version, ports.db, env_vars)
     if not check_port("localhost", db_port):
         print_warning(f"PostgreSQL not accessible on localhost:{db_port}")
 
@@ -792,9 +800,11 @@ def _launch_tui(
             tui_cmd.extend(["-u", "all"])
     tui_cmd.extend(extra_args)
 
+    from odoodev.core.migration_config import resolve_db_port
+
     ports = version_cfg.ports  # type: ignore[attr-defined]
     odoo_port = int(env_vars.get("ODOO_PORT", str(ports.odoo)))
-    db_port = int(env_vars.get("DB_PORT", str(ports.db)))
+    db_port = resolve_db_port(version, ports.db, env_vars)
     tui_db_name = _resolve_tui_db_name(database, extra_args, config_path, version)
 
     from odoodev.tui.app import OdooTuiApp
@@ -927,7 +937,7 @@ def start(
     # Preflight checks
     env_vars = _check_env_file(ctx, version, native_dir)
     _check_placeholder_password(env_vars, version, native_dir, allow_default_credentials)
-    env = _set_environment(env_vars, bind_host=bind_host)
+    env = _set_environment(env_vars, bind_host=bind_host, version=version)
     _check_venv(ctx, version, version_cfg, venv_dir)
     _check_odoo_source(ctx, version, odoo_dir)
     config_path = _check_odoo_config(ctx, version, myconfs_dir)
@@ -935,7 +945,9 @@ def start(
     _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm, runtime=runtime)
 
     # Show config info
-    db_port = int(env_vars.get("DB_PORT", str(version_cfg.ports.db)))
+    from odoodev.core.migration_config import resolve_db_port
+
+    db_port = resolve_db_port(version, version_cfg.ports.db, env_vars)
     if not no_confirm and not prepare:
         print_table(
             "Configuration",

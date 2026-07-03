@@ -2,7 +2,7 @@
 projekttyp: python-paket
 modul: odoo-dev
 anzeigename: odoodev
-version: 0.42.0
+version: 0.42.1
 lizenz: AGPL-3
 erstellt_am: 03.07.2026
 ---

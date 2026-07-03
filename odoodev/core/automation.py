@@ -98,12 +98,18 @@ def _load_env_vars(version_cfg: VersionConfig) -> dict[str, str]:
 
 
 def _get_db_params(version_cfg: VersionConfig, env_vars: dict[str, str] | None = None) -> dict[str, Any]:
-    """Get database connection parameters."""
+    """Get database connection parameters.
+
+    Port resolution goes through ``resolve_db_port`` so an active migration's
+    shared port wins over the target version's stale .env DB_PORT.
+    """
+    from odoodev.core.migration_config import resolve_db_port
+
     if env_vars is None:
         env_vars = {}
     return {
         "host": env_vars.get("PGHOST", "localhost"),
-        "port": int(env_vars.get("DB_PORT", str(version_cfg.ports.db))),
+        "port": resolve_db_port(version_cfg.version, version_cfg.ports.db, env_vars),
         "user": env_vars.get("PGUSER", "ownerp"),
     }
 
@@ -324,8 +330,10 @@ def handle_start(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult
         return _step_error("start", "start", f"No Odoo config found in {myconfs_dir}", 0)
 
     # Check DB port — start Docker if needed
+    from odoodev.core.migration_config import resolve_db_port
+
     env_vars = _load_env_file(env_file)
-    db_port = int(env_vars.get("DB_PORT", str(version_cfg.ports.db)))
+    db_port = resolve_db_port(version_cfg.version, version_cfg.ports.db, env_vars)
     if not check_port("localhost", db_port):
         from odoodev.core.docker_compose import compose_up
 
@@ -334,7 +342,7 @@ def handle_start(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult
         if not check_port("localhost", db_port):
             return _step_error("start", "start", f"PostgreSQL not accessible on port {db_port}", 0)
 
-    env = _set_environment(env_vars)
+    env = _set_environment(env_vars, version=version_cfg.version)
     python = get_venv_python(venv_dir)
 
     mode = args.get("mode", "normal")

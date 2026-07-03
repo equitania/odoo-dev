@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.42.1 (03.07.2026)
+
+### Fixed
+- **Migration mode: the target version's stale .env DB_PORT no longer overrides the shared port.** `db backup 18` (and every other `db` command, `start`, playbook steps and the generated odoo.conf) tried the target's regular port (e.g. 18432) instead of the active migration's shared source port (e.g. 16432), because every port resolution preferred `.env` `DB_PORT` over the migration-redirected registry value — only the source version worked, contradicting the documentation. New central resolver `migration_config.resolve_db_port()` with precedence **active-migration target override > .env DB_PORT > registry default**, applied at all eight resolution sites (`db.py`, `automation.py` ×2, `start.py` ×4 incl. `PGPORT` for odoo-bin, `repos.py` config generation). 14 new regression tests; the test suite now also isolates itself from the developer machine's real `~/.config/odoodev/migration.yaml`.
+
 ## Version 0.42.0 (03.07.2026)
 
 ### Added

@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.42.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.42.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -169,6 +169,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.42.1:**
+- **Behoben:** Im Migrationsmodus übersteuerte die `.env` der Zielversion (mit ihrem regulären `DB_PORT`) den geteilten Quell-Port — `db backup 18`, `start 18` & Co. versuchten den falschen Port, nur die Quellversion funktionierte. Neuer zentraler Resolver mit Vorrang Migration-Ziel-Port > `.env` > Registry, angewandt an allen acht Auflösungsstellen (inkl. `PGPORT` für odoo-bin und der odoo.conf-Generierung).
 
 **Version 0.42.0:**
 - **Neu:** Alle `db`-Befehle funktionieren jetzt auch ohne installierte PostgreSQL-Client-Tools auf dem Host — fehlen `psql`/`pg_dump`, laufen die Kommandos automatisch per `docker exec` im Container, der den Ziel-Port veröffentlicht (typischer Fall: Migrationsserver). Das umgeht auch Versionskonflikte des Host-Clients (z.B. Debian 12: Client 15 gegen Postgres-16-Container). Erzwingbar per `ODOODEV_PG_EXEC=host|container`.
@@ -414,6 +417,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.42.1:**
+- **Fixed:** In migration mode the target version's `.env` (with its regular `DB_PORT`) overrode the shared source port — `db backup 18`, `start 18` etc. tried the wrong port; only the source version worked. New central resolver with precedence migration-target port > `.env` > registry, applied at all eight resolution sites (incl. `PGPORT` for odoo-bin and odoo.conf generation).
 
 **Version 0.42.0:**
 - **Added:** All `db` commands now work without PostgreSQL client tools installed on the host — when `psql`/`pg_dump` are missing, commands run automatically via `docker exec` inside the container publishing the target port (typical case: migration servers). This also sidesteps host client version mismatches (e.g. Debian 12: client 15 against a Postgres 16 container). Force a mode with `ODOODEV_PG_EXEC=host|container`.
