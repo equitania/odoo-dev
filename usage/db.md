@@ -197,6 +197,20 @@ Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis 
 > (DSGVO-Kontext, vollstaendige Feldtabelle, Audit-Snippets, Restrisiken) liegt unter
 > [data-protection.md](data-protection.md).
 
+### PostgreSQL-Client: Host oder Container (exec-Fallback)
+
+Alle `db`-Befehle nutzen die PostgreSQL-Client-Tools (`psql`, `pg_dump`, `createdb`, `dropdb`).
+Fehlen diese auf dem Host — typisch auf Migrationsservern, wo PostgreSQL nur im Docker-Container
+laeuft — werden die Befehle seit v0.42.0 automatisch per `docker exec` im Container ausgefuehrt,
+der den Ziel-Port veroeffentlicht (einmalige `[INFO]`-Zeile beim ersten Aufruf).
+
+- **Kein Versionskonflikt:** Im Container passt die Client-Version immer zum Server (umgeht z.B.
+  Debian 12: `postgresql-client-15` gegen einen Postgres-16-Container).
+- **Klare Fehlermeldung:** Sind weder Client-Tools noch ein laufender Container vorhanden, bricht
+  der Befehl mit zwei Handlungsoptionen ab (Tools installieren oder `odoodev docker up`).
+- **Override:** `ODOODEV_PG_EXEC=host|container` erzwingt einen Modus.
+- **Docker-only:** Unter Apple Container stattdessen `brew install libpq`.
+
 ### Standard-Credentials
 
 - **Benutzer:** `ownerp`
@@ -395,6 +409,20 @@ When running `odoodev db drop`, the filestore directory is also removed (with no
 > **Customer-facing reference:** A detailed, customer-ready write-up of both protection layers
 > (GDPR context, full field table, audit snippets, residual risks) lives at
 > [data-protection.md](data-protection.md).
+
+### PostgreSQL Client: Host or Container (exec fallback)
+
+All `db` commands use the PostgreSQL client tools (`psql`, `pg_dump`, `createdb`, `dropdb`).
+When these are missing on the host — typical on migration servers where PostgreSQL runs only
+inside the Docker container — commands are executed automatically via `docker exec` inside the
+container publishing the target port since v0.42.0 (a one-time `[INFO]` line on first use).
+
+- **No version mismatch:** inside the container the client version always matches the server
+  (sidesteps e.g. Debian 12's `postgresql-client-15` against a Postgres 16 container).
+- **Clear error:** if neither client tools nor a running container are available, the command
+  aborts with two remediation options (install the tools or `odoodev docker up`).
+- **Override:** `ODOODEV_PG_EXEC=host|container` forces a mode.
+- **Docker-only:** on Apple Container install `brew install libpq` instead.
 
 ### Default Credentials
 

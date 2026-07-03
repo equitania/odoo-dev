@@ -133,6 +133,31 @@ def _print_migration_hint(version: str) -> None:
         pass
 
 
+def _ensure_pg_reachable(version: str, params: dict) -> None:
+    """Fail fast with an actionable message if PostgreSQL cannot be used at all.
+
+    Two independent things must hold: the port must be reachable (container or
+    daemon running) and *some* way to run psql/pg_dump must exist — host client
+    tools or the container exec fallback. Never lets a bare
+    FileNotFoundError traceback surface to the user.
+    """
+    from odoodev.core.prerequisites import check_pg_exec_available, check_port
+
+    if not check_port(params["host"], params["port"]):
+        print_error(f"PostgreSQL not accessible on {params['host']}:{params['port']}")
+        print_info(f"Start Docker services: odoodev docker up {version}")
+        raise SystemExit(1)
+
+    if not check_pg_exec_available(params["port"]):
+        print_error("No PostgreSQL client tools found on this host, and no matching database container detected.")
+        print_info(
+            "Option 1: install client tools — "
+            "sudo apt-get install -y postgresql-client (Linux) / brew install libpq (macOS)"
+        )
+        print_info(f"Option 2: start the database container — odoodev docker up {version}")
+        raise SystemExit(1)
+
+
 @click.group()
 def db() -> None:
     """Database operations (backup, restore, list, drop)."""
@@ -148,6 +173,7 @@ def db_list(ctx: click.Context, version: str | None, as_json: bool) -> None:
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
 
     if as_json:
         import json
@@ -181,6 +207,7 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
     _print_migration_hint(version)
+    _ensure_pg_reachable(version, params)
 
     if not name:
         name = _select_database(params)
@@ -287,6 +314,7 @@ def db_copy(
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
     _print_migration_hint(version)
+    _ensure_pg_reachable(version, params)
 
     src, dst = _resolve_copy_names(params, src, dst)
     _ensure_no_connections(src, params, terminate, yes)
@@ -327,6 +355,7 @@ def db_rename(
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
     _print_migration_hint(version)
+    _ensure_pg_reachable(version, params)
 
     src, dst = _resolve_copy_names(params, src, dst)
     _ensure_no_connections(src, params, terminate, yes)
@@ -417,6 +446,7 @@ def db_restore(
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
     _print_migration_hint(version)
+    _ensure_pg_reachable(version, params)
 
     if not backup_file:
         backup_file = path_input("Backup file:")
@@ -594,6 +624,7 @@ def db_neutralize(
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
 
     if not name:
         name = _select_database(params)
@@ -710,14 +741,7 @@ def db_backup(
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
     _print_migration_hint(version)
-
-    # Check PostgreSQL accessibility
-    from odoodev.core.prerequisites import check_port
-
-    if not check_port(params["host"], params["port"]):
-        print_error(f"PostgreSQL not accessible on {params['host']}:{params['port']}")
-        print_info("Start Docker services: odoodev docker up")
-        raise SystemExit(1)
+    _ensure_pg_reachable(version, params)
 
     # Select database
     if not name:

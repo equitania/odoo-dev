@@ -86,6 +86,115 @@ def _get_pg_env(host: str = DEFAULT_DB_HOST, port: int = 18432) -> dict[str, str
     return env
 
 
+# --- psql/pg_dump execution mode: host CLI tools vs. container exec fallback ---
+#
+# On migration servers PostgreSQL runs only inside the Docker container and the
+# host has no psql/pg_dump (or Debian ships an older client that refuses newer
+# servers). When host tools are missing, all pg client commands are executed
+# inside the container publishing the target port instead.
+
+PG_EXEC_HOST = "host"
+PG_EXEC_CONTAINER = "container"
+PG_EXEC_UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class PgExecMode:
+    """How pg client tools (psql/pg_dump/createdb/dropdb) are executed."""
+
+    kind: str  # PG_EXEC_HOST | PG_EXEC_CONTAINER | PG_EXEC_UNAVAILABLE
+    container_name: str = ""
+    cli: str = "docker"  # container runtime binary for the exec prefix
+
+
+class PgToolsUnavailableError(RuntimeError):
+    """Neither host pg client tools nor a running database container were found."""
+
+    def __init__(self, host: str, port: int) -> None:
+        super().__init__(
+            f"No psql/pg_dump found on this host, and no running PostgreSQL container "
+            f"was found for {host}:{port}. Install postgresql-client "
+            f"(apt-get install postgresql-client / brew install libpq), "
+            f"or start the database container (odoodev docker up)."
+        )
+
+
+_pg_exec_cache: dict[int, PgExecMode] = {}
+_pg_exec_info_printed: set[int] = set()
+
+
+def clear_pg_exec_cache() -> None:
+    """Clear the module-level PgExecMode cache and info flags. Test helper."""
+    _pg_exec_cache.clear()
+    _pg_exec_info_printed.clear()
+
+
+def _host_pg_tools_available() -> bool:
+    return shutil.which("psql") is not None and shutil.which("pg_dump") is not None
+
+
+def resolve_pg_exec_mode(port: int) -> PgExecMode:
+    """Decide how to run psql/pg_dump/createdb/dropdb for a given port.
+
+    Priority: ``ODOODEV_PG_EXEC`` override ("host"/"container") > host CLI tools
+    present > a running container publishing ``port`` (via the configured container
+    runtime). Cached per port for the process lifetime — tests that vary
+    shutil.which/backend behaviour must call ``clear_pg_exec_cache()`` in between.
+    """
+    override = os.environ.get("ODOODEV_PG_EXEC", "auto").lower()
+    if override == "host":
+        return PgExecMode(kind=PG_EXEC_HOST)
+
+    if port in _pg_exec_cache:
+        return _pg_exec_cache[port]
+
+    if override != "container" and _host_pg_tools_available():
+        mode = PgExecMode(kind=PG_EXEC_HOST)
+        _pg_exec_cache[port] = mode
+        return mode
+
+    from odoodev.core.container_backend import get_active_backend
+
+    backend = get_active_backend()
+    container_name = backend.find_container_by_port(port)
+    if container_name:
+        mode = PgExecMode(kind=PG_EXEC_CONTAINER, container_name=container_name, cli=backend.cli)
+        if port not in _pg_exec_info_printed:
+            _pg_exec_info_printed.add(port)
+            from odoodev.output import print_info
+
+            print_info(
+                f"Host psql/pg_dump not found — running database commands via "
+                f"{backend.name} container '{container_name}'"
+            )
+    else:
+        mode = PgExecMode(kind=PG_EXEC_UNAVAILABLE)
+
+    _pg_exec_cache[port] = mode
+    return mode
+
+
+def _pg_base_cmd(tool: str, mode: PgExecMode, user: str, host: str, port: int) -> list[str]:
+    """Build the invocation prefix for a pg client tool (psql/pg_dump/dropdb/createdb).
+
+    Host mode connects over TCP as before. Container mode execs the tool inside
+    the database container without ``-h``/``-p``: there psql connects via the
+    Unix socket, which the stock postgres image trusts unconditionally
+    (pg_hba.conf ``local all all trust``), so no PGPASSWORD is needed either.
+    """
+    if mode.kind == PG_EXEC_HOST:
+        return [tool, "-U", user, "-h", host, "-p", str(port)]
+    if mode.kind == PG_EXEC_CONTAINER:
+        return [mode.cli, "exec", "-i", mode.container_name, tool, "-U", user]
+    raise PgToolsUnavailableError(host, port)
+
+
+def _pg_exec_env(mode: PgExecMode, host: str, port: int) -> dict[str, str]:
+    if mode.kind == PG_EXEC_HOST:
+        return _get_pg_env(host, port)
+    return os.environ.copy()  # container exec needs no PG* vars (socket trust auth)
+
+
 def _run_psql(
     command: str,
     db: str | None = None,
@@ -98,23 +207,24 @@ def _run_psql(
     Returns:
         Tuple of (success, output_or_error).
     """
-    env = _get_pg_env(host, port)
-    cmd = ["psql", "-U", user, "-h", host, "-p", str(port)]
-    if db:
-        cmd.extend(["-d", db])
-    cmd.extend(["-c", command])
-
     try:
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("psql", mode, user, host, port)
+        if db:
+            cmd.extend(["-d", db])
+        cmd.extend(["-c", command])
         result = subprocess.run(
             cmd,
             check=True,
             capture_output=True,
             text=True,
-            env=env,
+            env=_pg_exec_env(mode, host, port),
         )
         return True, result.stdout
     except subprocess.CalledProcessError as e:
         return False, e.stderr
+    except (FileNotFoundError, PgToolsUnavailableError) as e:
+        return False, str(e)
 
 
 def database_exists(
@@ -124,16 +234,16 @@ def database_exists(
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Check if a database exists."""
-    env = _get_pg_env(host, port)
-    cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-lqt"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-lqt"]
+        result = subprocess.run(cmd, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
         for line in result.stdout.split("\n"):
             parts = line.split("|")
             if parts and parts[0].strip() == db_name:
                 return True
         return False
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError, PgToolsUnavailableError):
         return False
 
 
@@ -147,10 +257,10 @@ def list_databases(
     Returns:
         List of database names.
     """
-    env = _get_pg_env(host, port)
-    cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-lqt"]
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-lqt"]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
         databases = []
         for line in result.stdout.strip().split("\n"):
             parts = line.split("|")
@@ -159,7 +269,7 @@ def list_databases(
                 if name and name not in ("", "template0", "template1", "postgres"):
                     databases.append(name)
         return sorted(databases)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError, PgToolsUnavailableError):
         return []
 
 
@@ -174,14 +284,17 @@ def drop_database(
         logger.info("Database %s does not exist. Skipping.", db_name)
         return True
 
-    env = _get_pg_env(host, port)
-    cmd = ["dropdb", "-U", user, "-h", host, "-p", str(port), db_name]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("dropdb", mode, user, host, port) + [db_name]
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
         logger.info("Database %s dropped.", db_name)
         return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to drop %s: %s", db_name, e.stderr)
+        return False
+    except (FileNotFoundError, PgToolsUnavailableError) as e:
+        logger.error("Failed to drop %s: %s", db_name, e)
         return False
 
 
@@ -192,14 +305,17 @@ def create_database(
     user: str = DEFAULT_DB_USER,
 ) -> bool:
     """Create a new database."""
-    env = _get_pg_env(host, port)
-    cmd = ["createdb", "-U", user, "-T", "template1", "-h", host, "-p", str(port), db_name]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("createdb", mode, user, host, port) + ["-T", "template1", db_name]
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
         logger.info("Database %s created.", db_name)
         return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to create %s: %s", db_name, e.stderr)
+        return False
+    except (FileNotFoundError, PgToolsUnavailableError) as e:
+        logger.error("Failed to create %s: %s", db_name, e)
         return False
 
 
@@ -210,15 +326,25 @@ def restore_database(
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> bool:
-    """Restore a database from SQL file."""
-    env = _get_pg_env(host, port)
-    cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-d", db_name, "-f", sql_file]
+    """Restore a database from SQL file.
+
+    The dump is piped via stdin (not ``-f``) so the file path never has to
+    exist inside the container when the exec fallback is active.
+    """
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-d", db_name]
+        with open(sql_file, "rb") as infile:
+            subprocess.run(
+                cmd, check=True, stdin=infile, capture_output=True, text=True, env=_pg_exec_env(mode, host, port)
+            )
         logger.info("Database %s restored from %s.", db_name, sql_file)
         return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to restore %s: %s", db_name, e.stderr)
+        return False
+    except (OSError, PgToolsUnavailableError) as e:
+        logger.error("Failed to restore %s: %s", db_name, e)
         return False
 
 
@@ -270,14 +396,17 @@ def copy_database(
     """Copy a database via ``createdb -T src dst`` (requires no active connections on src)."""
     _check_identifier(src)
     _check_identifier(dst)
-    env = _get_pg_env(host, port)
-    cmd = ["createdb", "-U", user, "-h", host, "-p", str(port), "-T", src, dst]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("createdb", mode, user, host, port) + ["-T", src, dst]
+        subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
         logger.info("Database %s copied to %s.", src, dst)
         return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to copy %s to %s: %s", src, dst, e.stderr)
+        return False
+    except (FileNotFoundError, PgToolsUnavailableError) as e:
+        logger.error("Failed to copy %s to %s: %s", src, dst, e)
         return False
 
 
@@ -624,15 +753,22 @@ def backup_database_sql(
     Returns:
         True if dump was successful.
     """
-    env = _get_pg_env(host, port)
-    cmd = ["pg_dump", "-U", user, "-h", host, "-p", str(port), db_name]
     try:
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("pg_dump", mode, user, host, port) + [db_name]
+        # stdout redirection works transparently in container mode too — the
+        # exec'd pg_dump's stdout is forwarded to the host process.
         with open(output_path, "w", encoding="utf-8") as outfile:
-            subprocess.run(cmd, check=True, stdout=outfile, stderr=subprocess.PIPE, text=True, env=env)
+            subprocess.run(
+                cmd, check=True, stdout=outfile, stderr=subprocess.PIPE, text=True, env=_pg_exec_env(mode, host, port)
+            )
         logger.info("Database %s dumped to %s", db_name, output_path)
         return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to dump %s: %s", db_name, e.stderr)
+        return False
+    except (OSError, PgToolsUnavailableError) as e:
+        logger.error("Failed to dump %s: %s", db_name, e)
         return False
 
 
@@ -1156,17 +1292,26 @@ def _run_psql_file(
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
 ) -> tuple[bool, str]:
-    """Write SQL to a temp file and execute it via ``psql -f`` (ON_ERROR_STOP)."""
-    env = _get_pg_env(host, port)
+    """Write SQL to a temp file and pipe it into ``psql`` via stdin (ON_ERROR_STOP).
+
+    stdin piping (instead of ``-f``) keeps the temp file host-local when the
+    container exec fallback is active.
+    """
     fd, path = tempfile.mkstemp(suffix=".sql", prefix="odoodev_anon_")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(sql)
-        cmd = ["psql", "-U", user, "-h", host, "-p", str(port), "-d", db, "-v", "ON_ERROR_STOP=1", "-f", path]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-d", db, "-v", "ON_ERROR_STOP=1"]
+        with open(path, "rb") as infile:
+            result = subprocess.run(
+                cmd, check=True, stdin=infile, capture_output=True, text=True, env=_pg_exec_env(mode, host, port)
+            )
         return True, result.stdout
     except subprocess.CalledProcessError as e:
         return False, e.stderr
+    except (FileNotFoundError, PgToolsUnavailableError) as e:
+        return False, str(e)
     finally:
         try:
             os.unlink(path)

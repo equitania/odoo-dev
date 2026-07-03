@@ -187,6 +187,13 @@ def check_pg_tools() -> str | None:
     return None
 
 
+def check_pg_exec_available(port: int) -> bool:
+    """True if psql/pg_dump commands can run: host CLI tools OR the container exec fallback."""
+    from odoodev.core.database import PG_EXEC_UNAVAILABLE, resolve_pg_exec_mode
+
+    return resolve_pg_exec_mode(port).kind != PG_EXEC_UNAVAILABLE
+
+
 def check_port(host: str, port: int) -> bool:
     """Check if a TCP port is accessible.
 

@@ -14,6 +14,35 @@ def tmp_dir():
         yield d
 
 
+@pytest.fixture(autouse=True)
+def _force_host_pg_tools(monkeypatch):
+    """Default every test to host-mode psql/pg_dump resolution.
+
+    Fakes presence of "psql"/"pg_dump" only (all other tool names delegate to
+    the real shutil.which) so unrelated zstd/7z presence tests stay unaffected.
+    Keeps the pre-fallback command shapes deterministic regardless of whether
+    the machine running the tests has PostgreSQL client tools installed.
+    Tests exercising the container exec fallback override this locally.
+    """
+    import shutil as _shutil
+
+    real_which = _shutil.which
+
+    def _fake_which(name, *args, **kwargs):
+        if name in ("psql", "pg_dump"):
+            return f"/usr/bin/{name}"
+        return real_which(name, *args, **kwargs)
+
+    monkeypatch.setattr("odoodev.core.database.shutil.which", _fake_which)
+    monkeypatch.delenv("ODOODEV_PG_EXEC", raising=False)
+
+    from odoodev.core.database import clear_pg_exec_cache
+
+    clear_pg_exec_cache()
+    yield
+    clear_pg_exec_cache()
+
+
 @pytest.fixture
 def versions_yaml(tmp_dir):
     """Create a minimal versions.yaml for testing."""

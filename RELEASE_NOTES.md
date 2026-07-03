@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.42.0 (03.07.2026)
+
+### Added
+- **`odoodev db *`: automatic container exec fallback when host psql/pg_dump are missing.** On migration servers PostgreSQL runs only inside the Docker container and the host has no client tools — previously every `db` command crashed with a raw `FileNotFoundError: 'psql'` traceback. All pg client invocations (psql, pg_dump, createdb, dropdb) now resolve an execution mode per port: host tools when present, otherwise `docker exec -i <container> ...` into the container publishing that port (located via `docker ps`, so migration mode's shared-port redirection just works — no name/version mapping needed). Inside the container the Unix socket is trust-authenticated and the client version always matches the server, which also sidesteps Debian 12's `postgresql-client-15` vs. postgres 16/17 version-mismatch problem. Override with `ODOODEV_PG_EXEC=host|container`. Apple Container runtime is not covered yet (install `libpq` there).
+- **Clean, actionable errors instead of tracebacks.** New `_ensure_pg_reachable` precheck in all `db` commands (list, drop, copy, rename, restore, backup, neutralize): unreachable port → "start Docker services"; no host tools *and* no running container → two remediation options (install postgresql-client / `odoodev docker up`). All `database.py` call sites additionally catch `FileNotFoundError` as defense in depth.
+
+### Changed
+- **`db restore` / anonymization SQL now pipe dumps via stdin instead of `psql -f`.** Required for the container fallback (the file path does not exist inside the container) and identical in behavior for host mode.
+
 ## Version 0.41.1 (02.07.2026)
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.41.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.42.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -169,6 +169,11 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.42.0:**
+- **Neu:** Alle `db`-Befehle funktionieren jetzt auch ohne installierte PostgreSQL-Client-Tools auf dem Host — fehlen `psql`/`pg_dump`, laufen die Kommandos automatisch per `docker exec` im Container, der den Ziel-Port veröffentlicht (typischer Fall: Migrationsserver). Das umgeht auch Versionskonflikte des Host-Clients (z.B. Debian 12: Client 15 gegen Postgres-16-Container). Erzwingbar per `ODOODEV_PG_EXEC=host|container`.
+- **Neu:** Saubere, handlungsorientierte Fehlermeldungen statt Tracebacks — sind weder Client-Tools noch ein laufender Container vorhanden, nennt der Befehl beide Lösungswege (Tools installieren oder `odoodev docker up`).
+- **Geändert:** `db restore` und die Anonymisierung pipen SQL-Dumps jetzt per stdin statt `psql -f` (nötig für den Container-Fallback, im Host-Modus verhaltensgleich).
 
 **Version 0.41.0:**
 - **Behoben:** Der markierte Text im TUI-Log wird jetzt tatsächlich hervorgehoben. Zwei Ursachen: (1) `render_line` trug die Selektionsfarbe per `apply_style` auf, das aber als `(Selektionsstil + Segmentstil)` kombiniert — der eigene Log-Hintergrund jedes Segments übermalte die Markierung, sie blieb unsichtbar. Der Bereich wird jetzt umgekehrt zusammengesetzt (`Segmentstil + Selektionsstil`), sodass die Selektionsfarbe gewinnt. (2) Textuals `selection_updated` löste keinen vollständigen Repaint aus (RichLogs eigener `_line_cache` blieb ungeleert), wodurch alte Markierungen „einbrannten" — jetzt wie in Textuals `Log`-Widget behoben.
@@ -409,6 +414,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.42.0:**
+- **Added:** All `db` commands now work without PostgreSQL client tools installed on the host — when `psql`/`pg_dump` are missing, commands run automatically via `docker exec` inside the container publishing the target port (typical case: migration servers). This also sidesteps host client version mismatches (e.g. Debian 12: client 15 against a Postgres 16 container). Force a mode with `ODOODEV_PG_EXEC=host|container`.
+- **Added:** Clean, actionable error messages instead of tracebacks — if neither client tools nor a running container are available, the command names both remedies (install the tools or `odoodev docker up`).
+- **Changed:** `db restore` and the anonymization pipe SQL dumps via stdin instead of `psql -f` (required for the container fallback, behavior-identical in host mode).
 
 **Version 0.41.0:**
 - **Fixed:** The marked text in the TUI log is now actually highlighted. Two causes: (1) `render_line` applied the selection colour via `apply_style`, which combines as `(selection + segment)` — each segment's own log background overrode the selection, leaving it invisible. The span is now rebuilt as `(segment + selection)` so the selection colour wins. (2) Textual's `selection_updated` didn't force a full repaint (RichLog's own `_line_cache` was never cleared), so old selections lingered — now fixed the same way Textual's `Log` widget does.

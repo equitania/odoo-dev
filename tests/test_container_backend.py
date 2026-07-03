@@ -267,3 +267,30 @@ class TestAppleContainerBackend:
         calls = [c.args[0] for c in mock_run.call_args_list]
         assert ["container", "stop", "c1"] in calls
         assert ["container", "delete", "c1"] in calls
+
+
+class TestFindContainerByPort:
+    @patch("odoodev.core.container_backend.subprocess.run")
+    def test_docker_matches_published_port(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=(
+                "picard-dev-db-18-native\t0.0.0.0:18432->5432/tcp\n"
+                "picard-dev-db-16-native\t0.0.0.0:16432->5432/tcp, [::]:16432->5432/tcp\n"
+            ),
+        )
+        assert DockerBackend().find_container_by_port(16432) == "picard-dev-db-16-native"
+
+    @patch("odoodev.core.container_backend.subprocess.run")
+    def test_docker_no_match_returns_none(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="other\t0.0.0.0:8080->80/tcp\n")
+        assert DockerBackend().find_container_by_port(16432) is None
+
+    @patch("odoodev.core.container_backend.subprocess.run")
+    def test_docker_ps_failure_returns_none(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert DockerBackend().find_container_by_port(16432) is None
+
+    def test_apple_returns_none(self):
+        # exec fallback is Docker-only for now — documents the current scope
+        assert AppleContainerBackend().find_container_by_port(16432) is None

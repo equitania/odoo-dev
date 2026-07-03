@@ -154,6 +154,14 @@ class ContainerBackend:
         """Show the dev service logs."""
         raise NotImplementedError
 
+    def find_container_by_port(self, port: int) -> str | None:
+        """Return the name of a running container publishing host ``port``, or None.
+
+        Used by the psql/pg_dump exec fallback in ``odoodev.core.database`` to
+        locate the PostgreSQL container when the host has no client tools.
+        """
+        raise NotImplementedError
+
     def _run(self, args: list[str], capture: bool = False) -> subprocess.CompletedProcess:
         """Invoke ``<cli> <args...>``."""
         return subprocess.run(
@@ -195,6 +203,17 @@ class DockerBackend(ContainerBackend):
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
+        return None
+
+    def find_container_by_port(self, port: int) -> str | None:
+        result = self._run(["ps", "--format", "{{.Names}}\t{{.Ports}}"], capture=True)
+        if result.returncode != 0:
+            return None
+        needle = f":{port}->"
+        for line in result.stdout.splitlines():
+            name, _, ports = line.partition("\t")
+            if needle in ports:
+                return name.strip()
         return None
 
     # Docker keeps using docker-compose for the dev service — unchanged behaviour.
@@ -261,6 +280,12 @@ class AppleContainerBackend(ContainerBackend):
         result = self._run(["stats", "--no-stream", container_name], capture=True)
         if result.returncode == 0 and result.stdout.strip():
             return _parse_apple_stats(result.stdout)
+        return None
+
+    def find_container_by_port(self, port: int) -> str | None:
+        # Apple Container's port-listing format is not parsed yet — the exec
+        # fallback for psql/pg_dump is Docker-only for now. On an Apple
+        # Container host, install the client tools instead (brew install libpq).
         return None
 
     # Apple Container has no compose — provision the dev postgres as a single

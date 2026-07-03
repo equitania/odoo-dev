@@ -2,9 +2,9 @@
 projekttyp: python-paket
 modul: odoo-dev
 anzeigename: odoodev
-version: 0.41.0
+version: 0.42.0
 lizenz: AGPL-3
-erstellt_am: 01.07.2026
+erstellt_am: 03.07.2026
 ---
 
 # Funktionsumfang: odoodev
@@ -40,7 +40,8 @@ ein Befehl statt vieler Handgriffe.
 - Das Server-Geschehen live in einer übersichtlichen Terminal-Oberfläche verfolgen: Meldungen nach
   Dringlichkeit ein- und ausblenden, durchsuchen und im Markiermodus gezielt Textstellen herauskopieren.
 - Datenbanken in verschiedenen Formaten sichern (inklusive Dateianhänge), wieder einspielen, kopieren,
-  umbenennen oder löschen.
+  umbenennen oder löschen – auch auf Servern ohne installierte Datenbank-Werkzeuge: fehlen diese,
+  arbeitet odoodev automatisch direkt im Datenbank-Container weiter.
 - Beim Einspielen standardmäßig geschützt arbeiten: Kontaktdaten werden anonymisiert, sensible
   Verbindungen neutralisiert, automatische Aufgaben und der Mailversand abgeschaltet – bei Bedarf
   einzeln abschaltbar. Vor dem Entpacken wird zudem der freie Speicherplatz geprüft.

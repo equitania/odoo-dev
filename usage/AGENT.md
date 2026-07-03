@@ -167,6 +167,11 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   backup is never auto-deleted; you are asked at the end (`--delete-backup` / `--keep-backup` for scripts).
 - **Version resolution:** auto-detected from CWD; outside a `vXX` directory the `[VERSION]` argument
   is mandatory or the command errors.
+- **psql/pg_dump not required on the host:** all `db` commands fall back to `docker exec` into the
+  container publishing the target DB port when host client tools are missing (one-time `[INFO]` line;
+  also avoids client/server version mismatches). Force a mode with `ODOODEV_PG_EXEC=host|container`.
+  If neither tools nor a container are available the command exits with a clean two-option error.
+  Docker-only — on Apple Container install libpq.
 - **Non-interactive use:** `init`, `env setup`, `setup` accept `--non-interactive`; destructive db/venv
   commands accept `-y`. Prefer these in automation to avoid blocking on prompts.
 

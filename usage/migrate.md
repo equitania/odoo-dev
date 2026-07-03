@@ -73,6 +73,73 @@ Bei aktivem Migrationsmodus erscheint `[MIGRATION]` in der Konsolenausgabe. Folg
 - `odoodev docker down {quelle}` → Warnung wegen Abhaengigkeit
 - `odoodev start {ziel}` → nutzt den DB-Port der Quellversion
 
+### Datenbank-Handling waehrend der Migration
+
+Bei aktiver Migration zeigen Quell- **und** Zielversion auf denselben PostgreSQL-Container. Alle `odoodev db`-Befehle (`list`, `backup`, `restore`, `copy`, `rename`, `drop`, `neutralize`) erreichen daher mit beiden Versionsnummern dieselben Datenbanken — die Umleitung passiert automatisch, erkennbar an der `[MIGRATION]`-Zeile:
+
+```bash
+odoodev db list 16   # identische Liste ...
+odoodev db list 18   # ... beide zeigen auf den geteilten Port (z.B. 16432)
+```
+
+#### Empfohlener Backup-/Restore-Workflow
+
+Grundregel: **nie am Original migrieren.** Erst Sicherungspunkt, dann Arbeitskopie, dann migrieren.
+
+```bash
+# 1. Sicherungspunkt VOR der Migration (ZIP = Dump + Filestore, landet in ~/Downloads/)
+odoodev db backup 16 -n mydb -t zip
+# grosse Datenbanken: tar.zst (Streaming, stark komprimiert, Kompressionslevel 1-22)
+odoodev db backup 16 -n mydb -t tar.zst -l 10
+
+# 2. Arbeitskopie anlegen und diese migrieren (Original bleibt unberuehrt)
+odoodev db copy 16 -s mydb -d mydb_v18
+odoodev start 18 -d mydb_v18 -u all
+
+# 3. Nach erfolgreicher Migration erneut sichern
+odoodev db backup 18 -n mydb_v18 -t zip
+
+# 4. Fehlversuch verwerfen und neu ansetzen
+odoodev db drop 18 -n mydb_v18 --yes
+odoodev db copy 16 -s mydb -d mydb_v18          # frische Kopie vom Original
+# oder vom Sicherungspunkt wiederherstellen:
+odoodev db restore 16 -z ~/Downloads/mydb_*.zip -n mydb_v18
+```
+
+Hinweise:
+
+- `db drop` loest waehrend aktiver Migration bewusst eine Warnung aus — Quell- und Ziel-Datenbanken liegen im selben Container, ein Tippfehler bei der Versionsnummer schuetzt nicht vor dem Loeschen.
+- `db restore` deaktiviert standardmaessig Cronjobs/Mailserver und bietet Neutralisierung + Anonymisierung an — fuer Migrations-Arbeitskopien in der Regel erwuenscht (`--no-deactivate-cron` etc. zum Abschalten).
+- `db copy` verlangt eine verbindungsfreie Quelldatenbank; laufende Odoo-Instanz vorher stoppen oder `--terminate-connections` nutzen.
+
+#### Filestore im Migrationsumfeld
+
+Waehrend aktiver Migration nutzen beide Versionen den **geteilten** Filestore `~/odoo-share/migration/{name}/filestore/{db}`. `db backup` (ZIP/tar.zst) sichert ihn automatisch mit; `db copy`, `db rename` und `db drop` behandeln ihn am geteilten Pfad.
+
+Nach `migrate deactivate` zeigt jede Version wieder auf ihren eigenen Pfad (`~/odoo-share/v{XX}/filestore/`) — die Anhaenge der migrierten Datenbank blieben sonst im Migrationsverzeichnis zurueck. Saubere Uebergabe in die Zielumgebung:
+
+```bash
+# noch IM Migrationsmodus: Komplett-Backup (Dump + geteilter Filestore)
+odoodev db backup 18 -n mydb_v18 -t zip
+
+# Migrationsmodus beenden
+odoodev migrate deactivate
+
+# in der regulaeren Zielumgebung wiederherstellen
+odoodev docker up 18
+odoodev db restore 18 -z ~/Downloads/mydb_v18_*.zip -n mydb
+```
+
+`db restore` legt den Filestore dabei automatisch am regulaeren Pfad der Zielversion ab.
+
+#### Ohne PostgreSQL-Client-Tools (Migrationsserver)
+
+Auf Migrationsservern laeuft PostgreSQL oft nur im Docker-Container und der Host hat kein `psql`/`pg_dump`. Seit v0.42.0 laufen alle `db`-Befehle dann automatisch per `docker exec` im Container (einmalige `[INFO]`-Zeile beim ersten Aufruf). Das umgeht auch Versionskonflikte des Host-Clients (z.B. Debian 12: `postgresql-client-15` gegen einen Postgres-16-Container) — im Container passt die Client-Version immer.
+
+- Sind weder Client-Tools noch ein laufender Container vorhanden, bricht der Befehl mit einer klaren Meldung ab (Tools installieren **oder** `odoodev docker up`).
+- Erzwingen laesst sich der Modus per `ODOODEV_PG_EXEC=host|container`.
+- Der Fallback ist Docker-only; unter Apple Container stattdessen `brew install libpq`.
+
 ### Voraussetzungen
 
 - Beide Odoo-Versionen sind via `odoodev init` initialisiert
@@ -217,6 +284,73 @@ When migration mode is active, `[MIGRATION]` appears in console output. The foll
 - `odoodev docker up {target}` → starts the source container
 - `odoodev docker down {source}` → warning about dependency
 - `odoodev start {target}` → uses the source version's DB port
+
+### Database Handling During Migration
+
+While a migration is active, source **and** target version point at the same PostgreSQL container. All `odoodev db` commands (`list`, `backup`, `restore`, `copy`, `rename`, `drop`, `neutralize`) therefore reach the same databases with either version number — the redirection is automatic, indicated by the `[MIGRATION]` line:
+
+```bash
+odoodev db list 16   # identical list ...
+odoodev db list 18   # ... both point at the shared port (e.g. 16432)
+```
+
+#### Recommended Backup/Restore Workflow
+
+Ground rule: **never migrate the original.** Safety backup first, then a working copy, then migrate.
+
+```bash
+# 1. Safety backup BEFORE the migration (ZIP = dump + filestore, written to ~/Downloads/)
+odoodev db backup 16 -n mydb -t zip
+# large databases: tar.zst (streaming, highly compressed, compression level 1-22)
+odoodev db backup 16 -n mydb -t tar.zst -l 10
+
+# 2. Create a working copy and migrate that one (original stays untouched)
+odoodev db copy 16 -s mydb -d mydb_v18
+odoodev start 18 -d mydb_v18 -u all
+
+# 3. Back up again after a successful migration
+odoodev db backup 18 -n mydb_v18 -t zip
+
+# 4. Discard a failed attempt and start over
+odoodev db drop 18 -n mydb_v18 --yes
+odoodev db copy 16 -s mydb -d mydb_v18          # fresh copy from the original
+# or restore from the safety backup:
+odoodev db restore 16 -z ~/Downloads/mydb_*.zip -n mydb_v18
+```
+
+Notes:
+
+- `db drop` deliberately triggers a warning while a migration is active — source and target databases live in the same container, so a typo in the version number does not protect against deletion.
+- `db restore` deactivates cron jobs/mail servers by default and offers neutralization + anonymization — usually desirable for migration working copies (`--no-deactivate-cron` etc. to opt out).
+- `db copy` requires a connection-free source database; stop a running Odoo instance first or use `--terminate-connections`.
+
+#### Filestore in the Migration Environment
+
+While a migration is active, both versions use the **shared** filestore `~/odoo-share/migration/{name}/filestore/{db}`. `db backup` (ZIP/tar.zst) includes it automatically; `db copy`, `db rename` and `db drop` handle it at the shared path.
+
+After `migrate deactivate`, each version points back at its own path (`~/odoo-share/v{XX}/filestore/`) — the migrated database's attachments would otherwise be left behind in the migration directory. Clean handover into the target environment:
+
+```bash
+# still IN migration mode: full backup (dump + shared filestore)
+odoodev db backup 18 -n mydb_v18 -t zip
+
+# leave migration mode
+odoodev migrate deactivate
+
+# restore in the regular target environment
+odoodev docker up 18
+odoodev db restore 18 -z ~/Downloads/mydb_v18_*.zip -n mydb
+```
+
+`db restore` then places the filestore at the target version's regular path automatically.
+
+#### Without PostgreSQL Client Tools (Migration Servers)
+
+On migration servers PostgreSQL often runs only inside the Docker container and the host has no `psql`/`pg_dump`. Since v0.42.0, all `db` commands then run automatically via `docker exec` inside the container (a one-time `[INFO]` line on first use). This also sidesteps host client version mismatches (e.g. Debian 12: `postgresql-client-15` against a Postgres 16 container) — inside the container the client version always matches.
+
+- If neither client tools nor a running container are available, the command aborts with a clear message (install the tools **or** `odoodev docker up`).
+- The mode can be forced via `ODOODEV_PG_EXEC=host|container`.
+- The fallback is Docker-only; on Apple Container install `brew install libpq` instead.
 
 ### Prerequisites
 
