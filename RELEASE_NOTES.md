@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.44.3 (06.07.2026)
+
+### Changed
+- **v19 example requirements aligned with the prepare-19 base image (security + chatbot).**
+  Brought `odoodev/data/examples/v19/requirements.txt` to the same state as
+  `ci-myodoo/prepare-19`: bumped nine packages for known CVEs (bleach 6.4.0, pdfminer.six
+  20260107, cryptography 46.0.7, python-ldap 3.4.5, urllib3 2.7.0, requests 2.33.0,
+  zeep 4.3.3, idna 3.15, cbor2 5.9.0), aligned lxml to the Odoo 19 pin (5.4.0), and fixed
+  the stale AI/Chatbot pins that lagged behind eq-chatbot-core 1.17.2 (eq-chatbot-core
+  >=1.17.2, openai >=2.0.0, anthropic >=0.90.0,<2.0.0, pydantic >=2.11.0, click <9.0.0).
+  Verified: clean resolve, residual OSV set now identical to prepare-19.
+
 ## Version 0.44.2 (06.07.2026)
 
 ### Added
