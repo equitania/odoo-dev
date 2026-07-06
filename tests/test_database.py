@@ -506,6 +506,19 @@ class TestAnonymizeSpecs:
         # complete_name depends on eq_firstname → it must trigger a recompute too.
         assert "eq_firstname" in RECOMPUTE_TRIGGERS["res.partner"]
 
+    def test_anonymizes_eq_partner_text_fields(self):
+        """Equitania name-line / district text fields are blanked on all partners (v0.44.1)."""
+        for where_key in ("true", "false"):
+            spec = next(s for s in ANONYMIZE_TABLES if s.table == "res_partner" and where_key in s.where)
+            cols = [f.column for f in spec.fields]
+            assert {"eq_name2", "eq_name3", "eq_citypart"} <= set(cols)
+
+    def test_eq_birthday_wiped_via_static(self):
+        """Equitania date-of-birth is nulled via a res_partner static update (v0.44.1)."""
+        partner_static = next((s for s in ANONYMIZE_STATIC_TABLES if s.table == "res_partner"), None)
+        assert partner_static is not None
+        assert ("eq_birthday", "NULL") in partner_static.assignments
+
 
 def _all_known_columns() -> set[str]:
     """Every column referenced by any anonymization spec (+ id) for mocking schema."""

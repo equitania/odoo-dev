@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.44.2 (06.07.2026)
+
+### Added
+- **Anonymization extended to more Equitania `res_partner` PII fields.** Building on
+  v0.44.1's `eq_firstname`, anonymization now also blanks the custom name lines
+  `eq_name2`/`eq_name3` and the address district `eq_citypart` (per-row), and nulls
+  the date-of-birth `eq_birthday` (via the schema-filtered static pass, since it is a
+  Date column). All column-filtered → no-op on non-Equitania databases. Verified
+  end-to-end: populated values became NULL after anonymization.
+
 ## Version 0.44.1 (06.07.2026)
 
 ### Added

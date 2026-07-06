@@ -1054,6 +1054,8 @@ class StaticAnonTable:
 
 
 # Shared res_partner fields (everything except name/function, which differ for companies).
+# The eq_* columns are Equitania custom fields (eq_res_partner); column-filtered away
+# on non-eq databases. eq_birthday is a Date and is nulled via the static pass below.
 _PARTNER_COMMON_FIELDS: tuple[AnonField, ...] = (
     AnonField("email", lambda f, i: f"p{i}@example.invalid"),
     AnonField("phone", lambda f, i: f.phone_number()),
@@ -1065,6 +1067,9 @@ _PARTNER_COMMON_FIELDS: tuple[AnonField, ...] = (
     AnonField("vat", lambda f, i: None),
     AnonField("website", lambda f, i: None),
     AnonField("comment", lambda f, i: None),
+    AnonField("eq_name2", lambda f, i: None),
+    AnonField("eq_name3", lambda f, i: None),
+    AnonField("eq_citypart", lambda f, i: None),
 )
 
 # Per-row Faker tables. Field order is stable so seeded generation is reproducible.
@@ -1183,6 +1188,13 @@ _HR_EMPLOYEE_NULL_COLUMNS: tuple[str, ...] = (
 )
 
 ANONYMIZE_STATIC_TABLES: tuple[StaticAnonTable, ...] = (
+    # Equitania custom date-of-birth on res_partner (eq_res_partner); nulled here
+    # rather than per-row because it is a Date column. Column-filtered → no-op on
+    # non-eq databases.
+    StaticAnonTable(
+        table="res_partner",
+        assignments=(("eq_birthday", "NULL"),),
+    ),
     StaticAnonTable(
         table="hr_employee",
         assignments=tuple((col, "NULL") for col in _HR_EMPLOYEE_NULL_COLUMNS)
