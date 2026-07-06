@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import socket
+import struct
 import subprocess
 import sys
+import time
 
 from odoodev.core.environment import command_exists, detect_os, find_executable
 from odoodev.output import print_error, print_info, print_success, print_warning
@@ -217,6 +219,81 @@ def check_postgres_port(port: int, host: str = "localhost") -> bool:
         print_success(f"PostgreSQL accessible on {host}:{port}")
         return True
     print_warning(f"PostgreSQL not accessible on {host}:{port}")
+    return False
+
+
+def _probe_postgres_protocol(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Dependency-free PostgreSQL wire-protocol probe (SSLRequest handshake).
+
+    A bare TCP connect can succeed before postgres itself is listening — e.g. an
+    Apple Container micro-VM's port forwarder accepts the socket while the VM is
+    still booting or running first-time initdb. Sending the 8-byte SSLRequest
+    startup packet and reading postgres' single-byte 'S'/'N' reply proves the
+    PostgreSQL backend itself, not just the network path, is responsive.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            sock.sendall(struct.pack("!ii", 8, 80877103))
+            return sock.recv(1) in (b"S", b"N")
+    except OSError:
+        return False
+
+
+def _postgres_accepting(host: str, port: int) -> bool:
+    """Single readiness check: host ``pg_isready`` when available, else the raw-socket probe."""
+    if command_exists("pg_isready"):
+        result = subprocess.run(
+            ["pg_isready", "-h", host, "-p", str(port), "-t", "2"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    return _probe_postgres_protocol(host, port)
+
+
+def wait_for_postgres_ready(
+    host: str,
+    port: int,
+    timeout: float = 60.0,
+    poll_interval: float = 1.0,
+    fail_fast_if_closed: bool = False,
+) -> bool:
+    """Poll until PostgreSQL accepts connections on host:port, or timeout elapses.
+
+    Each iteration gates on the cheap TCP ``check_port`` before the
+    PostgreSQL-protocol-level ``_postgres_accepting`` check — the latter is what
+    catches an Apple Container port forwarder accepting TCP while postgres inside
+    the micro-VM is still booting (or running first-time initdb).
+
+    Args:
+        host: Hostname to check
+        port: Port number to check
+        timeout: Maximum seconds to wait for readiness
+        poll_interval: Seconds between polls
+        fail_fast_if_closed: Return False immediately when the very first TCP
+            check fails (nothing is listening → the service is not running at
+            all, so the caller should offer to start it instead of waiting).
+
+    Returns:
+        True if PostgreSQL became ready within the timeout, False otherwise.
+    """
+    tcp_open = check_port(host, port)
+    if tcp_open and _postgres_accepting(host, port):
+        return True
+    if fail_fast_if_closed and not tcp_open:
+        return False
+
+    from odoodev.output import console
+
+    deadline = time.monotonic() + timeout
+    with console.status(f"[blue]Waiting for PostgreSQL on {host}:{port}...[/blue]") as status:
+        while time.monotonic() < deadline:
+            time.sleep(poll_interval)
+            if check_port(host, port) and _postgres_accepting(host, port):
+                return True
+            remaining = max(0, int(deadline - time.monotonic()))
+            status.update(f"[blue]Waiting for PostgreSQL on {host}:{port}... ({remaining}s left)[/blue]")
     return False
 
 

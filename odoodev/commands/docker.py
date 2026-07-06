@@ -85,11 +85,18 @@ def docker_up(ctx: click.Context, version: str | None, detach: bool, runtime: st
 
     print_info(f"Starting PostgreSQL for v{version} via {backend.name}...")
     env = read_env_file(version_cfg.paths.native_dir)
-    if backend.service_up(version_cfg, env) == 0:
-        print_success(f"PostgreSQL for v{version} started ({backend.name})")
-    else:
+    if backend.service_up(version_cfg, env) != 0:
         print_error(f"Failed to start PostgreSQL via {backend.name}")
         raise SystemExit(1)
+
+    from odoodev.core.migration_config import resolve_db_port
+    from odoodev.core.prerequisites import wait_for_postgres_ready
+
+    db_port = resolve_db_port(version, version_cfg.ports.db, env)
+    if not wait_for_postgres_ready("localhost", db_port, timeout=60):
+        print_error(f"PostgreSQL for v{version} did not become ready on port {db_port} within 60s")
+        raise SystemExit(1)
+    print_success(f"PostgreSQL for v{version} started ({backend.name})")
 
 
 @docker.command("down")

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from odoodev.core.prerequisites import (
     MACOS_LIBS,
+    _postgres_accepting,
+    _probe_postgres_protocol,
     check_7zip,
     check_apple_container,
     check_node,
@@ -15,6 +17,7 @@ from odoodev.core.prerequisites import (
     check_wkhtmltopdf,
     check_zstd,
     run_all_checks,
+    wait_for_postgres_ready,
 )
 
 
@@ -422,3 +425,139 @@ class TestCheckZstd:
         assert check_zstd() is None
         hints = " ".join(str(call.args[0]) for call in mock_info.call_args_list)
         assert "brew install zstd" in hints
+
+
+# ---------------------------------------------------------------------------
+# _probe_postgres_protocol
+# ---------------------------------------------------------------------------
+
+
+def _mock_connection(recv_result=b"S", recv_exc=None):
+    """Build a mocked socket.create_connection context manager."""
+    sock = MagicMock()
+    if recv_exc is not None:
+        sock.recv.side_effect = recv_exc
+    else:
+        sock.recv.return_value = recv_result
+    conn = MagicMock()
+    conn.__enter__.return_value = sock
+    return conn, sock
+
+
+class TestProbePostgresProtocol:
+    """Tests for the raw-socket SSLRequest readiness probe."""
+
+    @patch("odoodev.core.prerequisites.socket.create_connection")
+    def test_ssl_supported_reply(self, mock_create):
+        conn, sock = _mock_connection(recv_result=b"S")
+        mock_create.return_value = conn
+        assert _probe_postgres_protocol("localhost", 18432) is True
+        sock.sendall.assert_called_once()
+
+    @patch("odoodev.core.prerequisites.socket.create_connection")
+    def test_ssl_not_supported_reply(self, mock_create):
+        conn, _sock = _mock_connection(recv_result=b"N")
+        mock_create.return_value = conn
+        assert _probe_postgres_protocol("localhost", 18432) is True
+
+    @patch("odoodev.core.prerequisites.socket.create_connection")
+    def test_empty_reply_not_ready(self, mock_create):
+        # Forwarder accepted TCP but nothing is speaking the PG protocol behind it.
+        conn, _sock = _mock_connection(recv_result=b"")
+        mock_create.return_value = conn
+        assert _probe_postgres_protocol("localhost", 18432) is False
+
+    @patch("odoodev.core.prerequisites.socket.create_connection")
+    def test_recv_timeout_not_ready(self, mock_create):
+        conn, _sock = _mock_connection(recv_exc=TimeoutError())
+        mock_create.return_value = conn
+        assert _probe_postgres_protocol("localhost", 18432) is False
+
+    @patch(
+        "odoodev.core.prerequisites.socket.create_connection",
+        side_effect=ConnectionRefusedError(),
+    )
+    def test_connection_refused_not_ready(self, _create):
+        assert _probe_postgres_protocol("localhost", 18432) is False
+
+
+# ---------------------------------------------------------------------------
+# _postgres_accepting
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresAccepting:
+    """Tests for the host-pg_isready / socket-probe dispatch."""
+
+    @patch("odoodev.core.prerequisites._probe_postgres_protocol")
+    @patch("odoodev.core.prerequisites.subprocess.run")
+    @patch("odoodev.core.prerequisites.command_exists", return_value=True)
+    def test_uses_host_pg_isready_when_available(self, _cmd, mock_run, mock_probe):
+        mock_run.return_value = MagicMock(returncode=0)
+        assert _postgres_accepting("localhost", 18432) is True
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == ["pg_isready", "-h", "localhost", "-p", "18432", "-t", "2"]
+        mock_probe.assert_not_called()
+
+    @patch("odoodev.core.prerequisites.subprocess.run")
+    @patch("odoodev.core.prerequisites.command_exists", return_value=True)
+    def test_pg_isready_rejecting_returns_false(self, _cmd, mock_run):
+        mock_run.return_value = MagicMock(returncode=1)  # rejecting / still starting
+        assert _postgres_accepting("localhost", 18432) is False
+
+    @patch("odoodev.core.prerequisites._probe_postgres_protocol", return_value=True)
+    @patch("odoodev.core.prerequisites.subprocess.run")
+    @patch("odoodev.core.prerequisites.command_exists", return_value=False)
+    def test_falls_back_to_socket_probe(self, _cmd, mock_run, mock_probe):
+        assert _postgres_accepting("localhost", 18432) is True
+        mock_probe.assert_called_once_with("localhost", 18432)
+        mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# wait_for_postgres_ready
+# ---------------------------------------------------------------------------
+
+
+class TestWaitForPostgresReady:
+    """Tests for the PostgreSQL readiness polling loop."""
+
+    @patch("odoodev.core.prerequisites.time.sleep")
+    @patch("odoodev.core.prerequisites._postgres_accepting", return_value=True)
+    @patch("odoodev.core.prerequisites.check_port", return_value=True)
+    def test_ready_immediately_fast_path(self, _port, _accepting, mock_sleep):
+        assert wait_for_postgres_ready("localhost", 18432) is True
+        mock_sleep.assert_not_called()
+
+    @patch("odoodev.core.prerequisites.time.sleep")
+    @patch("odoodev.core.prerequisites._postgres_accepting", side_effect=[False, False, True])
+    @patch("odoodev.core.prerequisites.check_port", return_value=True)
+    def test_becomes_ready_after_polls(self, _port, _accepting, mock_sleep):
+        assert wait_for_postgres_ready("localhost", 18432, timeout=60, poll_interval=1) is True
+        assert mock_sleep.call_count == 2
+
+    @patch("odoodev.core.prerequisites.time.sleep")
+    @patch("odoodev.core.prerequisites._postgres_accepting", return_value=False)
+    @patch("odoodev.core.prerequisites.check_port", return_value=True)
+    def test_timeout_returns_false(self, _port, _accepting, _sleep):
+        assert wait_for_postgres_ready("localhost", 18432, timeout=0.05, poll_interval=0.01) is False
+
+    @patch("odoodev.core.prerequisites.time.sleep")
+    @patch("odoodev.core.prerequisites._postgres_accepting")
+    @patch("odoodev.core.prerequisites.check_port", return_value=False)
+    def test_fail_fast_when_port_closed(self, mock_port, mock_accepting, mock_sleep):
+        # Nothing listening at all → immediate False so the caller can offer to
+        # start the service instead of waiting out the timeout.
+        assert wait_for_postgres_ready("localhost", 18432, fail_fast_if_closed=True) is False
+        mock_port.assert_called_once()
+        mock_accepting.assert_not_called()
+        mock_sleep.assert_not_called()
+
+    @patch("odoodev.core.prerequisites.time.sleep")
+    @patch("odoodev.core.prerequisites._postgres_accepting", side_effect=[False, True])
+    @patch("odoodev.core.prerequisites.check_port", return_value=True)
+    def test_tcp_open_but_not_ready_polls_despite_fail_fast(self, _port, _accepting, mock_sleep):
+        # The Apple Container case: forwarder accepts TCP while PG boots — must
+        # poll (not fail fast), because the service IS starting.
+        assert wait_for_postgres_ready("localhost", 18432, fail_fast_if_closed=True) is True
+        assert mock_sleep.call_count == 1

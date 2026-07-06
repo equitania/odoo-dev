@@ -12,6 +12,7 @@ import pytest
 import odoodev.cli  # noqa: F401
 from odoodev.commands.start import (
     _add_v19_log_handlers,
+    _check_services,
     _clean_sessions,
     _extract_db_from_args,
     _find_odoo_config,
@@ -561,3 +562,91 @@ class TestStartOdooProcessGroup:
             _start_odoo(str(tmp_path), "/tmp/odoo.conf", "normal", (), {}, str(tmp_path), version="18")
         assert exc.value.code == 0
         assert stopped.get("pgid") == 9999
+
+
+class TestCheckServicesReadiness:
+    """PostgreSQL readiness gating in _check_services (Apple Container boot race).
+
+    The old implementation used a bare TCP check plus a flat ``time.sleep(5)``
+    after ``service_up`` — on Apple Container the micro-VM's port forwarder
+    accepts TCP before postgres is ready, so odoo-bin launched into 10-30s of
+    silent DB-connection retries. These tests pin the protocol-level wait.
+    """
+
+    def _version_cfg(self, tmp_path):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            ports=SimpleNamespace(db=18432, odoo=18069),
+            paths=SimpleNamespace(native_dir=str(tmp_path)),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _stub(self, monkeypatch):
+        # No active migration group, odoo port free, no requirements.txt checks.
+        monkeypatch.setattr("odoodev.core.migration_config.get_active_group", lambda: None)
+        monkeypatch.setattr("odoodev.commands.start.check_port", lambda host, port: False)
+        monkeypatch.setattr("odoodev.commands.start.check_requirements_changed", lambda *a, **k: False)
+
+    def test_no_bare_sleep_regression(self):
+        """The flat time.sleep(5) must never come back — readiness is polled."""
+        import inspect
+
+        assert "time.sleep(" not in inspect.getsource(_check_services)
+
+    def test_fast_path_skips_service_start(self, monkeypatch, tmp_path):
+        """PostgreSQL ready at the initial gate → no runtime prompt, no service_up."""
+        monkeypatch.setattr("odoodev.commands.start.wait_for_postgres_ready", lambda *a, **k: True)
+        monkeypatch.setattr(
+            "odoodev.commands.start._select_runtime",
+            lambda *a, **k: pytest.fail("_select_runtime must not be called when PostgreSQL is ready"),
+        )
+        _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=True)
+
+    def test_initial_gate_uses_fail_fast(self, monkeypatch, tmp_path):
+        """The initial gate must fail fast on a closed port (no 60s wait before the prompt)."""
+        calls = []
+
+        def fake_wait(host, port, timeout=60.0, poll_interval=1.0, fail_fast_if_closed=False):
+            calls.append({"port": port, "timeout": timeout, "fail_fast_if_closed": fail_fast_if_closed})
+            return True
+
+        monkeypatch.setattr("odoodev.commands.start.wait_for_postgres_ready", fake_wait)
+        _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=True)
+        assert calls[0]["port"] == 18432
+        assert calls[0]["fail_fast_if_closed"] is True
+
+    def _run_with_service_up(self, monkeypatch, tmp_path, wait_results):
+        """Drive the 'PostgreSQL down → start service' branch with a mocked backend."""
+        calls = []
+
+        def fake_wait(host, port, timeout=60.0, poll_interval=1.0, fail_fast_if_closed=False):
+            calls.append({"port": port, "timeout": timeout, "fail_fast_if_closed": fail_fast_if_closed})
+            return wait_results[len(calls) - 1]
+
+        monkeypatch.setattr("odoodev.commands.start.wait_for_postgres_ready", fake_wait)
+        monkeypatch.setattr("odoodev.commands.start._select_runtime", lambda *a, **k: "docker")
+
+        class _Backend:
+            name = "Docker"
+
+            def service_up(self, cfg, env):
+                return 0
+
+        monkeypatch.setattr("odoodev.core.container_backend.get_backend", lambda rt: _Backend())
+        monkeypatch.setattr("odoodev.core.container_backend.read_env_file", lambda native_dir: {})
+        _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=True)
+        return calls
+
+    def test_waits_for_readiness_after_service_up(self, monkeypatch, tmp_path):
+        calls = self._run_with_service_up(monkeypatch, tmp_path, wait_results=[False, True])
+        assert len(calls) == 2
+        # Post-service_up wait: full timeout, no fail-fast (container is booting).
+        assert calls[1]["port"] == 18432
+        assert calls[1]["timeout"] == 60
+        assert calls[1]["fail_fast_if_closed"] is False
+
+    def test_raises_when_wait_times_out_after_service_up(self, monkeypatch, tmp_path):
+        with pytest.raises(SystemExit) as exc:
+            self._run_with_service_up(monkeypatch, tmp_path, wait_results=[False, False])
+        assert exc.value.code == 1

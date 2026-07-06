@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.42.2 (06.07.2026)
+
+### Fixed
+- **`odoodev start` no longer races Apple Container's PostgreSQL boot.** With `container_runtime: apple`, odoo-bin launched immediately but a requested `-u all` only began after 10-30s: the readiness gate was a bare TCP port check plus a flat `time.sleep(5)`, and the Apple Container micro-VM's port forwarder accepts TCP *before* PostgreSQL inside the VM is ready (VM boot, possibly first-time `initdb`) — so Odoo sat silently retrying its DB connection. New `prerequisites.wait_for_postgres_ready()` polls at the PostgreSQL protocol level (host `pg_isready` when available, otherwise a dependency-free raw-socket SSLRequest probe — no libpq required) with a Rich spinner and 60s timeout. Applied at both `start` gates (initial check fails fast when nothing listens, so the "start services?" prompt still appears instantly; post-`service_up` polls the full timeout) and to `odoodev docker up` for parity. The Docker runtime benefits too (slow container boots are now covered); the compose healthcheck alone was never consulted. 16 new regression tests, including a guard that the flat sleep cannot return.
+
 ## Version 0.42.1 (03.07.2026)
 
 ### Fixed

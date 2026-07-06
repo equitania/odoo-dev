@@ -13,7 +13,7 @@ import click
 from odoodev import i18n
 from odoodev.cli import resolve_version
 from odoodev.core.environment import detect_shell
-from odoodev.core.prerequisites import check_port
+from odoodev.core.prerequisites import check_port, wait_for_postgres_ready
 from odoodev.core.venv_manager import (
     check_requirements_changed,
     check_venv_python_matches,
@@ -672,7 +672,10 @@ def _check_services(
     from odoodev.core.migration_config import resolve_db_port
 
     db_port = resolve_db_port(version, ports.db, env_vars)
-    if not check_port("localhost", db_port):
+    # Protocol-level readiness: on Apple Container the port forwarder accepts TCP
+    # before postgres inside the micro-VM is ready — a bare port check would let
+    # odoo-bin launch into 10-30s of silent DB-connection retries.
+    if not wait_for_postgres_ready("localhost", db_port, timeout=60, fail_fast_if_closed=True):
         print_warning(f"PostgreSQL not accessible on localhost:{db_port}")
 
         # Migration redirect: start the source version's container (shared DB).
@@ -699,11 +702,8 @@ def _check_services(
             if backend.service_up(effective_cfg, svc_env) != 0:
                 print_error(f"Failed to start PostgreSQL via {backend.name}")
                 raise SystemExit(1)
-            import time
-
-            time.sleep(5)
-            if not check_port("localhost", db_port):
-                print_error(f"PostgreSQL still not accessible on port {db_port}")
+            if not wait_for_postgres_ready("localhost", db_port, timeout=60):
+                print_error(f"PostgreSQL still not accepting connections on port {db_port} after 60s")
                 raise SystemExit(1)
             # Apple Container has no compose/Desktop UI — surface the container
             # name so the user can confirm it is running (`container ls`, NOT
