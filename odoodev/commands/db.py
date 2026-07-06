@@ -37,9 +37,12 @@ from odoodev.core.database import (
     list_databases,
     move_filestore,
     neutralize_bank_sync,
+    purge_transactional_data,
     rename_database,
+    resolve_purge_tables,
     restore_database,
     run_neutralize,
+    run_recompute,
     terminate_connections,
     wipe_database,
 )
@@ -414,6 +417,19 @@ def db_rename(
     help="Delete/blank message and attachment content (mail_message, ir_attachment, linkage tables) — OFF by default",
 )
 @click.option(
+    "--purge-transactions/--no-purge-transactions",
+    "purge_transactions",
+    default=None,
+    help="Delete all movement data (stock/sale/purchase/account/mrp/pos), zero stock; keep products, "
+    "pricelists, partners — OFF by default, NOT included in --sanitize",
+)
+@click.option(
+    "--recompute/--no-recompute",
+    default=None,
+    help="Recompute stored computed fields (complete_name, ...) after anonymize so overviews show "
+    "anonymized data — auto-runs when --anonymize ran",
+)
+@click.option(
     "--anonymize-users/--no-anonymize-users",
     "anon_users",
     default=False,
@@ -453,6 +469,8 @@ def db_restore(
     neutralize: bool | None,
     anonymize: bool | None,
     wipe: bool | None,
+    purge_transactions: bool | None,
+    recompute: bool | None,
     anon_users: bool,
     user_password: str,
     keep_temp: bool,
@@ -468,12 +486,18 @@ def db_restore(
     By default the restored database is left completely untouched. All
     post-restore processing (cron deactivation, neutralize, anonymize, wipe)
     is opt-in — enable individually or all at once with --sanitize.
+    --purge-transactions (movement-data reset) is a separate opt-in, NOT in
+    --sanitize.
     """
     # Resolve tri-state toggles: explicit flag > --sanitize > off.
     deactivate_cron = deactivate_cron if deactivate_cron is not None else sanitize
     neutralize = neutralize if neutralize is not None else sanitize
     anonymize = anonymize if anonymize is not None else sanitize
     wipe = wipe if wipe is not None else sanitize
+    # Purge is deliberately NOT part of --sanitize (destructive, specific use case).
+    purge_transactions = bool(purge_transactions)
+    # Recompute auto-runs after anonymize unless explicitly disabled.
+    recompute = recompute if recompute is not None else anonymize
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
@@ -605,6 +629,14 @@ def db_restore(
         else:
             print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
 
+    if purge_transactions:
+        print_info("Purging transactional data (keeping products, pricelists, partners)...")
+        ok, msg = purge_transactional_data(name, **params)
+        if ok:
+            print_success(f"Transactional data purged — {msg}")
+        else:
+            print_warning(f"Purge skipped — {msg}")
+
     if anon_users:
         print_info("Anonymizing res_users (logins + dev password)...")
         if anonymize_users(name, dev_password=user_password, **params):
@@ -612,10 +644,29 @@ def db_restore(
         else:
             print_warning("User anonymization failed (table issue) — non-fatal")
 
-    if not any((deactivate_cron, neutralize, anonymize, wipe, anon_users)):
+    # Recompute stored computed fields after in-place SQL edits (anonymize), so
+    # overviews (kanban/list) show the anonymized data instead of stale display names.
+    if recompute and anonymize:
+        from odoodev.commands.start import resolve_odoo_invocation
+
+        inv = resolve_odoo_invocation(version_cfg, env_vars)
+        if inv is None:
+            print_warning(
+                "Recompute skipped — venv/odoo-bin/odoo_*.conf not ready; stored computed fields "
+                f"(e.g. complete_name) may be stale (run 'odoodev db recompute {version} -n {name}' after setup)"
+            )
+        else:
+            print_info("Recomputing stored computed fields (odoo-bin shell)...")
+            ok, msg = run_recompute(name, **inv)
+            if ok:
+                print_success("Stored computed fields recomputed")
+            else:
+                print_warning(f"Recompute failed (non-fatal): {msg.strip()}")
+
+    if not any((deactivate_cron, neutralize, anonymize, wipe, purge_transactions, anon_users)):
         print_info(
             "Database left untouched — no post-restore processing selected "
-            "(use --sanitize or --deactivate-cron/--neutralize/--anonymize/--wipe)"
+            "(use --sanitize, --purge-transactions, or --deactivate-cron/--neutralize/--anonymize/--wipe)"
         )
 
     # Cleanup
@@ -702,6 +753,118 @@ def db_neutralize(
         print_info("Disabling bank synchronisation...")
         if not neutralize_bank_sync(name, **params):
             print_warning("Bank-sync neutralization partially failed — some tables may be missing (non-fatal)")
+
+
+@db.command("purge")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option("--dry-run", is_flag=True, help="List the tables that would be emptied, delete nothing")
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.pass_context
+def db_purge(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Delete all transactional/movement data, keeping products, pricelists, partners.
+
+    Empties stock moves/quants (zeroing on-hand stock), sale/purchase orders,
+    accounting moves/payments, MRP and POS data via TRUNCATE ... CASCADE. Products,
+    pricelists, partners, users and config are kept — ideal for a clean stress-test
+    database. Combine with a restore + '--anonymize' to also anonymize the partners.
+    """
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    tables = resolve_purge_tables(name, **params)
+    if not tables:
+        print_warning("No transactional tables found — no movement-data modules installed. Nothing to purge.")
+        return
+
+    if dry_run:
+        print_info(f"Tables that would be emptied on '{name}' ({len(tables)}):")
+        for table in tables:
+            console.print(f"  {table}")
+        print_info("Dry run — nothing deleted. Cascade also empties their child/linkage tables.")
+        return
+
+    if not yes:
+        print_warning(f"This will permanently delete ALL transactional data in '{name}':")
+        print_warning(f"  {len(tables)} root tables (stock, sale, purchase, account, mrp, pos) + cascade")
+        print_warning("  Products, pricelists, partners, users and config are KEPT.")
+        console.print()
+        if not confirm("Proceed with purge? This cannot be undone.", default=False):
+            print_info("Aborted.")
+            return
+
+    print_info(f"Purging transactional data in '{name}'...")
+    ok, msg = purge_transactional_data(name, **params)
+    if ok:
+        print_success(f"Transactional data purged — {msg}")
+    else:
+        print_error(msg)
+        raise SystemExit(1)
+
+
+@db.command("recompute")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.pass_context
+def db_recompute(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+) -> None:
+    """Recompute stored computed fields via 'odoo-bin shell'.
+
+    Fixes stale stored computed fields (complete_name and the display names that
+    read it) after raw-SQL edits such as anonymization, so kanban/list overviews
+    show the current data. Requires a ready dev environment (venv, server, conf).
+    """
+    from odoodev.commands.start import resolve_odoo_invocation
+
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    inv = resolve_odoo_invocation(version_cfg, env_vars)
+    if inv is None:
+        print_error(
+            "Cannot recompute — venv, odoo-bin or odoo_*.conf not found. Run 'odoodev init' / 'odoodev repos' first."
+        )
+        raise SystemExit(1)
+
+    print_info(f"Recomputing stored computed fields in '{name}' (odoo-bin shell)...")
+    ok, output = run_recompute(name, **inv)
+    if not ok:
+        print_error(f"Recompute failed: {output.strip()}")
+        raise SystemExit(1)
+    print_success(f"Stored computed fields recomputed in '{name}'")
 
 
 def _select_database(params: dict) -> str | None:

@@ -503,8 +503,10 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         get_filestore_path,
         get_restore_temp_dir,
         move_filestore,
+        purge_transactional_data,
         restore_database,
         run_neutralize,
+        run_recompute,
         wipe_database,
     )
 
@@ -525,6 +527,10 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
     neutralize_flag = args.get("neutralize", sanitize)
     anonymize_flag = args.get("anonymize", sanitize)
     wipe_flag = args.get("wipe", sanitize)
+    # Purge is NOT part of sanitize (destructive movement-data reset).
+    purge_flag = args.get("purge-transactions", args.get("purge_transactions", False))
+    # Recompute defaults to on whenever anonymize ran.
+    recompute_flag = args.get("recompute", anonymize_flag)
 
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
@@ -580,6 +586,20 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
             logger.warning("Anonymization partially failed (non-fatal)")
         if wipe_flag and not wipe_database(name, **params):
             logger.warning("Content wipe partially failed (non-fatal)")
+        if purge_flag:
+            ok, msg = purge_transactional_data(name, **params)
+            if not ok:
+                logger.warning("Transactional purge skipped (non-fatal): %s", msg)
+        if recompute_flag and anonymize_flag:
+            from odoodev.commands.start import resolve_odoo_invocation
+
+            inv = resolve_odoo_invocation(version_cfg, env_vars)
+            if inv is None:
+                logger.warning("Recompute skipped — venv/odoo-bin/odoo_*.conf not ready (non-fatal)")
+            else:
+                ok, msg = run_recompute(name, **inv)
+                if not ok:
+                    logger.warning("Recompute failed (non-fatal): %s", msg.strip())
 
         return _step_ok("db.restore", "db.restore", f"Database '{name}' restored", 0)
 
@@ -602,6 +622,24 @@ def handle_db_drop(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResu
     if drop_database(name, host=params["host"], port=params["port"], user=params["user"]):
         return _step_ok("db.drop", "db.drop", f"Database '{name}' dropped", 0)
     return _step_error("db.drop", "db.drop", f"Failed to drop database '{name}'", 0)
+
+
+@_timed
+def handle_db_purge(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
+    """Purge transactional data (no confirmation — automation mode)."""
+    from odoodev.core.database import purge_transactional_data
+
+    name = args.get("name")
+    if not name:
+        return _step_error("db.purge", "db.purge", "Missing required arg: 'name'", 0)
+
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+
+    ok, msg = purge_transactional_data(name, **params)
+    if ok:
+        return _step_ok("db.purge", "db.purge", f"Purged transactional data in '{name}' — {msg}", 0)
+    return _step_error("db.purge", "db.purge", msg, 0)
 
 
 # =============================================================================
@@ -707,6 +745,7 @@ COMMAND_HANDLERS: dict[str, Callable[[VersionConfig, dict[str, Any]], StepResult
     "db.backup": handle_db_backup,
     "db.restore": handle_db_restore,
     "db.drop": handle_db_drop,
+    "db.purge": handle_db_purge,
     "env.check": handle_env_check,
     "venv.check": handle_venv_check,
     "venv.setup": handle_venv_setup,

@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.43.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.44.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -21,8 +21,10 @@
 - Native Entwicklung mit UV Virtual Environments
 - Repository-Management mit frei benennbaren Sections in repos.yaml
 - Datenbank-Backup & -Wiederherstellung (ZIP, 7z, tar, tar.zst, SQL)
-- DSGVO-Anonymisierung beim Restore (standardmäßig aktiv, Faker-basiert, inkl. HR-/Mitarbeiterdaten, `--no-anonymize` zum Abschalten); `res_users` bleibt per Default testbar — optional via `--anonymize-users`
-- Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, standardmäßig aktiv) + ergänzende Bank-Sync-Bereinigung + eigenständiger Befehl `db neutralize`
+- Restore-Nachbehandlung komplett opt-in (seit v0.43.0): standardmäßig bleibt die DB unangetastet; per Flag `--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe` oder gesammelt `--sanitize`
+- DSGVO-Anonymisierung (Faker-basiert, inkl. HR-/Mitarbeiterdaten) mit automatischem Neuberechnen gespeicherter Computed Fields (`complete_name`), sodass Übersichten die anonymisierten Daten zeigen; `res_users` optional via `--anonymize-users`; eigenständiger Befehl `db recompute`
+- Bewegungsdaten-Reset für Stresstests: `db purge` / `db restore --purge-transactions` löscht Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS und setzt Bestände auf 0 — Produkte, Preislisten und Adressen bleiben erhalten
+- Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, opt-in) + ergänzende Bank-Sync-Bereinigung + eigenständiger Befehl `db neutralize`
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
@@ -82,7 +84,7 @@ odoodev start 18 --dev
 | `odoodev stop [VERSION]` | Odoo-Server und Docker stoppen | [start.md](usage/start.md) |
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Schneller `git pull` aller Repos | [repos.md](usage/repos.md) |
-| `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, neutralize, list, drop) | [db.md](usage/db.md) |
+| `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Lokale Container-Services steuern (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -169,6 +171,10 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.44.0:**
+- **Neu:** `db purge` / `db restore --purge-transactions` setzt eine Datenbank für Stresstests auf einen leeren Bewegungsdaten-Stand zurück — löscht Lagerbewegungen, Aufträge, Rechnungen, Lieferscheine (MRP/POS inklusive) und setzt Bestände auf 0, behält aber Produkte, Preislisten, Adressen, Benutzer und Konfiguration. Mit `--anonymize` kombinierbar. `--dry-run` zeigt die Zieltabellen; separates Opt-in (nicht in `--sanitize`).
+- **Behoben:** Nach der Anonymisierung zeigen Kanban- und Rechnungsübersichten jetzt die anonymisierten Daten. Die per Raw-SQL geänderten Felder ließen das gespeicherte `complete_name` (aus dem `display_name` liest) veraltet — `db restore --anonymize` berechnet die betroffenen Computed Fields jetzt via `odoo-bin shell` neu; eigenständiger Befehl `db recompute`, abschaltbar mit `--no-recompute`.
 
 **Version 0.43.0:**
 - **Geändert (BREAKING):** `db restore` lässt die wiederhergestellte Datenbank standardmäßig komplett unangetastet. Alle Nachbehandlungen sind jetzt Opt-in statt Opt-out: `--deactivate-cron`, `--neutralize`, `--anonymize` (nur noch Faker-Ersatzwerte), neu `--wipe` (Löschen von Nachrichteninhalten, Anhang-Index und Verknüpfungstabellen — aus `--anonymize` herausgelöst) und neu `--sanitize` als Sammel-Flag für alle vier (explizite `--no-*` gewinnen). `--anonymize-users` funktioniert jetzt eigenständig. Ohne Flags weist die Ausgabe darauf hin, dass die Datenbank unverändert blieb.
@@ -275,8 +281,10 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - Native development with UV virtual environments
 - Repository management with freely nameable sections in repos.yaml
 - Database backup & restoration (ZIP, 7z, tar, tar.zst, SQL)
-- GDPR anonymization on restore (on by default, Faker-based, incl. HR/employee data, `--no-anonymize` to disable); `res_users` stays testable by default — opt in via `--anonymize-users`
-- Native Odoo neutralization on restore (`odoo-bin neutralize`, on by default) + supplementary bank-sync cleanup + standalone `db neutralize` command
+- Restore post-processing is fully opt-in (since v0.43.0): the DB is left untouched by default; enable per flag `--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe` or all at once with `--sanitize`
+- GDPR anonymization (Faker-based, incl. HR/employee data) with automatic recompute of stored computed fields (`complete_name`) so overviews show the anonymized data; `res_users` opt-in via `--anonymize-users`; standalone `db recompute` command
+- Transactional-data reset for stress tests: `db purge` / `db restore --purge-transactions` deletes stock/sale/purchase/accounting/MRP/POS data and zeroes stock — products, pricelists and partners are kept
+- Native Odoo neutralization on restore (`odoo-bin neutralize`, opt-in) + supplementary bank-sync cleanup + standalone `db neutralize` command
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
@@ -336,7 +344,7 @@ odoodev start 18 --dev
 | `odoodev stop [VERSION]` | Stop Odoo server and Docker | [start.md](usage/start.md) |
 | `odoodev repos [VERSION]` | Clone/update repositories | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Quick `git pull` across all repos | [repos.md](usage/repos.md) |
-| `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, neutralize, list, drop) | [db.md](usage/db.md) |
+| `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Local container service control (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -423,6 +431,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.44.0:**
+- **Added:** `db purge` / `db restore --purge-transactions` resets a database to an empty transactional state for stress tests — deletes stock moves, orders, invoices, deliveries (incl. MRP/POS) and zeroes stock, while keeping products, pricelists, partners, users and configuration. Combines with `--anonymize`. `--dry-run` lists the target tables; a separate opt-in (not in `--sanitize`).
+- **Fixed:** Kanban and invoice overviews now show the anonymized data. Raw-SQL anonymization left the stored `complete_name` (which `display_name` reads) stale — `db restore --anonymize` now recomputes the affected computed fields via `odoo-bin shell`; standalone `db recompute` command, disable with `--no-recompute`.
 
 **Version 0.43.0:**
 - **Changed (BREAKING):** `db restore` leaves the restored database completely untouched by default. All post-restore processing is now opt-in instead of opt-out: `--deactivate-cron`, `--neutralize`, `--anonymize` (Faker replacement values only), new `--wipe` (deletion of message content, attachment index and linkage tables — split out of `--anonymize`) and new `--sanitize` as a convenience flag for all four (explicit `--no-*` flags win). `--anonymize-users` now works standalone. Without flags the output notes that the database was left unchanged.

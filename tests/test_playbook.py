@@ -101,6 +101,7 @@ class TestValidCommands:
         assert "db.backup" in VALID_COMMANDS
         assert "db.restore" in VALID_COMMANDS
         assert "db.drop" in VALID_COMMANDS
+        assert "db.purge" in VALID_COMMANDS
 
     def test_contains_env_venv(self):
         assert "env.check" in VALID_COMMANDS

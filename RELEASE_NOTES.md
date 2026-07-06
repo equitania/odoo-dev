@@ -1,5 +1,39 @@
 # Release Notes
 
+## Version 0.44.0 (06.07.2026)
+
+### Added
+- **`db purge` — reset a database to a clean transactional state for stress tests.**
+  New standalone command `odoodev db purge` and restore flag `--purge-transactions`
+  that delete all movement data (stock moves/pickings, sale & purchase orders,
+  accounting moves/payments/reconciliations, MRP, POS) and zero on-hand stock,
+  while **keeping products, pricelists, partners, users and configuration**.
+  Combine with `--anonymize` (`odoodev db restore … --purge-transactions --anonymize`)
+  for an anonymized, movement-free copy. `--purge-transactions` is a separate opt-in,
+  NOT part of `--sanitize`. `db purge --dry-run` lists the target tables without
+  deleting; the standalone command prompts for confirmation (skip with `-y`).
+  - Mechanism: the ON-DELETE-CASCADE closure of the movement roots is DELETEd in one
+    transaction with `session_replication_role = replica` (FK enforcement off), then
+    the `ON DELETE SET NULL` back-references from kept tables (e.g.
+    `res_company.account_opening_move_id`) are nulled. A plain `TRUNCATE … CASCADE`
+    is deliberately **not** used: Postgres' TRUNCATE ignores each FK's ON DELETE
+    action and would also wipe `res_company` and everything chained off it. A safety
+    pre-check aborts (no deletion) if the closure would reach a protected master
+    table (custom/OCA CASCADE FK), and the purge requires a superuser role.
+  - Playbook-addressable as `db.purge`; also runs inside `db.restore` via
+    `purge-transactions: true`.
+
+### Fixed
+- **Anonymized data now shows correctly in kanban/list overviews.** Raw-SQL
+  anonymization changed `res_partner.name` etc. without going through the ORM, so
+  the stored computed field `complete_name` (which `display_name` reads) stayed at
+  the original value — kanban cards and the invoice partner column kept showing the
+  real names. `db restore --anonymize` now recomputes the affected stored computed
+  fields via `odoo-bin shell` (`modified()` + `flush_all()`), and a standalone
+  `odoodev db recompute` triggers it manually. Auto-runs after `--anonymize`
+  (disable with `--no-recompute`); gracefully skipped when the dev env
+  (venv/odoo-bin/conf) is not ready.
+
 ## Version 0.43.0 (06.07.2026)
 
 ### Changed

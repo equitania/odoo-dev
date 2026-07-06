@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -924,6 +925,76 @@ def run_neutralize(
         return False, e.stderr
 
 
+# Per anonymized model, the changed source columns whose stored computed
+# dependents must be recomputed. Raw-SQL anonymization writes these columns
+# directly, so Odoo never recomputes fields like complete_name /
+# commercial_company_name / email_normalized that depend on them — leaving
+# display_name (which reads the stored complete_name) stale in list/kanban views.
+RECOMPUTE_TRIGGERS: dict[str, tuple[str, ...]] = {
+    "res.partner": ("name", "email", "vat"),
+    "crm.lead": ("name", "contact_name", "partner_name", "email_from"),
+    "res.partner.bank": ("acc_number",),
+    "hr.employee": ("name", "work_email"),
+}
+
+
+def _build_recompute_script(triggers: dict[str, tuple[str, ...]]) -> str:
+    """Build the ``odoo-bin shell`` script that recomputes stored computed fields.
+
+    Invalidates the ORM cache, marks the changed source fields as modified so
+    their stored dependents are queued, then flushes — recomputing and
+    persisting them. ``odoo-bin shell`` rolls back on exit, so the script must
+    ``env.cr.commit()`` explicitly. Models/fields absent in this DB are skipped.
+    """
+    return textwrap.dedent(
+        f"""\
+        TRIGGERS = {triggers!r}
+        for _model, _fields in TRIGGERS.items():
+            if _model not in env:
+                continue
+            _M = env[_model].with_context(active_test=False)
+            _f = [_c for _c in _fields if _c in _M._fields]
+            if not _f:
+                continue
+            _recs = _M.search([])
+            if not _recs:
+                continue
+            _recs.invalidate_recordset()
+            _recs.modified(_f)
+        env.flush_all()
+        env.cr.commit()
+        print("odoodev-recompute: done")
+        """
+    )
+
+
+def run_recompute(
+    db_name: str,
+    venv_python: str,
+    odoo_bin: str,
+    config_path: str,
+    env: dict[str, str],
+    cwd: str,
+) -> tuple[bool, str]:
+    """Recompute stored computed fields via ``odoo-bin shell`` after raw-SQL edits.
+
+    Pipes :func:`_build_recompute_script` into ``odoo-bin shell`` (which ``exec()``s
+    a script from non-tty stdin). Fixes stale ``complete_name`` / display names in
+    overviews after anonymization. Same kwargs as :func:`run_neutralize` (from
+    ``resolve_odoo_invocation``), so callers use ``run_recompute(name, **inv)``.
+
+    Returns:
+        Tuple of (success, output_or_error).
+    """
+    cmd = [venv_python, odoo_bin, "shell", "-c", config_path, "-d", db_name, "--no-http"]
+    script = _build_recompute_script(RECOMPUTE_TRIGGERS)
+    try:
+        result = subprocess.run(cmd, env=env, cwd=cwd, input=script, check=True, capture_output=True, text=True)
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        return False, e.stderr
+
+
 # --------------------------------------------------------------------------- #
 # GDPR data anonymization (post-restore)
 #
@@ -1527,6 +1598,234 @@ def neutralize_bank_sync(
                 success = False
 
     return success
+
+
+# Transactional / movement-data root tables per app. The FK ON-DELETE-CASCADE
+# closure of these roots (see _cascade_closure) pulls in the child/linkage tables
+# that Odoo declared as cascade-dependent, so only the roots need listing; extras
+# are guarded against missing modules/versions via _existing_columns(). Version
+# notes: stock_valuation_layer + stock_package_level exist only on v16-v18 (folded
+# into stock_move / removed on v19); product_value exists only on v19.
+PURGE_TABLES: dict[str, tuple[str, ...]] = {
+    "stock": (
+        "stock_quant",
+        "stock_move_line",
+        "stock_move",
+        "stock_picking",
+        "stock_scrap",
+        "stock_lot",
+        "stock_valuation_layer",
+        "stock_package_level",
+        "product_value",
+    ),
+    "sale": ("sale_order_line", "sale_order"),
+    "purchase": ("purchase_order_line", "purchase_order"),
+    "account": (
+        "account_partial_reconcile",
+        "account_full_reconcile",
+        "account_move_line",
+        "account_payment",
+        "account_bank_statement_line",
+        "account_bank_statement",
+        "account_move",
+    ),
+    "mrp": ("mrp_workorder", "mrp_production"),
+    "pos": ("pos_order_line", "pos_payment", "pos_order", "pos_session"),
+}
+
+# Master/config tables the purge must never empty. If the cascade closure reaches
+# any of these (e.g. via a custom/OCA module with an ON DELETE CASCADE FK into a
+# transactional table), the purge aborts instead of wiping data the customer keeps.
+PURGE_PROTECTED_TABLES: frozenset[str] = frozenset(
+    {
+        "res_partner",
+        "res_users",
+        "res_company",
+        "product_template",
+        "product_product",
+        "product_pricelist",
+        "product_pricelist_item",
+    }
+)
+
+
+def resolve_purge_tables(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> list[str]:
+    """Return the transactional tables from PURGE_TABLES that exist in this DB."""
+    tables: list[str] = []
+    for group in PURGE_TABLES.values():
+        for table in group:
+            if _existing_columns(table, db_name, host=host, port=port, user=user):
+                tables.append(table)
+    return tables
+
+
+def _parse_psql_column(out: str, header: str) -> list[str]:
+    """Parse a single-column psql text result into a list of values."""
+    values: list[str] = []
+    for line in out.splitlines():
+        val = line.strip()
+        if not val or val == header or val.startswith("(") or set(val) <= {"-"}:
+            continue
+        values.append(val)
+    return values
+
+
+def _cascade_closure(
+    tables: list[str],
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> set[str]:
+    """Return every table emptied by the ON-DELETE-CASCADE closure of ``tables``.
+
+    Walks the FK graph outward via a recursive CTE over ``pg_constraint``, following
+    ONLY ``ON DELETE CASCADE`` edges (``confdeltype = 'c'``). This is the exact set
+    of tables that deleting the roots removes: the transactional children and hard
+    dependents. FKs declared ``ON DELETE SET NULL`` (e.g. ``res_company`` →
+    ``account_move`` for the opening entry, ``project_task`` → ``sale_order_line``)
+    are deliberately NOT followed — those referencing rows are kept and their column
+    is nulled instead (see :func:`_null_repair_targets`). This is why a plain
+    ``TRUNCATE ... CASCADE`` is unusable here: Postgres' TRUNCATE ignores the FK's
+    ON DELETE action and would wipe ``res_company`` and every table chained off it.
+    """
+    if not tables:
+        return set()
+    for table in tables:
+        _check_identifier(table)
+    roots = ", ".join(f"'{t}'" for t in tables)
+    query = (
+        "WITH RECURSIVE closure AS ("
+        f"  SELECT c.oid FROM pg_class c WHERE c.relname IN ({roots}) "
+        "    AND c.relnamespace = 'public'::regnamespace "
+        "  UNION "
+        "  SELECT con.conrelid FROM pg_constraint con "
+        "    JOIN closure cl ON con.confrelid = cl.oid "
+        "    WHERE con.contype = 'f' AND con.confdeltype = 'c'"
+        ") "
+        "SELECT DISTINCT relname FROM pg_class WHERE oid IN (SELECT oid FROM closure);"
+    )
+    ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return set()
+    return set(_parse_psql_column(out, "relname"))
+
+
+def _null_repair_targets(
+    closure: set[str],
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> list[tuple[str, str]]:
+    """Return (table, column) FK refs that point INTO the closure from KEPT tables.
+
+    These are ``ON DELETE SET NULL`` foreign keys whose target is a purged table but
+    whose owning table is kept (e.g. ``res_company.account_opening_move_id``). Odoo
+    would normally null them on delete, but the purge runs with FK enforcement off
+    (``session_replication_role = replica``), so they are nulled explicitly to avoid
+    dangling references on kept rows.
+    """
+    if not closure:
+        return []
+    in_closure = ", ".join(f"'{t}'" for t in sorted(closure))
+    query = (
+        "SELECT con.conrelid::regclass::text AS tbl, a.attname AS col "
+        "FROM pg_constraint con "
+        "JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1] "
+        "WHERE con.contype = 'f' AND con.confdeltype = 'n' "
+        f"  AND con.confrelid::regclass::text IN ({in_closure}) "
+        f"  AND NOT (con.conrelid::regclass::text IN ({in_closure}));"
+    )
+    ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return []
+    targets: list[tuple[str, str]] = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 2 or parts[0] in ("tbl", "") or parts[0].startswith("(") or set(parts[0]) <= {"-"}:
+            continue
+        targets.append((parts[0], parts[1]))
+    return targets
+
+
+def _is_superuser(db_name: str, host: str, port: int, user: str) -> bool:
+    """True if the connected role may set session_replication_role (superuser)."""
+    ok, out = _run_psql("SHOW is_superuser;", db=db_name, host=host, port=port, user=user)
+    return ok and "on" in out.lower()
+
+
+def purge_transactional_data(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, str]:
+    """Delete all transactional/movement data, keeping products, pricelists, partners.
+
+    Empties the movement-data tables (stock moves/quants, sale/purchase orders,
+    accounting moves/payments, MRP, POS) and their ON-DELETE-CASCADE dependents.
+    Emptying ``stock_quant`` zeroes on-hand stock (``qty_available`` is not stored).
+    Products, pricelists, partners, users and config are kept — no FK points from
+    them into the transactional tables.
+
+    Mechanism: a plain ``TRUNCATE ... CASCADE`` is unusable because Postgres ignores
+    each FK's ON DELETE action and would also wipe ``res_company`` (which references
+    ``account_move`` for the opening entry) and everything chained off it. Instead
+    the cascade-only closure (:func:`_cascade_closure`) is DELETEd in one transaction
+    with ``session_replication_role = replica`` (FK enforcement + ordering off), then
+    the SET-NULL back-references from kept tables (:func:`_null_repair_targets`) are
+    nulled. A safety pre-check aborts (no deletion) if the closure would reach a
+    protected master table — catching custom/OCA modules with a CASCADE FK.
+
+    Returns:
+        Tuple of (success, summary_or_error).
+    """
+    tables = resolve_purge_tables(db_name, host=host, port=port, user=user)
+    if not tables:
+        return True, "No transactional tables found (no movement-data modules installed)"
+
+    closure = _cascade_closure(tables, db_name, host=host, port=port, user=user)
+    if not closure:
+        return False, "Could not resolve the transactional table closure (introspection failed)"
+
+    breached = sorted(closure & PURGE_PROTECTED_TABLES)
+    if breached:
+        return (
+            False,
+            f"Aborted — deleting the transactional tables would also empty protected table(s): "
+            f"{', '.join(breached)}. A custom/OCA module likely adds an ON DELETE CASCADE foreign key "
+            "into a transactional table. No data deleted.",
+        )
+
+    if not _is_superuser(db_name, host, port, user):
+        return (
+            False,
+            "Aborted — purge requires a superuser role (to disable FK enforcement during the bulk "
+            "delete). Connect as the database superuser and retry. No data deleted.",
+        )
+
+    repairs = _null_repair_targets(closure, db_name, host=host, port=port, user=user)
+
+    statements = ["BEGIN;", "SET LOCAL session_replication_role = replica;"]
+    for table in sorted(closure):
+        _check_identifier(table)
+        statements.append(f'DELETE FROM "{table}";')
+    for table, column in repairs:
+        _check_identifier(table)
+        _check_identifier(column)
+        statements.append(f'UPDATE "{table}" SET "{column}" = NULL WHERE "{column}" IS NOT NULL;')
+    statements.append("COMMIT;")
+
+    ok, err = _run_psql_file("\n".join(statements), db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return False, f"Purge failed: {err.strip()}"
+    return True, f"{len(closure)} transactional table(s) emptied, {len(repairs)} reference(s) detached"
 
 
 # Heuristic multiplier for estimating the uncompressed size of compressed

@@ -191,6 +191,15 @@ werden auf reservierte, nicht zustellbare Werte gesetzt:
 > bleiben. Optionale Anonymisierung siehe Abschnitt
 > [res_users (optional)](#res_users-optional-anonymisieren).
 
+> **Seit v0.44.0: Stored-Computed-Felder werden nachgerechnet.** Die
+> Anonymisierung schreibt per Raw-SQL direkt in `res_partner.name` & Co. Am
+> ORM vorbei bleibt das gespeicherte `complete_name` (von dem das live
+> berechnete `display_name` abhaengt) sonst auf dem Originalwert stehen —
+> Kanban-Karten und Listenspalten zeigten dann weiterhin den echten Namen.
+> `odoodev` rechnet die betroffenen Stored-Computed-Felder danach per
+> `odoo-bin shell` neu, automatisch nach `--anonymize` (abschaltbar mit
+> `--no-recompute`), eigenstaendig per `odoodev db recompute`.
+
 **Was bleibt absichtlich unveraendert:**
 
 - **`res_users` (alle Logins und Passwoerter)** — per Default unangetastet,
@@ -254,7 +263,12 @@ dieser Reihenfolge aus:
 3. `neutralize_bank_sync()` — Bank-Sync-Bereinigung (Schicht 1c, unter `--neutralize`)
 4. `anonymize_database()` — Faker-Anonymisierung inkl. HR (Schicht 2, `--anonymize`)
 5. `wipe_database()` — Inhalte loeschen (Schicht 2b, `--wipe`)
-6. `anonymize_users()` — nur bei `--anonymize-users` (optional)
+6. `purge_transactional_data()` — Transaktionsdaten loeschen (`--purge-transactions`,
+   eigenstaendig, seit v0.44.0, siehe [db.md](db.md))
+7. `anonymize_users()` — nur bei `--anonymize-users` (optional)
+8. `run_recompute()` — Stored-Computed-Felder neu berechnen; laeuft nur, wenn
+   zusaetzlich `--anonymize` aktiv ist (automatisch, abschaltbar mit
+   `--no-recompute`, seit v0.44.0)
 
 Jeder Schritt ist **eigenstaendig abschaltbar** und **non-fatal**: schlaegt
 ein Schritt fehl oder fehlt eine Voraussetzung, wird mit Warnung
@@ -271,6 +285,7 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 | `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen) |
 | `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort); NICHT in `--sanitize` enthalten |
 | `--user-password TEXT` | `ownerp` | Dev-Passwort fuer anonymisierte Benutzer |
+| `--recompute` / `--no-recompute` | **an nach `--anonymize`** | Stored-Computed-Felder neu berechnen (z.B. `complete_name`), seit v0.44.0 |
 
 **Seit v0.43.0 sind alle Schichten Opt-in** — ohne Flags bleibt die Datenbank
 unangetastet. Fuer den Standardfall „Produktions-Backup entschaerfen" genuegt
@@ -550,6 +565,15 @@ are forced onto reserved, non-deliverable values:
 > **`res_users` is NOT anonymized by default** — so logins stay testable.
 > For optional anonymization see [res_users (optional)](#res_users-optional).
 
+> **Since v0.44.0: stored computed fields are recomputed.** Anonymization
+> writes directly into `res_partner.name` & co. via raw SQL. Bypassing the
+> ORM this way leaves the stored `complete_name` (which the live-computed
+> `display_name` reads) at its original value — kanban cards and list
+> columns kept showing the real name. `odoodev` now recomputes the
+> affected stored computed fields afterwards via `odoo-bin shell`,
+> automatically after `--anonymize` (disable with `--no-recompute`),
+> standalone via `odoodev db recompute`.
+
 **What deliberately stays untouched:**
 
 - **`res_users` (all logins and passwords)** — left intact by default so the
@@ -610,7 +634,12 @@ requires `--anonymize`.
 3. `neutralize_bank_sync()` — bank-sync cleanup (layer 1c, under `--neutralize`)
 4. `anonymize_database()` — Faker anonymization incl. HR (layer 2, `--anonymize`)
 5. `wipe_database()` — content deletion (layer 2b, `--wipe`)
-6. `anonymize_users()` — only with `--anonymize-users` (optional)
+6. `purge_transactional_data()` — delete transactional data (`--purge-transactions`,
+   standalone, since v0.44.0, see [db.md](db.md))
+7. `anonymize_users()` — only with `--anonymize-users` (optional)
+8. `run_recompute()` — recompute stored computed fields; only runs when
+   `--anonymize` is also enabled (automatic, disable with `--no-recompute`,
+   since v0.44.0)
 
 Each step is **independently switchable** and **non-fatal**: if a step
 fails or a prerequisite is missing, processing continues with a warning —
@@ -627,6 +656,7 @@ the restore still ends with "Database restore complete".
 | `--wipe` / `--no-wipe` | **off** | Layer 2b (content deletion: mail_message, ir_attachment index, linkage tables) |
 | `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password); NOT included in `--sanitize` |
 | `--user-password TEXT` | `ownerp` | Dev password set on anonymized users |
+| `--recompute` / `--no-recompute` | **on after `--anonymize`** | Recompute stored computed fields (e.g. `complete_name`), since v0.44.0 |
 
 **Since v0.43.0 every layer is opt-in** — without flags the database is left
 untouched. For the standard "defuse a production backup" case, `--sanitize`

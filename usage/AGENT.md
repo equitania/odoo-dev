@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.41.0  ·  **Framework:** Python / Click
+- **Version:** 0.44.0  ·  **Framework:** Python / Click
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
 **Version argument:** Almost every command takes an optional `[VERSION]` (`16`–`19`). If omitted, it
@@ -25,8 +25,8 @@ you must pass it explicitly.
 - Spin local side-services (PostgreSQL + Mailpit) up/down and tail their logs, on Docker or Apple
   Container (`--runtime`, persisted via `container_runtime`).
 - Benchmark PostgreSQL on Docker vs Apple Container (`odoodev bench`).
-- Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize.
-- **Safe-by-default restore:** deactivate cron, native neutralize, and anonymize PII unless opted out.
+- Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize, purge, recompute.
+- **Untouched-by-default restore:** the DB is left as-is; opt in per flag (`--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe`, or `--sanitize` for all four). `--purge-transactions` and `--anonymize-users` are separate opt-ins (not in `--sanitize`).
 - **Space-aware, low-overhead restore:** pre-checks free disk space, moves the filestore instead of
   copying it (no triple data-holding), and can delete the original backup afterwards.
 - Clone/update Git repos and (re)generate the dated `odoo_*.conf` addons_path.
@@ -50,8 +50,10 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db drop` | Drop a database. | [VERSION], -n/--name TEXT, --yes/-y |
 | `odoodev db list` | List all databases. | [VERSION], --json |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
+| `odoodev db purge` | Delete transactional/movement data for a clean stress-test DB (keeps products, pricelists, partners, users, config). | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
+| `odoodev db recompute` | Recompute stored computed fields (e.g. `complete_name`) via `odoo-bin shell`. | [VERSION], -n/--name TEXT |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --anonymize-users/--no-anonymize-users, --user-password TEXT, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
+| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --anonymize-users/--no-anonymize-users, --user-password TEXT, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
 | `odoodev docker down` | Stop the local PostgreSQL service (data volume kept). | [VERSION], --runtime docker\|apple |
 | `odoodev docker logs` | View the local PostgreSQL service logs. | [VERSION], -f/--follow, -n/--tail INTEGER, --runtime docker\|apple |
 | `odoodev docker status` | Show the local PostgreSQL service status (Apple: names the expected container). | [VERSION], --runtime docker\|apple |
@@ -117,6 +119,15 @@ completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize
 linkage tables), or `--sanitize` for all four at once (explicit `--no-*` flags win).
 `--anonymize-users` is a separate opt-in (works standalone, NOT included in `--sanitize`);
 its default dev login password is `ownerp` (override with `--user-password`).
+`--purge-transactions` (v0.44.0) is another separate opt-in, NOT included in `--sanitize`:
+it deletes stock/sales/purchase/accounting/MRP/POS movement data for a clean stress-test DB
+while keeping products, pricelists, partners, users and config. Since v0.44.0, `--anonymize`
+also auto-recomputes stored computed fields (e.g. `complete_name`) via `odoo-bin shell` so
+kanban/list overviews show the anonymized values (disable with `--no-recompute`).
+
+```bash
+odoodev db restore 18 -n v18_test -z prod.zip --purge-transactions --anonymize   # anonymized, movement-free stress-test DB
+```
 
 ### Update repos + regenerate the Odoo config
 ```bash
@@ -156,8 +167,8 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 
 ## Guardrails & gotchas
 - **Destructive (prompt for confirmation; bypass with `--yes/-y`):** `db drop`, `db copy`, `db rename`
-  (overwrite the destination), `venv remove`. `db copy/rename` can force-close sessions with
-  `--terminate-connections`.
+  (overwrite the destination), `db purge` (use `--dry-run` to preview target tables first),
+  `venv remove`. `db copy/rename` can force-close sessions with `--terminate-connections`.
 - **`odoodev stop --force`** kills the Odoo process; `--keep-docker` leaves PostgreSQL/Mailpit running.
 - **`odoodev start` prerequisites** (checked before launch): `.env`, `.venv/`, `odoo-bin`, a dated
   `odoo_*.conf`, PostgreSQL ready at the protocol level (`pg_isready` or a socket probe — not just an

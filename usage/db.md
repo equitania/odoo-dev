@@ -133,6 +133,8 @@ jede Nachbehandlung muss explizit per Flag angefordert werden:
 | `--wipe` | Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen |
 | `--sanitize` | Sammel-Flag: aktiviert alle vier obigen auf einmal; explizite `--no-*` gewinnen |
 | `--anonymize-users` | `res_users` anonymisieren — eigenstaendig, NICHT in `--sanitize` enthalten |
+| `--purge-transactions` | Transaktionsdaten loeschen (Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS) fuer eine saubere Stresstest-DB — eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.44.0) |
+| `--recompute` | Stored-Computed-Felder neu berechnen (z.B. `complete_name`) — automatisch nach `--anonymize`, abschaltbar mit `--no-recompute` (seit v0.44.0) |
 
 Ohne Flags weist die Ausgabe darauf hin, dass die Datenbank unangetastet blieb.
 
@@ -207,6 +209,16 @@ reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}
 > `ownerp`; `admin` bleibt unveraendert). HR-Spalten werden gegen das Live-Schema gefiltert,
 > daher versionsrobust (v16/v18/v19). Fehlende Tabellen/Spalten werden uebersprungen (non-fatal).
 
+> **Seit v0.44.0: Stored-Computed-Felder werden nachgerechnet.** Die Anonymisierung schreibt per
+> Raw-SQL direkt in `res_partner.name` & Co. Am ORM vorbei bleibt das gespeicherte
+> `complete_name` (von dem das live berechnete `display_name` abhaengt) sonst auf dem
+> Originalwert stehen — Kanban-Karten und Listenspalten (z.B. der Partner in
+> Rechnungsuebersichten) zeigten dann weiterhin den echten Namen. `odoodev` rechnet die
+> betroffenen Stored-Computed-Felder danach per `odoo-bin shell` neu. Laeuft automatisch nach
+> `--anonymize` (abschaltbar mit `--no-recompute`), eigenstaendig per
+> `odoodev db recompute 18 -n v18_test`. Wird mit Warnung uebersprungen, wenn die Dev-Umgebung
+> (venv/odoo-bin/odoo_*.conf) nicht bereitsteht.
+
 ```bash
 odoodev db restore 18 -n v18_test -z prod_backup.zip                    # Rohdaten (Default seit v0.43.0)
 odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize --wipe # anonymisieren + Inhalte loeschen
@@ -220,6 +232,49 @@ Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis 
 > **Kunden-Sonderdokument:** Eine ausfuehrliche, kundenfaehige Darstellung beider Schutzschichten
 > (DSGVO-Kontext, vollstaendige Feldtabelle, Audit-Snippets, Restrisiken) liegt unter
 > [data-protection.md](data-protection.md).
+
+### Transaktionsdaten purgen (`db purge` / `--purge-transactions`, seit v0.44.0)
+
+Fuer eine saubere Stresstest-Datenbank loescht `odoodev` alle Bewegungs-/Transaktionsdaten,
+waehrend Produkte, Preislisten, Partner, Benutzer und Konfiguration erhalten bleiben.
+
+**Wird geleert:** Lagerbewegungen/-zeilen/-lieferungen/-quants/-schrott/-lose, Verkaufsauftraege +
+-zeilen, Einkaufsauftraege + -zeilen, Buchhaltung (`account_move` + Zeilen, Zahlungen,
+Ausgleiche, Kontoauszuege), MRP (Fertigungsauftraege + Arbeitsgaenge), POS
+(Auftraege/Zeilen/Zahlungen/Sitzungen). Das Leeren von `stock_quant` setzt den Lagerbestand auf
+null (`qty_available` ist berechnet, nicht gespeichert — an den Produkten selbst muss nichts
+geaendert werden).
+
+**Bleibt erhalten:** `product.template`/`product.product`, `product.pricelist` (+ Items),
+`res.partner`, `res.users`, `res.company`, Kontenplan (`account_account`), Journale, saemtliche
+Konfiguration.
+
+Kombination mit Anonymisierung: `odoodev db restore … --purge-transactions --anonymize` liefert
+eine anonymisierte, bewegungsfreie Kopie.
+
+```bash
+# Standalone-Befehl
+odoodev db purge 18 -n v18_test                 # loeschen (mit Bestaetigungsprompt)
+odoodev db purge 18 -n v18_test --dry-run       # nur Zieltabellen auflisten, nichts loeschen
+odoodev db purge 18 -n v18_test -y              # ohne Bestaetigungsprompt
+
+# Als Restore-Flag
+odoodev db restore 18 -n v18_test -z prod.zip --purge-transactions --anonymize
+```
+
+**Mechanismus:** Ein simples `TRUNCATE … CASCADE` waere naheliegend, wuerde ueber PostgreSQLs
+CASCADE-Traversal aber auch `res_company` mitreissen (das per `account_opening_move_id` auf
+`account_move` zeigt) und alles, was daran haengt — TRUNCATE ignoriert die ON-DELETE-Aktion der
+einzelnen Fremdschluessel. Stattdessen ermittelt `odoodev` die ON-DELETE-CASCADE-Huelle der
+Bewegungs-Wurzeltabellen per `pg_constraint`-Introspektion (folgt nur `confdeltype='c'`-Kanten)
+und loescht sie in einer Transaktion mit `session_replication_role = replica` (FK-Pruefung +
+-Reihenfolge deaktiviert); anschliessend werden die `ON DELETE SET NULL`-Rueckverweise von
+erhaltenen Tabellen (z.B. `res_company.account_opening_move_id`) auf `NULL` gesetzt. Eine
+Sicherheitspruefung bricht **ohne Loeschung** mit klarer Fehlermeldung ab, falls die Huelle eine
+geschuetzte Stammdaten-Tabelle (`res_partner`/`res_users`/`res_company`/`product_*`/
+`product_pricelist*`) erreichen wuerde — das faengt z.B. eine benutzerdefinierte/OCA-CASCADE-FK
+ab. Erfordert eine PostgreSQL-Superuser-Rolle (zum Abschalten der FK-Pruefung); bricht sonst mit
+klarer Meldung ab.
 
 ### PostgreSQL-Client: Host oder Container (exec-Fallback)
 
@@ -370,6 +425,8 @@ post-processing step must be requested explicitly:
 | `--wipe` | Delete content: mail_message, ir_attachment index, linkage tables |
 | `--sanitize` | Convenience flag: enables all four above at once; explicit `--no-*` flags win |
 | `--anonymize-users` | Anonymize `res_users` — standalone, NOT included in `--sanitize` |
+| `--purge-transactions` | Delete transactional data (stock/sales/purchase/accounting/MRP/POS) for a clean stress-test DB — standalone, NOT included in `--sanitize` (since v0.44.0) |
+| `--recompute` | Recompute stored computed fields (e.g. `complete_name`) — automatic after `--anonymize`, disable with `--no-recompute` (since v0.44.0) |
 
 Without processing flags the output notes that the database was left untouched.
 
@@ -444,6 +501,15 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 > `ownerp`; `admin` stays unchanged). HR columns are filtered against the live schema, so it is
 > version robust (v16/v18/v19). Missing tables/columns are skipped (non-fatal).
 
+> **Since v0.44.0: stored computed fields are recomputed.** Anonymization writes directly into
+> `res_partner.name` & co. via raw SQL. Bypassing the ORM this way leaves the stored
+> `complete_name` (which the live-computed `display_name` reads) at its original value —
+> kanban cards and list columns (e.g. the partner column on invoice overviews) kept showing the
+> real name. `odoodev` now recomputes the affected stored computed fields afterwards via
+> `odoo-bin shell`. Runs automatically after `--anonymize` (disable with `--no-recompute`),
+> standalone via `odoodev db recompute 18 -n v18_test`. Skipped with a warning when the dev env
+> (venv/odoo-bin/odoo_*.conf) is not ready.
+
 ```bash
 odoodev db restore 18 -n v18_test -z prod_backup.zip                    # raw data (default since v0.43.0)
 odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize --wipe # anonymize + delete content
@@ -457,6 +523,46 @@ When running `odoodev db drop`, the filestore directory is also removed (with no
 > **Customer-facing reference:** A detailed, customer-ready write-up of both protection layers
 > (GDPR context, full field table, audit snippets, residual risks) lives at
 > [data-protection.md](data-protection.md).
+
+### Purge transactional data (`db purge` / `--purge-transactions`, since v0.44.0)
+
+For a clean stress-test database, `odoodev` can delete all transactional/movement data while
+keeping products, pricelists, partners, users and configuration intact.
+
+**Emptied:** stock moves/move-lines/pickings/quants/scrap/lots, sale orders + lines, purchase
+orders + lines, accounting (`account_move` + lines, payments, reconciliations, bank statements),
+MRP (production orders + workorders), POS (orders/lines/payments/sessions). Emptying
+`stock_quant` zeroes on-hand stock (`qty_available` is computed, not stored — products need no
+change themselves).
+
+**Kept:** `product.template`/`product.product`, `product.pricelist` (+ items), `res.partner`,
+`res.users`, `res.company`, chart of accounts (`account_account`), journals, all configuration.
+
+Combine with anonymization: `odoodev db restore … --purge-transactions --anonymize` gives an
+anonymized, movement-free copy.
+
+```bash
+# Standalone command
+odoodev db purge 18 -n v18_test                 # delete (with confirmation prompt)
+odoodev db purge 18 -n v18_test --dry-run       # only list target tables, delete nothing
+odoodev db purge 18 -n v18_test -y              # skip the confirmation prompt
+
+# As a restore flag
+odoodev db restore 18 -n v18_test -z prod.zip --purge-transactions --anonymize
+```
+
+**Mechanism:** a plain `TRUNCATE … CASCADE` looks tempting but PostgreSQL's CASCADE traversal
+would also wipe `res_company` (which references `account_move` via the opening-balance entry
+`account_opening_move_id`) and everything chained off it — TRUNCATE ignores each foreign key's
+own ON DELETE action. Instead, `odoodev` computes the ON-DELETE-CASCADE closure of the movement
+root tables via `pg_constraint` introspection (following only `confdeltype='c'` edges) and
+DELETEs it in one transaction with `session_replication_role = replica` (FK enforcement and
+ordering disabled); the `ON DELETE SET NULL` back-references from kept tables (e.g.
+`res_company.account_opening_move_id`) are then nulled. A safety pre-check aborts **with no
+deletion** and a clear message if the closure would reach a protected master table
+(`res_partner`/`res_users`/`res_company`/`product_*`/`product_pricelist*`) — catching a
+custom/OCA CASCADE FK. Requires a PostgreSQL superuser role (to disable FK enforcement);
+aborts clearly otherwise.
 
 ### PostgreSQL Client: Host or Container (exec fallback)
 

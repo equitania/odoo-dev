@@ -17,9 +17,11 @@ from odoodev.core.database import (
     ANONYMIZE_STATIC_QUERIES,
     ANONYMIZE_STATIC_TABLES,
     ANONYMIZE_TABLES,
+    PURGE_TABLES,
     RESTORE_COMPRESSION_FACTOR,
     AnonTable,
     _build_anonymize_sql,
+    _build_recompute_script,
     _build_static_update,
     _existing_columns,
     _fetch_ids,
@@ -38,7 +40,10 @@ from odoodev.core.database import (
     get_restore_temp_dir,
     move_filestore,
     neutralize_bank_sync,
+    purge_transactional_data,
+    resolve_purge_tables,
     run_neutralize,
+    run_recompute,
 )
 
 
@@ -586,6 +591,161 @@ class TestWipeDatabase:
         assert wipe_database("mydb") is False
 
 
+class TestPurgeTransactionalData:
+    """Transactional-data purge (v0.44.0) — TRUNCATE CASCADE with FK safety check."""
+
+    def _all_purge_tables(self) -> list[str]:
+        return [t for group in PURGE_TABLES.values() for t in group]
+
+    def _patch(self, monkeypatch, script_sink, *, closure_extra=None, superuser=True, repairs=None, run_ok=True):
+        """Patch the purge collaborators. `script_sink` collects the DELETE script."""
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id"})
+        monkeypatch.setattr(
+            "odoodev.core.database._cascade_closure",
+            lambda tables, *a, **k: set(tables) | set(closure_extra or ()),
+        )
+        monkeypatch.setattr("odoodev.core.database._is_superuser", lambda *a, **k: superuser)
+        monkeypatch.setattr("odoodev.core.database._null_repair_targets", lambda closure, *a, **k: repairs or [])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_file",
+            lambda sql, **k: (script_sink.append(sql), (run_ok, "" if run_ok else "boom"))[1],
+        )
+
+    def test_deletes_closure_under_replica_role(self, monkeypatch):
+        scripts: list[str] = []
+        self._patch(monkeypatch, scripts, repairs=[("res_company", "account_opening_move_id")])
+        ok, msg = purge_transactional_data("mydb")
+        assert ok is True
+        assert len(scripts) == 1
+        sql = scripts[0]
+        # Single transaction with FK enforcement off, no TRUNCATE (cannot be used here).
+        assert "BEGIN;" in sql and "COMMIT;" in sql
+        assert "SET LOCAL session_replication_role = replica;" in sql
+        assert "TRUNCATE" not in sql
+        for table in self._all_purge_tables():
+            assert f'DELETE FROM "{table}";' in sql  # noqa: S608 — table names from a trusted constant
+        # SET-NULL back-reference from a kept table is repaired.
+        assert 'UPDATE "res_company" SET "account_opening_move_id" = NULL' in sql
+
+    def test_skips_missing_tables(self, monkeypatch):
+        scripts: list[str] = []
+        present = {"stock_move", "account_move", "sale_order"}
+        # Closure == the present roots only (mock returns the filtered set it was given).
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"id"} if table in present else set(),
+        )
+        monkeypatch.setattr("odoodev.core.database._cascade_closure", lambda tables, *a, **k: set(tables))
+        monkeypatch.setattr("odoodev.core.database._is_superuser", lambda *a, **k: True)
+        monkeypatch.setattr("odoodev.core.database._null_repair_targets", lambda closure, *a, **k: [])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_file",
+            lambda sql, **k: (scripts.append(sql), (True, ""))[1],
+        )
+        ok, _ = purge_transactional_data("mydb")
+        assert ok is True
+        sql = scripts[0]
+        assert 'DELETE FROM "stock_move";' in sql and 'DELETE FROM "account_move";' in sql
+        assert "mrp_production" not in sql  # not present → skipped
+
+    def test_no_tables_is_noop(self, monkeypatch):
+        called: list = []
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: set())
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_file", lambda sql, **k: (called.append(sql), (True, ""))[1]
+        )
+        ok, msg = purge_transactional_data("mydb")
+        assert ok is True
+        assert called == []  # nothing deleted
+        assert "No transactional tables" in msg
+
+    def test_aborts_when_cascade_hits_protected(self, monkeypatch):
+        scripts: list[str] = []
+        # A custom module CASCADE FK would drag res_partner into the closure.
+        self._patch(monkeypatch, scripts, closure_extra={"res_partner"})
+        ok, msg = purge_transactional_data("mydb")
+        assert ok is False
+        assert "res_partner" in msg
+        assert scripts == []  # no deletion happened
+
+    def test_aborts_when_not_superuser(self, monkeypatch):
+        scripts: list[str] = []
+        self._patch(monkeypatch, scripts, superuser=False)
+        ok, msg = purge_transactional_data("mydb")
+        assert ok is False
+        assert "superuser" in msg
+        assert scripts == []
+
+    def test_returns_false_on_delete_failure(self, monkeypatch):
+        scripts: list[str] = []
+        self._patch(monkeypatch, scripts, run_ok=False)
+        ok, msg = purge_transactional_data("mydb")
+        assert ok is False
+        assert "boom" in msg
+
+    def test_resolve_purge_tables_filters_by_existence(self, monkeypatch):
+        present = {"stock_move", "sale_order"}
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"id"} if table in present else set(),
+        )
+        tables = resolve_purge_tables("mydb")
+        assert set(tables) == present
+
+
+class TestRunRecompute:
+    """odoo-bin shell recompute of stored computed fields (v0.44.0)."""
+
+    def test_builds_shell_command_and_pipes_script(self, monkeypatch):
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["input"] = kwargs.get("input")
+
+            class _R:
+                stdout = "odoodev-recompute: done"
+
+            return _R()
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, out = run_recompute("mydb", "/venv/py", "/srv/odoo-bin", "/c.conf", {"A": "1"}, "/cwd")
+        assert ok is True
+        assert captured["cmd"] == [
+            "/venv/py",
+            "/srv/odoo-bin",
+            "shell",
+            "-c",
+            "/c.conf",
+            "-d",
+            "mydb",
+            "--no-http",
+        ]
+        # The recompute script is piped via stdin.
+        assert "env.flush_all()" in captured["input"]
+        assert "env.cr.commit()" in captured["input"]
+        assert "modified" in captured["input"]
+
+    def test_returns_false_on_error(self, monkeypatch):
+        import subprocess as sp
+
+        def fake_run(cmd, **kwargs):
+            raise sp.CalledProcessError(1, cmd, stderr="shell boom")
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, out = run_recompute("mydb", "/venv/py", "/srv/odoo-bin", "/c.conf", {}, "/cwd")
+        assert ok is False
+        assert "shell boom" in out
+
+    def test_script_references_trigger_models(self):
+        script = _build_recompute_script({"res.partner": ("name",), "crm.lead": ("email_from",)})
+        assert "res.partner" in script
+        assert "crm.lead" in script
+        assert "invalidate_recordset" in script
+        assert "env.flush_all()" in script
+        assert "env.cr.commit()" in script
+
+
 class TestRunNeutralize:
     def test_builds_neutralize_command(self, monkeypatch):
         captured = {}
@@ -688,6 +848,14 @@ class TestRestoreCliFlags:
         monkeypatch.setattr(
             db_cmd, "anonymize_users", lambda name, **k: (calls.setdefault("users", []).append(name), True)[1]
         )
+        monkeypatch.setattr(
+            db_cmd,
+            "purge_transactional_data",
+            lambda name, **k: (calls.setdefault("purge", []).append(name), (True, "ok"))[1],
+        )
+        monkeypatch.setattr(
+            db_cmd, "run_recompute", lambda name, **k: (calls.setdefault("recompute", []).append(name), (True, ""))[1]
+        )
         monkeypatch.setattr(db_cmd, "neutralize_bank_sync", lambda name, **k: True)
         # Disk-space check + delete-backup prompt — neutralized for deterministic flow.
         monkeypatch.setattr(db_cmd, "check_restore_space", lambda b, t, d: (True, "", 0))
@@ -698,7 +866,16 @@ class TestRestoreCliFlags:
 
     def test_help_lists_all_processing_flags(self):
         result = CliRunner().invoke(cli, ["db", "restore", "--help"])
-        for flag in ("--sanitize", "--neutralize", "--no-neutralize", "--anonymize", "--wipe", "--deactivate-cron"):
+        for flag in (
+            "--sanitize",
+            "--neutralize",
+            "--no-neutralize",
+            "--anonymize",
+            "--wipe",
+            "--deactivate-cron",
+            "--purge-transactions",
+            "--recompute",
+        ):
             assert flag in result.output
         # removed cloud-integrations flag must be gone
         assert "deactivate-cloud-integrations" not in result.output
@@ -763,7 +940,9 @@ class TestRestoreCliFlags:
         assert calls.get("neut") == ["testdb"]
         assert calls.get("anon") == ["testdb"]
         assert calls.get("wipe") == ["testdb"]
+        assert calls.get("recompute") == ["testdb"]  # auto-runs after anonymize
         assert "users" not in calls  # --anonymize-users stays a separate opt-in
+        assert "purge" not in calls  # --purge-transactions is NOT in --sanitize
 
     def test_explicit_no_flag_wins_over_sanitize(self, monkeypatch, tmp_path):
         calls: dict[str, list[str]] = {}
@@ -784,6 +963,56 @@ class TestRestoreCliFlags:
         result = self._restore(backup, "--neutralize")
         assert result.exit_code == 0, result.output
         assert "neut" not in calls
+
+    def test_purge_transactions_opt_in(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = self._restore(backup, "--purge-transactions")
+        assert result.exit_code == 0, result.output
+        assert calls.get("purge") == ["testdb"]
+        assert "anon" not in calls  # purge does not imply anonymize
+
+    def test_recompute_runs_after_anonymize(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--anonymize")
+        assert result.exit_code == 0, result.output
+        assert calls.get("anon") == ["testdb"]
+        assert calls.get("recompute") == ["testdb"]
+
+    def test_no_recompute_skips(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--anonymize", "--no-recompute")
+        assert result.exit_code == 0, result.output
+        assert calls.get("anon") == ["testdb"]
+        assert "recompute" not in calls
+
+    def test_recompute_not_run_without_anonymize(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--wipe")
+        assert result.exit_code == 0, result.output
+        assert "recompute" not in calls  # recompute is tied to anonymize
+
+    def test_purge_command_help(self):
+        result = CliRunner().invoke(cli, ["db", "purge", "--help"])
+        assert result.exit_code == 0
+        assert "--dry-run" in result.output
+        assert "keeping products" in result.output
+
+    def test_recompute_command_help(self):
+        result = CliRunner().invoke(cli, ["db", "recompute", "--help"])
+        assert result.exit_code == 0
+        assert "computed" in result.output
 
     def test_neutralize_command_help(self):
         result = CliRunner().invoke(cli, ["db", "neutralize", "--help"])
@@ -814,6 +1043,98 @@ class TestRestoreCliFlags:
         result = self._restore(backup, "--sanitize")
         assert result.exit_code == 0, result.output
         assert "users" not in calls  # res_users untouched unless explicitly requested
+
+
+class TestDbPurgeCommand:
+    """Standalone `odoodev db purge` command (v0.44.0)."""
+
+    def _patch(self, monkeypatch, tmp_path, purge_result=(True, "ok")):
+        from odoodev.commands import db as db_cmd
+
+        cfg = types.SimpleNamespace(
+            version="18",
+            ports=types.SimpleNamespace(db=18432),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path)),
+        )
+        calls: dict[str, list] = {}
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+        monkeypatch.setattr(db_cmd, "_load_env_vars", lambda vc: {})
+        monkeypatch.setattr(
+            db_cmd, "_get_db_params", lambda vc, ev: {"host": "localhost", "port": 18432, "user": "ownerp"}
+        )
+        monkeypatch.setattr(db_cmd, "_ensure_pg_reachable", lambda version, params: None)
+        monkeypatch.setattr(db_cmd, "resolve_purge_tables", lambda name, **k: ["stock_move", "account_move"])
+        monkeypatch.setattr(
+            db_cmd,
+            "purge_transactional_data",
+            lambda name, **k: (calls.setdefault("purge", []).append(name), purge_result)[1],
+        )
+        return calls
+
+    def test_dry_run_deletes_nothing(self, monkeypatch, tmp_path):
+        calls = self._patch(monkeypatch, tmp_path)
+        result = CliRunner().invoke(cli, ["db", "purge", "18", "-n", "testdb", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert "stock_move" in result.output
+        assert "purge" not in calls  # nothing deleted
+
+    def test_yes_skips_confirm_and_purges(self, monkeypatch, tmp_path):
+        calls = self._patch(monkeypatch, tmp_path)
+        result = CliRunner().invoke(cli, ["db", "purge", "18", "-n", "testdb", "--yes"])
+        assert result.exit_code == 0, result.output
+        assert calls.get("purge") == ["testdb"]
+
+    def test_confirm_declined_aborts(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        calls = self._patch(monkeypatch, tmp_path)
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
+        result = CliRunner().invoke(cli, ["db", "purge", "18", "-n", "testdb"])
+        assert result.exit_code == 0
+        assert "Aborted" in result.output
+        assert "purge" not in calls
+
+    def test_no_tables_is_noop(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        calls = self._patch(monkeypatch, tmp_path)
+        monkeypatch.setattr(db_cmd, "resolve_purge_tables", lambda name, **k: [])
+        result = CliRunner().invoke(cli, ["db", "purge", "18", "-n", "testdb", "--yes"])
+        assert result.exit_code == 0
+        assert "Nothing to purge" in result.output
+        assert "purge" not in calls
+
+    def test_purge_failure_exits_nonzero(self, monkeypatch, tmp_path):
+        self._patch(monkeypatch, tmp_path, purge_result=(False, "Aborted — protected table"))
+        result = CliRunner().invoke(cli, ["db", "purge", "18", "-n", "testdb", "--yes"])
+        assert result.exit_code == 1
+        assert "protected table" in result.output
+
+
+class TestHandleDbPurge:
+    """Playbook handler for db.purge (v0.44.0)."""
+
+    def test_purges_via_handler(self, monkeypatch, tmp_path):
+        from odoodev.core import automation
+
+        cfg = types.SimpleNamespace(version="18", paths=types.SimpleNamespace(native_dir=str(tmp_path)))
+        monkeypatch.setattr(automation, "_load_env_vars", lambda vc: {})
+        monkeypatch.setattr(
+            automation, "_get_db_params", lambda vc, ev: {"host": "localhost", "port": 18432, "user": "ownerp"}
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database.purge_transactional_data", lambda name, **k: (True, "2 tables emptied")
+        )
+        result = automation.handle_db_purge(cfg, {"name": "testdb"})
+        assert result.status == "ok"
+
+    def test_missing_name_errors(self, monkeypatch, tmp_path):
+        from odoodev.core import automation
+
+        cfg = types.SimpleNamespace(version="18", paths=types.SimpleNamespace(native_dir=str(tmp_path)))
+        result = automation.handle_db_purge(cfg, {})
+        assert result.status == "error"
 
 
 class TestExistingColumns:

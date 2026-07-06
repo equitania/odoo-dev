@@ -24,6 +24,7 @@ VALID_COMMANDS = frozenset(
         "db.backup",
         "db.restore",
         "db.drop",
+        "db.purge",
         "env.check",
         "venv.check",
         "venv.setup",
