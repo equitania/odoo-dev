@@ -931,7 +931,9 @@ def run_neutralize(
 # commercial_company_name / email_normalized that depend on them — leaving
 # display_name (which reads the stored complete_name) stale in list/kanban views.
 RECOMPUTE_TRIGGERS: dict[str, tuple[str, ...]] = {
-    "res.partner": ("name", "email", "vat"),
+    # eq_firstname: complete_name @api.depends on it in Equitania's eq_res_partner
+    # (column-filtered away on non-eq DBs by the recompute script itself).
+    "res.partner": ("name", "email", "vat", "eq_firstname"),
     "crm.lead": ("name", "contact_name", "partner_name", "email_from"),
     "res.partner.bank": ("acc_number",),
     "hr.employee": ("name", "work_email"),
@@ -1078,7 +1080,13 @@ ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
         table="res_partner",
         fields=(AnonField("name", lambda f, i: f.name()),)
         + _PARTNER_COMMON_FIELDS
-        + (AnonField("function", lambda f, i: f.job()),),
+        + (
+            AnonField("function", lambda f, i: f.job()),
+            # Equitania custom first-name field (eq_res_partner); column-filtered
+            # away on non-eq databases. complete_name @api.depends on eq_firstname,
+            # so it is also listed in RECOMPUTE_TRIGGERS below.
+            AnonField("eq_firstname", lambda f, i: f.first_name()),
+        ),
         where="is_company = false OR is_company IS NULL",
     ),
     # NOTE: res_users is intentionally NOT anonymized by default — that would make

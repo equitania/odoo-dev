@@ -497,6 +497,15 @@ class TestAnonymizeSpecs:
         assert "function" in person_cols
         assert "name" in company_cols and "name" in person_cols
 
+    def test_person_spec_anonymizes_eq_firstname(self):
+        """Equitania custom first-name field is anonymized on persons (v0.44.0)."""
+        from odoodev.core.database import RECOMPUTE_TRIGGERS
+
+        person_spec = next(s for s in ANONYMIZE_TABLES if s.table == "res_partner" and "false" in s.where)
+        assert "eq_firstname" in [f.column for f in person_spec.fields]
+        # complete_name depends on eq_firstname → it must trigger a recompute too.
+        assert "eq_firstname" in RECOMPUTE_TRIGGERS["res.partner"]
+
 
 def _all_known_columns() -> set[str]:
     """Every column referenced by any anonymization spec (+ id) for mocking schema."""

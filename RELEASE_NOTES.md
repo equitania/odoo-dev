@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.44.1 (06.07.2026)
+
+### Added
+- **Anonymization now covers the Equitania `eq_firstname` field.** On databases with
+  the `eq_res_partner` module, the custom first-name column held a real first name
+  that anonymization missed, and it also fed the stored `complete_name`
+  (`@api.depends(..., "eq_firstname")`) — so overviews still showed the real given
+  name. `eq_firstname` is now Faker-anonymized on person records and added to the
+  recompute triggers so `complete_name` is refreshed. Column-filtered, so it is a
+  no-op on non-Equitania databases.
+
 ## Version 0.44.0 (06.07.2026)
 
 ### Added
