@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.44.4 (06.07.2026)
+
+### Changed
+- **v18 example requirements aligned with the prepare-18 base image (security + chatbot).**
+  Same treatment as v0.44.3 did for v19: brought
+  `odoodev/data/examples/v18/requirements.txt` to the prepare-18 state — nine CVE bumps
+  (bleach 6.4.0, pdfminer.six 20260107, cryptography 46.0.7, python-ldap 3.4.5,
+  urllib3 2.7.0, requests 2.33.0, zeep 4.3.3, idna 3.15, cbor2 5.9.0), lxml to the
+  Odoo 18 pin (5.4.0), and the stale AI/Chatbot pins realigned to eq-chatbot-core 1.17.2
+  (eq-chatbot-core >=1.17.2, openai >=2.0.0, anthropic >=0.90.0,<2.0.0, pydantic >=2.11.0,
+  click <9.0.0). Verified: clean resolve, residual OSV set identical to prepare-18/19.
+
 ## Version 0.44.3 (06.07.2026)
 
 ### Changed

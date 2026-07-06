@@ -3,19 +3,19 @@
 # Old Python markers (< 3.13) removed as v18 exclusively uses Python 3.13
 asn1crypto==1.5.1
 Babel==2.16.0  # upgraded for sphinx 8.2.3 (requires >=2.13)
-cbor2==5.8.0
+cbor2==5.9.0  # upgraded from 5.8.0 for CVE-2026-26209 (DoS via recursion in loads)
 chardet==5.2.0
-cryptography==46.0.5  # pyopenssl 26.0.0 requires >=46.0.0
+cryptography==46.0.7  # pyopenssl 26.0.0 requires >=46.0.0; upgraded from 46.0.5 for CVE-2026-39892 (buffer overflow) + CVE-2026-34073 (DNS constraint)
 decorator==5.1.1
 docutils==0.20.1
 freezegun==1.5.1
 geoip2==2.9.0
 gevent==24.11.1 ; sys_platform != 'win32'  # (Trixie)
 greenlet==3.1.1 ; sys_platform != 'win32'  # (Trixie)
-idna==3.11
+idna==3.15  # upgraded from 3.11 for CVE-2026-45409 (IDNA encode bypass)
 Jinja2==3.1.6
 libsass==0.22.0
-lxml==5.2.1
+lxml==5.4.0  # (Trixie) aligned with Odoo 18 pin; newer bundled libxslt
 lxml-html-clean
 MarkupSafe==2.1.5
 num2words==0.5.13
@@ -30,22 +30,22 @@ pyopenssl==26.0.0  # CVE-2026-27459: DTLS cookie buffer overflow fix, requires c
 pypdf==5.4.0  # (Trixie)
 pyserial==3.5
 python-dateutil==2.8.2
-python-ldap==3.4.4 ; sys_platform != 'win32'
+python-ldap==3.4.5 ; sys_platform != 'win32'  # upgraded from 3.4.4 for CVE-2025-61911/61912 (filter escaping bypass)
 python-stdnum==1.19
 pytz  # no version pinning to avoid OS perturbations
 pyusb==1.2.1
 qrcode==7.4.2
 reportlab==4.1.0
-requests==2.32.5  # upgraded from 2.31.0 for CVE-2024-35195 fix
+requests==2.33.0  # upgraded from 2.32.5 for CVE-2026-25645 (insecure temp file reuse)
 rjsmin==1.2.0
 rl-renderPM==4.0.3 ; sys_platform == 'win32'
-urllib3==2.6.3  # upgraded from 2.0.7 for multiple CVEs (CVSS 8.9)
+urllib3==2.7.0  # upgraded from 2.6.3 for CVE-2026-44431/44432 (cross-origin header leak + decompression bomb)
 vobject==0.9.6.1
 Werkzeug==3.0.6  # upgraded from 3.0.1 for CVE-2024-34069 RCE fix
 xlrd==2.0.1
 XlsxWriter==3.1.9
 xlwt==1.3.0
-zeep==4.3.1
+zeep==4.3.3  # upgraded from 4.3.1 for GHSA-4cc2-g9w2-fhf6 (SSRF)
 rlPyCairo
 
 # custom libs
@@ -55,7 +55,7 @@ nextcloud-api-wrapper
 phonenumbers
 python-slugify
 parse-accept-language
-bleach==6.2.0
+bleach==6.4.0  # upgraded from 6.2.0 for GHSA-8rfp-98v4-mmr6 / GHSA-gj48-438w-jh9v (URI sanitization bypass)
 holidays==0.84
 #odoorpc-toolbox
 python-gitlab
@@ -70,7 +70,7 @@ pandas==2.2.3
 numpy==1.26.3
 deepl
 unidecode
-pdfminer.six==20251107
+pdfminer.six==20260107  # upgraded from 20251107 for CVE-2025-70559 (pickle deserialization -> local privesc)
 oauthlib==3.3.1
 sphinx==8.2.3
 sphinx_tabs==3.4.7
@@ -78,23 +78,23 @@ sphinxcontrib-httpdomain==1.8.1
 sphinx_rtd_theme==3.0.2
 dicttoxml==1.7.16
 xmltodict==0.13.0
-openai>=1.58.0,<3.0.0
+openai>=2.0.0,<3.0.0  # aligned with eq-chatbot-core 1.17.2 (requires openai>=2.0.0)
 xmlschema
 msal==1.34.0  # upgraded from 1.31.1, supports cryptography>=46
 email_validator
 markdown==3.10.2
 python-magic>=0.4.27
 pymupdf>=1.25.0
-click>=8.1.0
+click>=8.1.0,<9.0.0  # aligned with eq-chatbot-core 1.17.2 (requires click>=8.1.0,<9.0.0)
 openupgradelib
 
 # AI/Chatbot dependencies
-eq-chatbot-core>=1.2.1
-anthropic>=0.42.0,<1.0.0
+eq-chatbot-core>=1.17.2
+anthropic>=0.90.0,<2.0.0  # aligned with eq-chatbot-core 1.17.2 (requires anthropic>=0.90.0,<2.0.0)
 qdrant-client>=1.12.0,<2.0.0
 tiktoken>=0.9.0,<1.0.0
 httpx>=0.27.0,<1.0.0
-pydantic>=2.10.0,<3.0.0
+pydantic>=2.11.0,<3.0.0  # aligned with eq-chatbot-core 1.17.2 (requires pydantic>=2.11.0)
 
 # OCA REST-Framework Stack
 fastapi>=0.110.0
