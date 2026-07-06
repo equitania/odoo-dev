@@ -24,6 +24,9 @@ odoodev docker status 18
 odoodev docker logs 18 -f
 ```
 
+`docker up` meldet Erfolg erst, wenn PostgreSQL auf Protokollebene bereit ist
+(`pg_isready` bzw. Socket-Probe, bis zu 60 s Polling) — nicht schon beim Container-Start.
+
 ### Services
 
 | Service | Image | Zweck |
@@ -69,6 +72,9 @@ odoodev docker status 18
 # View logs (follow mode)
 odoodev docker logs 18 -f
 ```
+
+`docker up` only reports success once PostgreSQL is ready at the protocol level
+(`pg_isready` or a socket probe, polling up to 60s) — not merely when the container starts.
 
 ### Services
 

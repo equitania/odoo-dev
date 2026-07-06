@@ -156,9 +156,11 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   `--terminate-connections`.
 - **`odoodev stop --force`** kills the Odoo process; `--keep-docker` leaves PostgreSQL/Mailpit running.
 - **`odoodev start` prerequisites** (checked before launch): `.env`, `.venv/`, `odoo-bin`, a dated
-  `odoo_*.conf`, a reachable PostgreSQL port (offers to start the configured runtime — Docker or
-  Apple Container — and to save the choice as the new default), and an unchanged
-  `requirements.txt` SHA256 (offers an update if it changed).
+  `odoo_*.conf`, PostgreSQL ready at the protocol level (`pg_isready` or a socket probe — not just an
+  open TCP port; offers to start the configured runtime — Docker or Apple Container — and to save the
+  choice as the new default, then polls readiness up to 60s), and an unchanged
+  `requirements.txt` SHA256 (offers an update if it changed). `odoodev docker up` waits for the same
+  readiness before reporting success.
 - **`start --clean-sessions`** wipes existing sessions; **`--allow-default-credentials`** disables a
   safety check — use only on disposable databases.
 - **`db restore` data handling:** a disk-space pre-check (`--no-check-space` to skip) warns + asks

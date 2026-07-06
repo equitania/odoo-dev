@@ -117,7 +117,7 @@ Was `odoodev start` vor dem Start prueft:
 2. `.venv/`-Verzeichnis existiert — bietet Erstellung an wenn fehlend
 3. `odoo-bin` existiert im server_dir — bietet Repository-Klonen an wenn fehlend
 4. `odoo_*.conf` existiert im myconfs_dir (verwendet neueste nach Datumsendung)
-5. PostgreSQL-Port ist erreichbar — bietet Docker-Start an wenn nicht
+5. PostgreSQL ist bereit — geprueft auf Protokollebene (`pg_isready` oder Socket-Probe), nicht nur per TCP-Check; bietet Start des Container-Runtimes an wenn nichts lauscht und pollt nach dem Start bis zu 60 s (wichtig fuer Apple Container: der Port-Forwarder nimmt TCP an bevor PostgreSQL in der VM bereit ist)
 6. `requirements.txt` SHA256-Hash unveraendert — bietet Update an wenn geaendert
 7. Python-Patch-Version — Hinweis wenn neuere Version verfuegbar
 
@@ -249,7 +249,7 @@ What `odoodev start` checks before launching Odoo:
 2. `.venv/` directory exists — offers creation if missing
 3. `odoo-bin` exists in server_dir — offers repository cloning if missing
 4. `odoo_*.conf` exists in myconfs_dir (uses latest by date suffix)
-5. PostgreSQL port is reachable — offers to start Docker if not
+5. PostgreSQL is ready — verified at the protocol level (`pg_isready` or socket probe), not just a TCP check; offers to start the container runtime when nothing listens and polls up to 60s after starting it (important for Apple Container: the port forwarder accepts TCP before PostgreSQL inside the VM is ready)
 6. `requirements.txt` SHA256 hash unchanged — offers update if changed
 7. Python patch version — advisory when newer version available
 

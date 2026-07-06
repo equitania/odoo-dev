@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.42.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.42.2-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -169,6 +169,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.42.2:**
+- **Behoben:** `odoodev start` startet Odoo nicht mehr, bevor PostgreSQL wirklich bereit ist. Bei Apple Container nimmt der Port-Forwarder der Micro-VM TCP-Verbindungen an, bevor PostgreSQL in der VM antwortet — Odoo hing dadurch 10–30 s in stillen Verbindungs-Retries, bevor z. B. ein `-u all` losläuft. Die Bereitschaft wird jetzt auf PostgreSQL-Protokollebene geprüft (Host-`pg_isready` wenn vorhanden, sonst abhängigkeitsfreie Socket-Probe) und bis zu 60 s mit Spinner abgewartet; `odoodev docker up` wartet ebenso. Auch langsame Docker-Container-Starts sind damit abgedeckt.
 
 **Version 0.42.1:**
 - **Behoben:** Im Migrationsmodus übersteuerte die `.env` der Zielversion (mit ihrem regulären `DB_PORT`) den geteilten Quell-Port — `db backup 18`, `start 18` & Co. versuchten den falschen Port, nur die Quellversion funktionierte. Neuer zentraler Resolver mit Vorrang Migration-Ziel-Port > `.env` > Registry, angewandt an allen acht Auflösungsstellen (inkl. `PGPORT` für odoo-bin und der odoo.conf-Generierung).
@@ -417,6 +420,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.42.2:**
+- **Fixed:** `odoodev start` no longer launches Odoo before PostgreSQL is actually ready. On Apple Container the micro-VM's port forwarder accepts TCP before PostgreSQL inside answers — Odoo sat 10-30s in silent connection retries before e.g. a `-u all` began. Readiness is now verified at the PostgreSQL protocol level (host `pg_isready` when available, otherwise a dependency-free socket probe) with up to 60s of spinner-backed polling; `odoodev docker up` waits the same way. Slow Docker container boots are covered too.
 
 **Version 0.42.1:**
 - **Fixed:** In migration mode the target version's `.env` (with its regular `DB_PORT`) overrode the shared source port — `db backup 18`, `start 18` etc. tried the wrong port; only the source version worked. New central resolver with precedence migration-target port > `.env` > registry, applied at all eight resolution sites (incl. `PGPORT` for odoo-bin and odoo.conf generation).

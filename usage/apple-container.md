@@ -48,6 +48,12 @@ dessen Namen, z. B.:
 [OK] Apple Container 'picard-dev-db-18-native' is running — inspect with: container ls
 ```
 
+**Bereitschafts-Wartezeit (v0.42.2):** Der Port-Forwarder der Micro-VM nimmt TCP-Verbindungen
+an, bevor PostgreSQL in der VM tatsächlich bereit ist (VM-Boot, ggf. erstmaliges `initdb`).
+`odoodev start` und `odoodev docker up` prüfen die Bereitschaft deshalb auf
+PostgreSQL-Protokollebene (`pg_isready` bzw. Socket-Probe) und pollen bis zu 60 s mit
+Spinner — Odoo startet erst, wenn PostgreSQL wirklich antwortet.
+
 ### Status / laufenden Container sehen
 
 **Wichtig:** `container machine list` zeigt **nichts** an — das listet nur die VM-Infra­struktur,
@@ -125,6 +131,12 @@ When PostgreSQL is unreachable, odoodev starts the container and then prints its
 ```
 [OK] Apple Container 'picard-dev-db-18-native' is running — inspect with: container ls
 ```
+
+**Readiness wait (v0.42.2):** the micro-VM's port forwarder accepts TCP connections before
+PostgreSQL inside the VM is actually ready (VM boot, possibly first-time `initdb`).
+`odoodev start` and `odoodev docker up` therefore verify readiness at the PostgreSQL protocol
+level (`pg_isready` or a socket probe) and poll up to 60s with a spinner — Odoo only launches
+once PostgreSQL really answers.
 
 ### Status / seeing the running container
 
