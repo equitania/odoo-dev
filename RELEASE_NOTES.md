@@ -1,5 +1,29 @@
 # Release Notes
 
+## Version 0.43.0 (06.07.2026)
+
+### Changed
+- **BREAKING: `db restore` leaves the restored database completely untouched by default.**
+  All post-restore processing is now opt-in instead of opt-out — previously
+  cron deactivation, neutralize and anonymize ran unless explicitly disabled,
+  which made it easy to end up with a half-processed database without noticing.
+  New flag surface:
+  - `--deactivate-cron` — deactivate crons/mail/fetchmail (was: on by default)
+  - `--neutralize` — native `odoo-bin neutralize` + bank-sync cleanup (was: on by default)
+  - `--anonymize` — Faker GDPR anonymization, now **only** the per-row Faker
+    updates and HR PII wipes (was: on by default and bundled with deletion)
+  - `--wipe` — **new**: the content deletion split out of anonymize
+    (mail_message bodies/subjects, ir_attachment index content, linkage-table
+    DELETEs)
+  - `--sanitize` — **new** convenience flag enabling deactivate-cron +
+    neutralize + anonymize + wipe at once; explicit `--no-*` flags win
+  - `--anonymize-users` — now works standalone (no longer requires
+    `--anonymize`), still NOT included in `--sanitize`
+  A restore without processing flags prints a hint that the database was left
+  untouched. Playbook `db.restore` steps follow the same defaults (`sanitize:`,
+  `anonymize:`, `wipe:` args added). Core: `wipe_database()` split out of
+  `anonymize_database()` in `core/database.py`.
+
 ## Version 0.42.2 (06.07.2026)
 
 ### Fixed

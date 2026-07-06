@@ -41,6 +41,7 @@ from odoodev.core.database import (
     restore_database,
     run_neutralize,
     terminate_connections,
+    wipe_database,
 )
 from odoodev.core.version_registry import get_version
 from odoodev.output import (
@@ -386,22 +387,37 @@ def db_rename(
 @click.option("-n", "--name", help="New database name (prompted if omitted)")
 @click.option("-z", "--backup-file", type=ExpandedPath(), help="Backup file path (prompted if omitted)")
 @click.option("--drop/--no-drop", default=True, help="Drop existing database first")
-@click.option("--deactivate-cron/--no-deactivate-cron", default=True, help="Deactivate cron jobs after restore")
+@click.option(
+    "--sanitize",
+    is_flag=True,
+    help="Enable all post-restore processing at once (deactivate-cron + neutralize + anonymize + wipe); "
+    "explicit --no-* flags win over --sanitize",
+)
+@click.option(
+    "--deactivate-cron/--no-deactivate-cron",
+    default=None,
+    help="Deactivate cron jobs and mail servers after restore — OFF by default",
+)
 @click.option(
     "--neutralize/--no-neutralize",
-    default=True,
-    help="Run native 'odoo-bin neutralize' after restore — on by default",
+    default=None,
+    help="Run native 'odoo-bin neutralize' after restore — OFF by default",
 )
 @click.option(
     "--anonymize/--no-anonymize",
-    default=True,
-    help="Anonymize personal data after restore (GDPR) — on by default",
+    default=None,
+    help="Anonymize personal data with Faker after restore (GDPR) — OFF by default",
+)
+@click.option(
+    "--wipe/--no-wipe",
+    default=None,
+    help="Delete/blank message and attachment content (mail_message, ir_attachment, linkage tables) — OFF by default",
 )
 @click.option(
     "--anonymize-users/--no-anonymize-users",
     "anon_users",
     default=False,
-    help="Also anonymize res_users logins/passwords (off by default — keeps logins testable)",
+    help="Anonymize res_users logins/passwords — OFF by default, NOT included in --sanitize",
 )
 @click.option(
     "--user-password",
@@ -432,9 +448,11 @@ def db_restore(
     name: str | None,
     backup_file: str | None,
     drop: bool,
-    deactivate_cron: bool,
-    neutralize: bool,
-    anonymize: bool,
+    sanitize: bool,
+    deactivate_cron: bool | None,
+    neutralize: bool | None,
+    anonymize: bool | None,
+    wipe: bool | None,
     anon_users: bool,
     user_password: str,
     keep_temp: bool,
@@ -446,7 +464,16 @@ def db_restore(
 
     Supports ZIP, 7z, tar, tar.zst, gz, and SQL formats.
     Automatically detects backup structure and handles filestore.
+
+    By default the restored database is left completely untouched. All
+    post-restore processing (cron deactivation, neutralize, anonymize, wipe)
+    is opt-in — enable individually or all at once with --sanitize.
     """
+    # Resolve tri-state toggles: explicit flag > --sanitize > off.
+    deactivate_cron = deactivate_cron if deactivate_cron is not None else sanitize
+    neutralize = neutralize if neutralize is not None else sanitize
+    anonymize = anonymize if anonymize is not None else sanitize
+    wipe = wipe if wipe is not None else sanitize
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
@@ -571,12 +598,25 @@ def db_restore(
         else:
             print_warning("Anonymization partially failed — some tables may be missing (non-fatal)")
 
-        if anon_users:
-            print_info("Anonymizing res_users (logins + dev password)...")
-            if anonymize_users(name, dev_password=user_password, **params):
-                print_success(f"User logins anonymized (login: user<id>, password: {user_password})")
-            else:
-                print_warning("User anonymization failed (table issue) — non-fatal")
+    if wipe:
+        print_info("Wiping message/attachment content...")
+        if wipe_database(name, **params):
+            print_success("Message and attachment content wiped")
+        else:
+            print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
+
+    if anon_users:
+        print_info("Anonymizing res_users (logins + dev password)...")
+        if anonymize_users(name, dev_password=user_password, **params):
+            print_success(f"User logins anonymized (login: user<id>, password: {user_password})")
+        else:
+            print_warning("User anonymization failed (table issue) — non-fatal")
+
+    if not any((deactivate_cron, neutralize, anonymize, wipe, anon_users)):
+        print_info(
+            "Database left untouched — no post-restore processing selected "
+            "(use --sanitize or --deactivate-cron/--neutralize/--anonymize/--wipe)"
+        )
 
     # Cleanup
     if not keep_temp:

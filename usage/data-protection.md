@@ -29,9 +29,12 @@ EU-Datenschutz-Grundverordnung:
 - **Art. 5 Abs. 1 lit. c (Datenminimierung):** In Dev/Test-Umgebungen werden
   nur die fuer den Entwicklungszweck noetigen Daten verarbeitet — Klarnamen,
   E-Mail-Adressen und Telefonnummern werden vorher entfernt.
-- **Art. 25 (Privacy by Design / Privacy by Default):** Die Schutzmassnahmen
-  sind voreingestellt. Ein Entwickler muss aktiv `--no-anonymize` setzen, um
-  Rohdaten zu behalten — die Standardeinstellung ist die datenschutzfreundliche.
+- **Art. 25 (Privacy by Design):** Die Schutzmassnahmen sind als integrierter
+  Bestandteil des Restore-Workflows verfuegbar. **Seit v0.43.0 sind sie Opt-in:**
+  ein Entwickler aktiviert sie explizit per `--sanitize` (alle Schichten) oder
+  einzeln per `--deactivate-cron` / `--neutralize` / `--anonymize` / `--wipe` —
+  ohne Flags bleibt die restaurierte Datenbank unangetastet und die Ausgabe
+  weist ausdruecklich darauf hin.
 - **Art. 32 (Sicherheit der Verarbeitung):** Pseudonymisierung wird als
   empfohlene technisch-organisatorische Massnahme explizit genannt; die
   Anonymisierung geht noch einen Schritt weiter.
@@ -236,19 +239,22 @@ unberuehrt):
   einloggbar: `user<id>` / `ownerp`. `admin` behaelt sein Original-Passwort.
 
 Der Hash wird mit der Python-Standardbibliothek erzeugt (keine
-Zusatzabhaengigkeit). Greift nur zusammen mit `--anonymize`.
+Zusatzabhaengigkeit). Seit v0.43.0 eigenstaendig nutzbar — `--anonymize-users`
+setzt kein `--anonymize` mehr voraus.
 
 ---
 
 ### Ablauf beim Restore
 
-`odoodev db restore` fuehrt die Schritte in dieser Reihenfolge aus:
+`odoodev db restore` fuehrt die (jeweils per Flag aktivierten) Schritte in
+dieser Reihenfolge aus:
 
-1. `deactivate_cronjobs()` — psql-Baseline (Schicht 1a)
-2. `run_neutralize()` — natives `odoo-bin neutralize` (Schicht 1b)
-3. `neutralize_bank_sync()` — Bank-Sync-Bereinigung (Schicht 1c)
-4. `anonymize_database()` — Faker-Anonymisierung inkl. HR (Schicht 2)
-5. `anonymize_users()` — nur bei `--anonymize-users` (optional)
+1. `deactivate_cronjobs()` — psql-Baseline (Schicht 1a, `--deactivate-cron`)
+2. `run_neutralize()` — natives `odoo-bin neutralize` (Schicht 1b, `--neutralize`)
+3. `neutralize_bank_sync()` — Bank-Sync-Bereinigung (Schicht 1c, unter `--neutralize`)
+4. `anonymize_database()` — Faker-Anonymisierung inkl. HR (Schicht 2, `--anonymize`)
+5. `wipe_database()` — Inhalte loeschen (Schicht 2b, `--wipe`)
+6. `anonymize_users()` — nur bei `--anonymize-users` (optional)
 
 Jeder Schritt ist **eigenstaendig abschaltbar** und **non-fatal**: schlaegt
 ein Schritt fehl oder fehlt eine Voraussetzung, wird mit Warnung
@@ -258,14 +264,17 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 
 | Flag | Default | Wirkung |
 |------|---------|---------|
-| `--deactivate-cron` / `--no-deactivate-cron` | **an** | Schicht 1a (Cron/Mail/Fetchmail stilllegen) |
-| `--neutralize` / `--no-neutralize` | **an** | Schicht 1b + 1c (`odoo-bin neutralize` + Bank-Sync) |
-| `--anonymize` / `--no-anonymize` | **an** | Schicht 2 (Faker-Anonymisierung inkl. HR) |
-| `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort) |
+| `--sanitize` | **aus** | Sammel-Flag: aktiviert deactivate-cron + neutralize + anonymize + wipe; explizite `--no-*` gewinnen |
+| `--deactivate-cron` / `--no-deactivate-cron` | **aus** | Schicht 1a (Cron/Mail/Fetchmail stilllegen) |
+| `--neutralize` / `--no-neutralize` | **aus** | Schicht 1b + 1c (`odoo-bin neutralize` + Bank-Sync) |
+| `--anonymize` / `--no-anonymize` | **aus** | Schicht 2 (Faker-Anonymisierung inkl. HR — nur Ersatzwerte) |
+| `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen) |
+| `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort); NICHT in `--sanitize` enthalten |
 | `--user-password TEXT` | `ownerp` | Dev-Passwort fuer anonymisierte Benutzer |
 
-Wer Rohdaten fuer eine Spezial-Analyse braucht, kann gezielt einzelne
-Schichten abschalten — die Entscheidung dafuer liegt dann beim Entwickler.
+**Seit v0.43.0 sind alle Schichten Opt-in** — ohne Flags bleibt die Datenbank
+unangetastet. Fuer den Standardfall „Produktions-Backup entschaerfen" genuegt
+`--sanitize`; die Entscheidung liegt explizit beim Entwickler.
 
 ---
 
@@ -381,9 +390,12 @@ EU General Data Protection Regulation:
 - **Art. 5(1)(c) (Data minimization):** Dev/test environments only process
   the data needed for their development purpose — real names, e-mail
   addresses and phone numbers are stripped beforehand.
-- **Art. 25 (Privacy by Design / Privacy by Default):** Protective measures
-  are pre-configured. A developer has to actively pass `--no-anonymize` to
-  keep raw data — the default setting is the privacy-friendly one.
+- **Art. 25 (Privacy by Design):** Protective measures are available as an
+  integrated part of the restore workflow. **Since v0.43.0 they are opt-in:**
+  a developer enables them explicitly via `--sanitize` (all layers) or
+  individually via `--deactivate-cron` / `--neutralize` / `--anonymize` /
+  `--wipe` — without flags the restored database is left untouched and the
+  output explicitly says so.
 - **Art. 32 (Security of processing):** Pseudonymization is explicitly
   listed as a recommended technical and organizational measure; this tool
   goes one step further.
@@ -584,19 +596,21 @@ Effect (non-system accounts only; `admin`/id=1 + technical logins stay intact):
   `user<id>` / `ownerp`; `admin` keeps its original password.
 
 The hash is generated with the Python standard library (no extra
-dependency). Only takes effect together with `--anonymize`.
+dependency). Standalone since v0.43.0 — `--anonymize-users` no longer
+requires `--anonymize`.
 
 ---
 
 ### Restore flow
 
-`odoodev db restore` executes the steps in this order:
+`odoodev db restore` executes the flag-enabled steps in this order:
 
-1. `deactivate_cronjobs()` — psql baseline (layer 1a)
-2. `run_neutralize()` — native `odoo-bin neutralize` (layer 1b)
-3. `neutralize_bank_sync()` — bank-sync cleanup (layer 1c)
-4. `anonymize_database()` — Faker anonymization incl. HR (layer 2)
-5. `anonymize_users()` — only with `--anonymize-users` (optional)
+1. `deactivate_cronjobs()` — psql baseline (layer 1a, `--deactivate-cron`)
+2. `run_neutralize()` — native `odoo-bin neutralize` (layer 1b, `--neutralize`)
+3. `neutralize_bank_sync()` — bank-sync cleanup (layer 1c, under `--neutralize`)
+4. `anonymize_database()` — Faker anonymization incl. HR (layer 2, `--anonymize`)
+5. `wipe_database()` — content deletion (layer 2b, `--wipe`)
+6. `anonymize_users()` — only with `--anonymize-users` (optional)
 
 Each step is **independently switchable** and **non-fatal**: if a step
 fails or a prerequisite is missing, processing continues with a warning —
@@ -606,14 +620,17 @@ the restore still ends with "Database restore complete".
 
 | Flag | Default | Effect |
 |------|---------|--------|
-| `--deactivate-cron` / `--no-deactivate-cron` | **on** | Layer 1a (quiet cron / mail / fetchmail) |
-| `--neutralize` / `--no-neutralize` | **on** | Layer 1b + 1c (`odoo-bin neutralize` + bank sync) |
-| `--anonymize` / `--no-anonymize` | **on** | Layer 2 (Faker anonymization incl. HR) |
-| `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password) |
+| `--sanitize` | **off** | Convenience flag: enables deactivate-cron + neutralize + anonymize + wipe; explicit `--no-*` flags win |
+| `--deactivate-cron` / `--no-deactivate-cron` | **off** | Layer 1a (quiet cron / mail / fetchmail) |
+| `--neutralize` / `--no-neutralize` | **off** | Layer 1b + 1c (`odoo-bin neutralize` + bank sync) |
+| `--anonymize` / `--no-anonymize` | **off** | Layer 2 (Faker anonymization incl. HR — replacement values only) |
+| `--wipe` / `--no-wipe` | **off** | Layer 2b (content deletion: mail_message, ir_attachment index, linkage tables) |
+| `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password); NOT included in `--sanitize` |
 | `--user-password TEXT` | `ownerp` | Dev password set on anonymized users |
 
-Anyone needing raw data for a special analysis can disable individual
-layers — the responsibility for that decision then sits with the developer.
+**Since v0.43.0 every layer is opt-in** — without flags the database is left
+untouched. For the standard "defuse a production backup" case, `--sanitize`
+is enough; the decision sits explicitly with the developer.
 
 ---
 

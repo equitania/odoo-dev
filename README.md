@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.42.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.43.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -169,6 +169,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.43.0:**
+- **Geändert (BREAKING):** `db restore` lässt die wiederhergestellte Datenbank standardmäßig komplett unangetastet. Alle Nachbehandlungen sind jetzt Opt-in statt Opt-out: `--deactivate-cron`, `--neutralize`, `--anonymize` (nur noch Faker-Ersatzwerte), neu `--wipe` (Löschen von Nachrichteninhalten, Anhang-Index und Verknüpfungstabellen — aus `--anonymize` herausgelöst) und neu `--sanitize` als Sammel-Flag für alle vier (explizite `--no-*` gewinnen). `--anonymize-users` funktioniert jetzt eigenständig. Ohne Flags weist die Ausgabe darauf hin, dass die Datenbank unverändert blieb.
 
 **Version 0.42.2:**
 - **Behoben:** `odoodev start` startet Odoo nicht mehr, bevor PostgreSQL wirklich bereit ist. Bei Apple Container nimmt der Port-Forwarder der Micro-VM TCP-Verbindungen an, bevor PostgreSQL in der VM antwortet — Odoo hing dadurch 10–30 s in stillen Verbindungs-Retries, bevor z. B. ein `-u all` losläuft. Die Bereitschaft wird jetzt auf PostgreSQL-Protokollebene geprüft (Host-`pg_isready` wenn vorhanden, sonst abhängigkeitsfreie Socket-Probe) und bis zu 60 s mit Spinner abgewartet; `odoodev docker up` wartet ebenso. Auch langsame Docker-Container-Starts sind damit abgedeckt.
@@ -420,6 +423,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.43.0:**
+- **Changed (BREAKING):** `db restore` leaves the restored database completely untouched by default. All post-restore processing is now opt-in instead of opt-out: `--deactivate-cron`, `--neutralize`, `--anonymize` (Faker replacement values only), new `--wipe` (deletion of message content, attachment index and linkage tables — split out of `--anonymize`) and new `--sanitize` as a convenience flag for all four (explicit `--no-*` flags win). `--anonymize-users` now works standalone. Without flags the output notes that the database was left unchanged.
 
 **Version 0.42.2:**
 - **Fixed:** `odoodev start` no longer launches Odoo before PostgreSQL is actually ready. On Apple Container the micro-VM's port forwarder accepts TCP before PostgreSQL inside answers — Odoo sat 10-30s in silent connection retries before e.g. a `-u all` began. Readiness is now verified at the PostgreSQL protocol level (host `pg_isready` when available, otherwise a dependency-free socket probe) with up to 60s of spinner-backed polling; `odoodev docker up` waits the same way. Slow Docker container boots are covered too.

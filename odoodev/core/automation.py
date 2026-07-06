@@ -492,6 +492,7 @@ def handle_db_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
 def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Restore a database from backup file (non-interactive)."""
     from odoodev.core.database import (
+        anonymize_database,
         check_restore_space,
         cleanup_restore_temp,
         create_database,
@@ -504,6 +505,7 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         move_filestore,
         restore_database,
         run_neutralize,
+        wipe_database,
     )
 
     name = args.get("name")
@@ -516,8 +518,13 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         return _step_error("db.restore", "db.restore", f"Backup file not found: {backup_file}", 0)
 
     do_drop = args.get("drop", True)
-    deactivate_cron_flag = args.get("deactivate-cron", args.get("deactivate_cron", True))
-    neutralize_flag = args.get("neutralize", True)
+    # Post-restore processing is OFF by default (v0.43.0) — opt in per step or
+    # via 'sanitize: true' (explicit per-step values win over sanitize).
+    sanitize = args.get("sanitize", False)
+    deactivate_cron_flag = args.get("deactivate-cron", args.get("deactivate_cron", sanitize))
+    neutralize_flag = args.get("neutralize", sanitize)
+    anonymize_flag = args.get("anonymize", sanitize)
+    wipe_flag = args.get("wipe", sanitize)
 
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
@@ -569,6 +576,10 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
                 ok, msg = run_neutralize(name, **inv)
                 if not ok:
                     logger.warning("Neutralize failed (non-fatal): %s", msg.strip())
+        if anonymize_flag and not anonymize_database(name, **params):
+            logger.warning("Anonymization partially failed (non-fatal)")
+        if wipe_flag and not wipe_database(name, **params):
+            logger.warning("Content wipe partially failed (non-fatal)")
 
         return _step_ok("db.restore", "db.restore", f"Database '{name}' restored", 0)
 

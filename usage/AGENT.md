@@ -51,7 +51,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db list` | List all databases. | [VERSION], --json |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db restore` | Restore a database from backup file. | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --anonymize-users/--no-anonymize-users, --user-password TEXT, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
+| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --anonymize-users/--no-anonymize-users, --user-password TEXT, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
 | `odoodev docker down` | Stop the local PostgreSQL service (data volume kept). | [VERSION], --runtime docker\|apple |
 | `odoodev docker logs` | View the local PostgreSQL service logs. | [VERSION], -f/--follow, -n/--tail INTEGER, --runtime docker\|apple |
 | `odoodev docker status` | Show the local PostgreSQL service status (Apple: names the expected container). | [VERSION], --runtime docker\|apple |
@@ -108,11 +108,15 @@ odoodev start 19 --test -- -d test_db -i my_module
 ```bash
 odoodev db backup 18 -n v18_exam -t zip               # ZIP incl. filestore
 odoodev db backup 18 -n v18_exam -t tar.zst           # tar.zst (zstd, large DBs); -l 19 for max compression
-odoodev db restore 18 -n v18_restored -z backup.zip   # cron off + neutralized + anonymized
+odoodev db restore 18 -n v18_restored -z backup.zip   # plain restore — DB left untouched
+odoodev db restore 18 -n v18_restored -z backup.zip --sanitize   # cron off + neutralized + anonymized + wiped
 ```
-Restore post-processing (deactivate-cron, neutralize, anonymize) is **on by default**; pass the
-`--no-*` variants to keep production-faithful data. Default login after anonymize: `ownerp` /
-`CHANGE_AT_FIRST` (override with `--user-password`).
+Restore post-processing is **OFF by default** (v0.43.0) — the restored database is left
+completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize`,
+`--anonymize` (Faker only), `--wipe` (content deletion: mail_message, ir_attachment,
+linkage tables), or `--sanitize` for all four at once (explicit `--no-*` flags win).
+`--anonymize-users` is a separate opt-in (works standalone, NOT included in `--sanitize`);
+its default dev login password is `ownerp` (override with `--user-password`).
 
 ### Update repos + regenerate the Odoo config
 ```bash

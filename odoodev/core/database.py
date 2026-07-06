@@ -1329,11 +1329,12 @@ def anonymize_database(
     """Anonymize personal data after a restore using Faker (GDPR Art. 5, 25).
 
     Covers res_partner, crm_lead, res_partner_bank and hr_employee (per-row Faker
-    values), the HR PII bulk-wipes (hr_employee / hr_version / hr_contract, column
-    filtered for version robustness) plus mail_message and ir_attachment
-    (whole-table wipes). ``res_users`` is intentionally NOT touched here so logins
-    keep working — opt in via :func:`anonymize_users`. Non-fatal: missing tables /
-    columns (uninstalled modules, version differences) are skipped.
+    values) plus the HR PII bulk-wipes (hr_employee / hr_version / hr_contract,
+    column filtered for version robustness). Content deletion (mail_message,
+    ir_attachment, linkage tables) lives in :func:`wipe_database` — a separate
+    opt-in since v0.43.0. ``res_users`` is intentionally NOT touched here so
+    logins keep working — opt in via :func:`anonymize_users`. Non-fatal: missing
+    tables / columns (uninstalled modules, version differences) are skipped.
 
     Returns:
         True if every applicable statement succeeded.
@@ -1371,14 +1372,36 @@ def anonymize_database(
         if not ok:
             success = False
 
-    # 3. Linkage / M2M tables wiped entirely (guarded against missing tables).
+    return success
+
+
+def wipe_database(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Delete/blank message and attachment content after a restore (opt-in).
+
+    Split out of :func:`anonymize_database` in v0.43.0 so deletion is a separate,
+    explicit decision: DELETEs the linkage tables (``ANONYMIZE_DELETE_TABLES``)
+    and runs the whole-table content wipes (``ANONYMIZE_STATIC_QUERIES`` —
+    mail_message bodies/subjects, ir_attachment index content). Non-fatal:
+    missing tables are skipped.
+
+    Returns:
+        True if every applicable statement succeeded.
+    """
+    success = True
+
+    # 1. Linkage / M2M tables wiped entirely (guarded against missing tables).
     for table in ANONYMIZE_DELETE_TABLES:
         if _existing_columns(table, db_name, host=host, port=port, user=user):
             ok, _ = _run_psql(f"DELETE FROM {table};", db=db_name, host=host, port=port, user=user)
             if not ok:
                 success = False
 
-    # 4. Whole-table static wipes.
+    # 2. Whole-table static content wipes.
     for query in ANONYMIZE_STATIC_QUERIES:
         ok, _ = _run_psql(query, db=db_name, host=host, port=port, user=user)
         if not ok:

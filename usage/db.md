@@ -120,24 +120,47 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
    nie automatisch geloescht). Steuerbar per `--delete-backup` (loeschen ohne Frage) und
    `--keep-backup` (nie fragen/loeschen, fuer Skripte).
 
-**Post-Restore Deaktivierungen (psql-Baseline):**
+### Post-Restore-Verarbeitung: alles Opt-in (seit v0.43.0)
+
+**Standardmaessig laesst `db restore` die wiederhergestellte Datenbank komplett unangetastet** —
+jede Nachbehandlung muss explizit per Flag angefordert werden:
+
+| Flag | Wirkung |
+|------|---------|
+| `--deactivate-cron` | Cron-Jobs, Mail- und Fetchmail-Server deaktivieren (psql-Baseline) |
+| `--neutralize` | Natives `odoo-bin neutralize` + Bank-Sync-Bereinigung |
+| `--anonymize` | DSGVO-Anonymisierung mit Faker (nur Ersatzwerte, keine Loeschung) |
+| `--wipe` | Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen |
+| `--sanitize` | Sammel-Flag: aktiviert alle vier obigen auf einmal; explizite `--no-*` gewinnen |
+| `--anonymize-users` | `res_users` anonymisieren — eigenstaendig, NICHT in `--sanitize` enthalten |
+
+Ohne Flags weist die Ausgabe darauf hin, dass die Datenbank unangetastet blieb.
+
+```bash
+odoodev db restore 18 -n v18_test -z prod.zip                  # nur restore, DB unveraendert
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize        # komplett entschaerft
+odoodev db restore 18 -n v18_test -z prod.zip --neutralize      # nur neutralisieren
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-wipe  # alles ausser Loeschung
+```
+
+**Cron-/Mail-Deaktivierung (`--deactivate-cron`, psql-Baseline):**
 - Cron-Jobs (`ir_cron.active = false`)
 - Mail-Server (`ir_mail_server.active = false`)
 - Fetchmail-Server (`fetchmail_server.active = false`)
 
-Diese psql-Baseline laeuft immer (kein lauffaehiges Odoo noetig) und stellt sicher, dass eine
-restored Prod-Kopie keine Crons/Mails ausloest.
+Die psql-Baseline braucht kein lauffaehiges Odoo und stellt sicher, dass eine restored
+Prod-Kopie keine Crons/Mails ausloest.
 
-### Native Neutralisierung (`odoo-bin neutralize`, standardmaessig aktiv)
+### Native Neutralisierung (`odoo-bin neutralize`, Opt-in via `--neutralize`)
 
-Zusaetzlich ruft `odoodev db restore` nach dem Import Odoos eingebautes `odoo-bin neutralize`
-auf. Das fuehrt pro installiertem Modul dessen `data/neutralize.sql` aus und deckt damit weit
-mehr ab als die psql-Baseline: **Payment-Provider, IAP-Accounts, Webhooks, Mass-Mailing,
-OAuth-Tokens, das „NEUTRALIZED"-Banner** sowie jedes Custom-Modul mit eigener `neutralize.sql`
-(inkl. der hauseigenen Nextcloud-/Office365-Module — daher gibt es keine separate
-Cloud-Deaktivierung mehr).
+Mit `--neutralize` ruft `odoodev db restore` nach dem Import Odoos eingebautes `odoo-bin
+neutralize` auf. Das fuehrt pro installiertem Modul dessen `data/neutralize.sql` aus und deckt
+damit weit mehr ab als die psql-Baseline: **Payment-Provider, IAP-Accounts, Webhooks,
+Mass-Mailing, OAuth-Tokens, das „NEUTRALIZED"-Banner** sowie jedes Custom-Modul mit eigener
+`neutralize.sql` (inkl. der hauseigenen Nextcloud-/Office365-Module — daher gibt es keine
+separate Cloud-Deaktivierung mehr).
 
-- **Standardmaessig an** (`--no-neutralize` zum Abschalten).
+- **Opt-in** (seit v0.43.0; in `--sanitize` enthalten).
 - **Graceful-skip:** Fehlen venv, `odoo-bin` oder die generierte `odoo_*.conf`, wird der Schritt
   mit Warnung uebersprungen (non-fatal) — die psql-Baseline greift trotzdem.
 - `neutralize` bootet **keinen** Server; es verbindet sich direkt auf PostgreSQL.
@@ -157,26 +180,27 @@ Verifikation: `ir_config_parameter` enthaelt danach `database.is_neutralized = t
 `account_online_link` loeschen, `bank_statements_source='undefined'`) — je Statement eine eigene
 Transaktion, tabellen-geprueft (No-Op ohne Buchhaltungs-/Bank-Sync-Module).
 
-### DSGVO-Anonymisierung (standardmaessig aktiv)
+### DSGVO-Anonymisierung (Opt-in via `--anonymize` / `--wipe`)
 
-`odoodev db restore` anonymisiert personenbezogene Daten **standardmaessig** direkt nach dem
-Import (DSGVO Art. 5 Datenminimierung, Art. 25 Privacy by Default). Mit `--no-anonymize`
-laesst sich dies fuer Sonderfaelle deaktivieren.
+Mit `--anonymize` anonymisiert `odoodev db restore` personenbezogene Daten direkt nach dem
+Import (DSGVO Art. 5 Datenminimierung). Seit v0.43.0 ist die **Loeschung von Inhalten ein
+eigenes Flag `--wipe`** (mail_message-Inhalte, ir_attachment-Volltextindex,
+Verknuepfungstabellen) — `--anonymize` ersetzt nur noch Werte, loescht aber nichts.
 
 Die Ersatzwerte werden mit **Faker** (`de_DE`, pro Datensatz-ID geseedet → reproduzierbar)
 erzeugt. E-Mail- und Login-Felder werden bewusst **nicht** aus Faker generiert, sondern auf
 reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}`).
 
-| Tabelle | Anonymisierte Felder |
-|---------|----------------------|
-| `res_partner` | Name (Firmen → `fake.company()`, Personen → `fake.name()`), E-Mail, Telefon/Mobil, Adresse, USt-IdNr., Website, Notiz, Funktion (nur Personen) |
-| `crm_lead` | Kontakt-/Firmenname, E-Mail, Telefon/Mobil, Adresse, Beschreibung |
-| `res_partner_bank` | Kontonummer (Fake-IBAN), bereinigte Kontonummer |
-| `hr_employee` | Name, Work-E-Mail, Telefon, Privatadresse, Ausweis-/Pass-/SV-Nummern, Geburtsdaten, Ehepartner-/Notfalldaten, PIN/Barcode, Notizen, Bild-/Scan-Felder; Gehalt-/km-Felder → 0 |
-| `hr_version` (v19) / `hr_contract` (v16/v18) | Gehalt (`wage` → 0), sensible Personaldaten (v19) |
-| `employee_bank_account_rel` (v19) | M2M-Verknuepfung komplett geloescht |
-| `mail_message` | `email_from`, Betreff (geleert), Body (Platzhalter) |
-| `ir_attachment` | `index_content` (Volltext-Index geleert) |
+| Tabelle | Flag | Wirkung |
+|---------|------|---------|
+| `res_partner` | `--anonymize` | Name (Firmen → `fake.company()`, Personen → `fake.name()`), E-Mail, Telefon/Mobil, Adresse, USt-IdNr., Website, Notiz, Funktion (nur Personen) |
+| `crm_lead` | `--anonymize` | Kontakt-/Firmenname, E-Mail, Telefon/Mobil, Adresse, Beschreibung |
+| `res_partner_bank` | `--anonymize` | Kontonummer (Fake-IBAN), bereinigte Kontonummer |
+| `hr_employee` | `--anonymize` | Name, Work-E-Mail, Telefon, Privatadresse, Ausweis-/Pass-/SV-Nummern, Geburtsdaten, Ehepartner-/Notfalldaten, PIN/Barcode, Notizen, Bild-/Scan-Felder; Gehalt-/km-Felder → 0 |
+| `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | Gehalt (`wage` → 0), sensible Personaldaten (v19) |
+| `employee_bank_account_rel` (v19) | `--wipe` | M2M-Verknuepfung komplett geloescht |
+| `mail_message` | `--wipe` | `email_from`, Betreff (geleert), Body (Platzhalter) |
+| `ir_attachment` | `--wipe` | `index_content` (Volltext-Index geleert) |
 
 > **`res_users` wird per Default NICHT anonymisiert** — Logins bleiben testbar. Opt-in via
 > `--anonymize-users` (Login → `user{id}`, Passwort → Dev-Passwort `--user-password`, Default
@@ -184,9 +208,9 @@ reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}
 > daher versionsrobust (v16/v18/v19). Fehlende Tabellen/Spalten werden uebersprungen (non-fatal).
 
 ```bash
-odoodev db restore 18 -n v18_test -z prod_backup.zip                  # anonymisiert (Default), User bleiben
-odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize-users # zusaetzlich res_users
-odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # Rohdaten behalten
+odoodev db restore 18 -n v18_test -z prod_backup.zip                    # Rohdaten (Default seit v0.43.0)
+odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize --wipe # anonymisieren + Inhalte loeschen
+odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --anonymize-users # alles inkl. res_users
 ```
 
 Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis in der Bestaetigungsabfrage).
@@ -333,24 +357,47 @@ During `odoodev db restore`, the filestore is managed automatically:
    removed automatically). Controlled via `--delete-backup` (delete without prompting) and
    `--keep-backup` (never ask/delete, for scripts).
 
-**Post-restore deactivations (psql baseline):**
+### Post-restore processing: everything opt-in (since v0.43.0)
+
+**By default `db restore` leaves the restored database completely untouched** — every
+post-processing step must be requested explicitly:
+
+| Flag | Effect |
+|------|--------|
+| `--deactivate-cron` | Deactivate cron jobs, mail and fetchmail servers (psql baseline) |
+| `--neutralize` | Native `odoo-bin neutralize` + bank-sync cleanup |
+| `--anonymize` | GDPR anonymization with Faker (replacement values only, no deletion) |
+| `--wipe` | Delete content: mail_message, ir_attachment index, linkage tables |
+| `--sanitize` | Convenience flag: enables all four above at once; explicit `--no-*` flags win |
+| `--anonymize-users` | Anonymize `res_users` — standalone, NOT included in `--sanitize` |
+
+Without processing flags the output notes that the database was left untouched.
+
+```bash
+odoodev db restore 18 -n v18_test -z prod.zip                  # plain restore, DB unchanged
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize        # fully defused
+odoodev db restore 18 -n v18_test -z prod.zip --neutralize      # neutralize only
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-wipe  # everything except deletion
+```
+
+**Cron/mail deactivation (`--deactivate-cron`, psql baseline):**
 - Cron jobs (`ir_cron.active = false`)
 - Mail servers (`ir_mail_server.active = false`)
 - Fetchmail servers (`fetchmail_server.active = false`)
 
-This psql baseline always runs (no running Odoo required) and guarantees a restored
-production copy fires no crons/mails.
+The psql baseline needs no running Odoo and guarantees a restored production copy fires no
+crons/mails.
 
-### Native neutralization (`odoo-bin neutralize`, on by default)
+### Native neutralization (`odoo-bin neutralize`, opt-in via `--neutralize`)
 
-After the import, `odoodev db restore` additionally runs Odoo's built-in `odoo-bin neutralize`.
-It executes each installed module's `data/neutralize.sql`, covering far more than the psql
-baseline: **payment providers, IAP accounts, webhooks, mass mailing, OAuth tokens, the
+With `--neutralize`, `odoodev db restore` runs Odoo's built-in `odoo-bin neutralize` after the
+import. It executes each installed module's `data/neutralize.sql`, covering far more than the
+psql baseline: **payment providers, IAP accounts, webhooks, mass mailing, OAuth tokens, the
 "NEUTRALIZED" banner**, and any custom module shipping its own `neutralize.sql` (including the
 in-house Nextcloud/Office365 modules — which is why there is no separate cloud deactivation
 anymore).
 
-- **On by default** (`--no-neutralize` to disable).
+- **Opt-in** (since v0.43.0; included in `--sanitize`).
 - **Graceful skip:** if venv, `odoo-bin` or the generated `odoo_*.conf` are missing, the step is
   skipped with a warning (non-fatal) — the psql baseline still applies.
 - `neutralize` boots **no** server; it connects to PostgreSQL directly.
@@ -370,26 +417,27 @@ FK-safe cleanup (detach journals → delete `account_online_account` → delete 
 `bank_statements_source='undefined'`) — one transaction per statement, table guarded (no-op when
 the accounting / bank-sync modules are absent).
 
-### GDPR anonymization (on by default)
+### GDPR anonymization (opt-in via `--anonymize` / `--wipe`)
 
-`odoodev db restore` anonymizes personal data **by default** right after the import
-(GDPR Art. 5 data minimization, Art. 25 privacy by default). Use `--no-anonymize` to disable
-it for special cases.
+With `--anonymize`, `odoodev db restore` anonymizes personal data right after the import
+(GDPR Art. 5 data minimization). Since v0.43.0 **content deletion is a separate `--wipe`
+flag** (mail_message content, ir_attachment full-text index, linkage tables) — `--anonymize`
+only replaces values and deletes nothing.
 
 Replacement values are generated with **Faker** (`de_DE`, seeded per row id → reproducible).
 E-mail and login columns are deliberately **not** taken from Faker but forced onto reserved,
 non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 
-| Table | Anonymized fields |
-|-------|-------------------|
-| `res_partner` | name (companies → `fake.company()`, persons → `fake.name()`), email, phone/mobile, address, VAT, website, comment, function (persons only) |
-| `crm_lead` | contact/company name, email, phone/mobile, address, description |
-| `res_partner_bank` | account number (fake IBAN), sanitized account number |
-| `hr_employee` | name, work email, phones, private address, ID/passport/SSN numbers, birth data, spouse/emergency data, PIN/barcode, notes, image/scan fields; salary/distance fields → 0 |
-| `hr_version` (v19) / `hr_contract` (v16/v18) | wage → 0, sensitive personnel data (v19) |
-| `employee_bank_account_rel` (v19) | M2M link deleted entirely |
-| `mail_message` | `email_from`, subject (cleared), body (placeholder) |
-| `ir_attachment` | `index_content` (full-text index cleared) |
+| Table | Flag | Effect |
+|-------|------|--------|
+| `res_partner` | `--anonymize` | name (companies → `fake.company()`, persons → `fake.name()`), email, phone/mobile, address, VAT, website, comment, function (persons only) |
+| `crm_lead` | `--anonymize` | contact/company name, email, phone/mobile, address, description |
+| `res_partner_bank` | `--anonymize` | account number (fake IBAN), sanitized account number |
+| `hr_employee` | `--anonymize` | name, work email, phones, private address, ID/passport/SSN numbers, birth data, spouse/emergency data, PIN/barcode, notes, image/scan fields; salary/distance fields → 0 |
+| `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | wage → 0, sensitive personnel data (v19) |
+| `employee_bank_account_rel` (v19) | `--wipe` | M2M link deleted entirely |
+| `mail_message` | `--wipe` | `email_from`, subject (cleared), body (placeholder) |
+| `ir_attachment` | `--wipe` | `index_content` (full-text index cleared) |
 
 > **`res_users` is NOT anonymized by default** — logins stay testable. Opt in via
 > `--anonymize-users` (login → `user{id}`, password → dev password `--user-password`, default
@@ -397,9 +445,9 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 > version robust (v16/v18/v19). Missing tables/columns are skipped (non-fatal).
 
 ```bash
-odoodev db restore 18 -n v18_test -z prod_backup.zip                  # anonymized (default), users kept
-odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize-users # additionally res_users
-odoodev db restore 18 -n v18_test -z prod_backup.zip --no-anonymize   # keep raw data
+odoodev db restore 18 -n v18_test -z prod_backup.zip                    # raw data (default since v0.43.0)
+odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize --wipe # anonymize + delete content
+odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --anonymize-users # everything incl. res_users
 ```
 
 When running `odoodev db drop`, the filestore directory is also removed (with notice in the confirmation prompt).

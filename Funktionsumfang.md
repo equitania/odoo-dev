@@ -2,7 +2,7 @@
 projekttyp: python-paket
 modul: odoo-dev
 anzeigename: odoodev
-version: 0.42.2
+version: 0.43.0
 lizenz: AGPL-3
 erstellt_am: 06.07.2026
 ---
@@ -22,9 +22,10 @@ ein Befehl statt vieler Handgriffe.
   (normal, Entwicklung mit automatischem Neuladen, interaktive Shell oder Testlauf).
 - **Alles im Blick** – eine aufgeräumte Terminal-Oberfläche zeigt das Server-Geschehen live, lässt
   nach Dringlichkeit filtern, durchsuchen und markierten Text bequem in die Zwischenablage kopieren.
-- **Gefahrloser Umgang mit Kundendaten** – beim Einspielen einer Datenbank werden echte Kontaktdaten
-  automatisch anonymisiert, Zahlungs-, Versand- und Cloud-Verbindungen stillgelegt und automatische
-  Aufgaben sowie der E-Mail-Versand abgeschaltet. So geht nichts versehentlich an echte Empfänger.
+- **Gefahrloser Umgang mit Kundendaten** – beim Einspielen einer Datenbank lassen sich auf Wunsch
+  echte Kontaktdaten anonymisieren, Zahlungs-, Versand- und Cloud-Verbindungen stilllegen,
+  Nachrichteninhalte löschen sowie automatische Aufgaben und der E-Mail-Versand abschalten – einzeln
+  wählbar oder gesammelt mit einer einzigen Option. So geht nichts versehentlich an echte Empfänger.
 - **Vollständige Datenbank-Verwaltung** – sichern, zurückspielen, kopieren, umbenennen und löschen,
   jeweils inklusive der zugehörigen Dateianhänge.
 - **Schneller Einstieg** – eine neue Umgebung entsteht von Grund auf oder komfortabel über einen
@@ -42,9 +43,10 @@ ein Befehl statt vieler Handgriffe.
 - Datenbanken in verschiedenen Formaten sichern (inklusive Dateianhänge), wieder einspielen, kopieren,
   umbenennen oder löschen – auch auf Servern ohne installierte Datenbank-Werkzeuge: fehlen diese,
   arbeitet odoodev automatisch direkt im Datenbank-Container weiter.
-- Beim Einspielen standardmäßig geschützt arbeiten: Kontaktdaten werden anonymisiert, sensible
-  Verbindungen neutralisiert, automatische Aufgaben und der Mailversand abgeschaltet – bei Bedarf
-  einzeln abschaltbar. Vor dem Entpacken wird zudem der freie Speicherplatz geprüft.
+- Beim Einspielen bleibt die Datenbank standardmäßig unverändert; auf Wunsch werden Kontaktdaten
+  anonymisiert, sensible Verbindungen neutralisiert, Nachrichteninhalte gelöscht sowie automatische
+  Aufgaben und der Mailversand abgeschaltet – jede Schutzmaßnahme einzeln oder alle gesammelt
+  aktivierbar. Vor dem Entpacken wird zudem der freie Speicherplatz geprüft.
 - Die benötigten Quell-Repositories holen und aktuell halten; die passende Konfiguration wird dabei
   automatisch erzeugt.
 - Getrennte, aufeinander abgestimmte Arbeitsumgebungen je Version verwalten und deren Zustand prüfen.
@@ -62,8 +64,8 @@ ein Befehl statt vieler Handgriffe.
   Umgebung einzeln von Hand aufzusetzen.
 - **Neuer Rechner, neues Projekt:** in wenigen Minuten per Assistent eine lauffähige Umgebung
   einrichten und direkt loslegen.
-- **Arbeiten mit Produktivdaten:** eine Kundendatenbank gefahrlos lokal einspielen – anonymisiert und
-  ohne Risiko, dass Mails oder Zahlungen nach außen gehen.
+- **Arbeiten mit Produktivdaten:** eine Kundendatenbank lokal einspielen und dabei per Option
+  anonymisieren und entschärfen – ohne Risiko, dass Mails oder Zahlungen nach außen gehen.
 - **Fehlersuche am laufenden Server:** die Ausgaben live verfolgen, nach Warnungen und Fehlern filtern
   und die relevanten Zeilen direkt herauskopieren.
 - **Wiederkehrende Routine:** immer gleiche Arbeitsschritte als Ablauf hinterlegen und unbeaufsichtigt

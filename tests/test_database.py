@@ -522,9 +522,11 @@ class TestAnonymizeDatabase:
         assert anonymize_database("mydb") is True
         # One bundled file per per-row table.
         assert len(file_sql) == len(ANONYMIZE_TABLES)
-        # Static updates (HR) + linkage deletes + whole-table wipes go through _run_psql.
-        expected = len(ANONYMIZE_STATIC_TABLES) + len(ANONYMIZE_DELETE_TABLES) + len(ANONYMIZE_STATIC_QUERIES)
-        assert len(psql_queries) == expected
+        # Static updates (HR) go through _run_psql — deletes/wipes moved to wipe_database (v0.43.0).
+        assert len(psql_queries) == len(ANONYMIZE_STATIC_TABLES)
+        joined = " ".join(psql_queries)
+        assert "DELETE FROM" not in joined
+        assert "mail_message" not in joined
 
     def test_skips_tables_without_rows(self, monkeypatch):
         file_sql: list[str] = []
@@ -542,6 +544,46 @@ class TestAnonymizeDatabase:
         monkeypatch.setattr("odoodev.core.database._run_psql_file", lambda sql, **k: (False, "boom"))
         monkeypatch.setattr("odoodev.core.database._run_psql", lambda query, **k: (True, ""))
         assert anonymize_database("mydb") is False
+
+
+class TestWipeDatabase:
+    """Content deletion split out of anonymize_database (v0.43.0)."""
+
+    def test_runs_deletes_and_static_wipes(self, monkeypatch):
+        from odoodev.core.database import wipe_database
+
+        psql_queries: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id"})
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (psql_queries.append(query), (True, ""))[1],
+        )
+        assert wipe_database("mydb") is True
+        assert len(psql_queries) == len(ANONYMIZE_DELETE_TABLES) + len(ANONYMIZE_STATIC_QUERIES)
+        joined = " ".join(psql_queries)
+        assert "DELETE FROM" in joined
+        assert "mail_message" in joined
+        assert "ir_attachment" in joined
+
+    def test_skips_missing_linkage_tables(self, monkeypatch):
+        from odoodev.core.database import wipe_database
+
+        psql_queries: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: set())
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (psql_queries.append(query), (True, ""))[1],
+        )
+        assert wipe_database("mydb") is True
+        # Only the static queries ran — no DELETE for missing tables.
+        assert len(psql_queries) == len(ANONYMIZE_STATIC_QUERIES)
+
+    def test_returns_false_on_failure(self, monkeypatch):
+        from odoodev.core.database import wipe_database
+
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id"})
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda query, **k: (False, "boom"))
+        assert wipe_database("mydb") is False
 
 
 class TestRunNeutralize:
@@ -607,9 +649,10 @@ class TestResolveOdooInvocation:
 
 
 class TestRestoreCliFlags:
-    """The restore command runs neutralize + anonymize by default (opt-out)."""
+    """Post-restore processing is OFF by default (v0.43.0) — opt in per flag or via --sanitize."""
 
-    def _patch_flow(self, monkeypatch, tmp_path, anon_calls, neut_calls, inv=None):
+    def _patch_flow(self, monkeypatch, tmp_path, calls, inv=None):
+        """Patch the restore flow; `calls` collects per-step invocations by key."""
         from odoodev.commands import db as db_cmd
         from odoodev.commands import start as start_cmd
 
@@ -627,78 +670,120 @@ class TestRestoreCliFlags:
         monkeypatch.setattr(db_cmd, "detect_backup_type", lambda e: {"sql_file": "/x", "filestore": None})
         monkeypatch.setattr(db_cmd, "create_database", lambda name, **k: True)
         monkeypatch.setattr(db_cmd, "restore_database", lambda name, sql, **k: True)
-        monkeypatch.setattr(db_cmd, "deactivate_cronjobs", lambda name, **k: True)
         monkeypatch.setattr(db_cmd, "cleanup_restore_temp", lambda e: None)
         # resolve_odoo_invocation is imported inside db_restore from the start module
         monkeypatch.setattr(start_cmd, "resolve_odoo_invocation", lambda vc, ev: inv)
-        monkeypatch.setattr(db_cmd, "run_neutralize", lambda name, **k: (neut_calls.append(name), (True, ""))[1])
-        monkeypatch.setattr(db_cmd, "anonymize_database", lambda name, **k: (anon_calls.append(name), True)[1])
-        # New post-restore steps — mocked to True so the CLI flow never touches real psql.
+        monkeypatch.setattr(
+            db_cmd, "deactivate_cronjobs", lambda name, **k: (calls.setdefault("cron", []).append(name), True)[1]
+        )
+        monkeypatch.setattr(
+            db_cmd, "run_neutralize", lambda name, **k: (calls.setdefault("neut", []).append(name), (True, ""))[1]
+        )
+        monkeypatch.setattr(
+            db_cmd, "anonymize_database", lambda name, **k: (calls.setdefault("anon", []).append(name), True)[1]
+        )
+        monkeypatch.setattr(
+            db_cmd, "wipe_database", lambda name, **k: (calls.setdefault("wipe", []).append(name), True)[1]
+        )
+        monkeypatch.setattr(
+            db_cmd, "anonymize_users", lambda name, **k: (calls.setdefault("users", []).append(name), True)[1]
+        )
         monkeypatch.setattr(db_cmd, "neutralize_bank_sync", lambda name, **k: True)
-        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: True)
         # Disk-space check + delete-backup prompt — neutralized for deterministic flow.
         monkeypatch.setattr(db_cmd, "check_restore_space", lambda b, t, d: (True, "", 0))
         monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
 
-    def test_help_lists_neutralize_and_anonymize_flags(self):
+    def _restore(self, backup, *flags):
+        return CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), *flags])
+
+    def test_help_lists_all_processing_flags(self):
         result = CliRunner().invoke(cli, ["db", "restore", "--help"])
-        assert "--neutralize" in result.output
-        assert "--no-neutralize" in result.output
-        assert "--anonymize" in result.output
+        for flag in ("--sanitize", "--neutralize", "--no-neutralize", "--anonymize", "--wipe", "--deactivate-cron"):
+            assert flag in result.output
         # removed cloud-integrations flag must be gone
         assert "deactivate-cloud-integrations" not in result.output
 
-    def test_anonymize_runs_by_default(self, monkeypatch, tmp_path):
-        anon: list[str] = []
-        neut: list[str] = []
+    def test_nothing_runs_by_default(self, monkeypatch, tmp_path):
+        """The restored database is left completely untouched without explicit flags."""
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, anon, neut)
-        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup)
         assert result.exit_code == 0, result.output
-        assert anon == ["testdb"]
+        assert calls == {}  # no cron/neutralize/anonymize/wipe/users
+        assert "left untouched" in result.output
 
-    def test_no_anonymize_skips(self, monkeypatch, tmp_path):
-        anon: list[str] = []
-        neut: list[str] = []
+    def test_anonymize_opt_in(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, anon, neut)
-        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--no-anonymize"])
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = self._restore(backup, "--anonymize")
         assert result.exit_code == 0, result.output
-        assert anon == []
+        assert calls.get("anon") == ["testdb"]
+        assert "wipe" not in calls  # wipe is a separate decision now
 
-    def test_neutralize_runs_by_default_when_env_ready(self, monkeypatch, tmp_path):
-        anon: list[str] = []
-        neut: list[str] = []
+    def test_wipe_opt_in(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        # inv={} → env ready → run_neutralize called
-        self._patch_flow(monkeypatch, tmp_path, anon, neut, inv={})
-        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = self._restore(backup, "--wipe")
         assert result.exit_code == 0, result.output
-        assert neut == ["testdb"]
+        assert calls.get("wipe") == ["testdb"]
+        assert "anon" not in calls
 
-    def test_no_neutralize_skips(self, monkeypatch, tmp_path):
-        anon: list[str] = []
-        neut: list[str] = []
+    def test_neutralize_opt_in_when_env_ready(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, anon, neut, inv={})
-        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--no-neutralize"])
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--neutralize")
         assert result.exit_code == 0, result.output
-        assert neut == []
+        assert calls.get("neut") == ["testdb"]
+
+    def test_deactivate_cron_opt_in(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = self._restore(backup, "--deactivate-cron")
+        assert result.exit_code == 0, result.output
+        assert calls.get("cron") == ["testdb"]
+
+    def test_sanitize_enables_all_but_users(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--sanitize")
+        assert result.exit_code == 0, result.output
+        assert calls.get("cron") == ["testdb"]
+        assert calls.get("neut") == ["testdb"]
+        assert calls.get("anon") == ["testdb"]
+        assert calls.get("wipe") == ["testdb"]
+        assert "users" not in calls  # --anonymize-users stays a separate opt-in
+
+    def test_explicit_no_flag_wins_over_sanitize(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--sanitize", "--no-anonymize")
+        assert result.exit_code == 0, result.output
+        assert "anon" not in calls
+        assert calls.get("wipe") == ["testdb"]  # the rest still runs
 
     def test_neutralize_graceful_skip_when_env_missing(self, monkeypatch, tmp_path):
-        anon: list[str] = []
-        neut: list[str] = []
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
         # inv=None → env not ready → restore still succeeds, run_neutralize not called
-        self._patch_flow(monkeypatch, tmp_path, anon, neut, inv=None)
-        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        self._patch_flow(monkeypatch, tmp_path, calls, inv=None)
+        result = self._restore(backup, "--neutralize")
         assert result.exit_code == 0, result.output
-        assert neut == []
+        assert "neut" not in calls
 
     def test_neutralize_command_help(self):
         result = CliRunner().invoke(cli, ["db", "neutralize", "--help"])
@@ -710,35 +795,25 @@ class TestRestoreCliFlags:
         assert "--anonymize-users" in result.output
         assert "--user-password" in result.output
 
-    def test_anonymize_users_opt_in(self, monkeypatch, tmp_path):
-        from odoodev.commands import db as db_cmd
-
-        anon: list[str] = []
-        neut: list[str] = []
-        users: list[str] = []
+    def test_anonymize_users_opt_in_works_standalone(self, monkeypatch, tmp_path):
+        """--anonymize-users no longer requires --anonymize (v0.43.0)."""
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, anon, neut)
-        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: (users.append(name), True)[1])
-        result = CliRunner().invoke(
-            cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), "--anonymize-users"]
-        )
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = self._restore(backup, "--anonymize-users")
         assert result.exit_code == 0, result.output
-        assert users == ["testdb"]
+        assert calls.get("users") == ["testdb"]
+        assert "anon" not in calls
 
     def test_anonymize_users_off_by_default(self, monkeypatch, tmp_path):
-        from odoodev.commands import db as db_cmd
-
-        anon: list[str] = []
-        neut: list[str] = []
-        users: list[str] = []
+        calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
-        self._patch_flow(monkeypatch, tmp_path, anon, neut)
-        monkeypatch.setattr(db_cmd, "anonymize_users", lambda name, **k: (users.append(name), True)[1])
-        result = CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup)])
+        self._patch_flow(monkeypatch, tmp_path, calls)
+        result = self._restore(backup, "--sanitize")
         assert result.exit_code == 0, result.output
-        assert users == []  # res_users untouched unless explicitly requested
+        assert "users" not in calls  # res_users untouched unless explicitly requested
 
 
 class TestExistingColumns:
