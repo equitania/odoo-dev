@@ -53,7 +53,9 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db purge` | Delete transactional/movement data for a clean stress-test DB (keeps products, pricelists, partners, users, config). | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
 | `odoodev db recompute` | Recompute stored computed fields (e.g. `complete_name`) via `odoo-bin shell`. | [VERSION], -n/--name TEXT |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --anonymize-users/--no-anonymize-users, --user-password TEXT, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
+| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --anonymize-users/--no-anonymize-users, --user-password TEXT, --uninstall-modules TEXT, -y/--yes, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
+| `odoodev db uninstall` | Uninstall modules via `odoo-bin shell` (`button_immediate_uninstall`) — e.g. modules that conflict with the sanitize steps. | [VERSION], -n/--name TEXT, -m/--modules TEXT (comma-separated technical names), -y/--yes |
+| `odoodev db users` | Interactive TUI: user list with 2FA status; reset passwords (pbkdf2_sha512) and disable TOTP 2FA. | [VERSION], -n/--name TEXT (DB picker inside the TUI if omitted) |
 | `odoodev docker down` | Stop the local PostgreSQL service (data volume kept). | [VERSION], --runtime docker\|apple |
 | `odoodev docker logs` | View the local PostgreSQL service logs. | [VERSION], -f/--follow, -n/--tail INTEGER, --runtime docker\|apple |
 | `odoodev docker status` | Show the local PostgreSQL service status (Apple: names the expected container). | [VERSION], --runtime docker\|apple |
@@ -112,6 +114,9 @@ odoodev db backup 18 -n v18_exam -t zip               # ZIP incl. filestore
 odoodev db backup 18 -n v18_exam -t tar.zst           # tar.zst (zstd, large DBs); -l 19 for max compression
 odoodev db restore 18 -n v18_restored -z backup.zip   # plain restore — DB left untouched
 odoodev db restore 18 -n v18_restored -z backup.zip --sanitize   # cron off + neutralized + anonymized + wiped
+odoodev db restore 18 -n v18_restored -z backup.zip --sanitize --uninstall-modules mod1,mod2 -y   # drop conflicting modules first, no prompts
+odoodev db uninstall 18 -n v18_restored -m mod1,mod2 -y          # uninstall modules on an existing DB
+odoodev db users 18 -n v18_restored                              # TUI: reset passwords / disable 2FA
 ```
 Restore post-processing is **OFF by default** (v0.43.0) — the restored database is left
 completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize`,

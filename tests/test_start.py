@@ -40,6 +40,9 @@ class TestSelectRuntime:
             "odoodev.core.container_backend.resolve_runtime",
             lambda override=None: override or "docker",
         )
+        # pin the platform gate to "macOS" so the classic two-runtime picker
+        # behavior stays deterministic regardless of the host running the suite
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: True)
         # record persistence without writing to disk
         from odoodev.core.global_config import GlobalConfig
 
@@ -97,6 +100,57 @@ class TestSelectRuntime:
         )
         assert _select_runtime(None, no_confirm=False) == "docker"
         assert self.saved == []
+
+
+class TestSelectRuntimeNonMacos:
+    """Runtime selection when Apple Container is not supported (non-macOS host)."""
+
+    @pytest.fixture(autouse=True)
+    def _stub(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.resolve_runtime",
+            lambda override=None: override or "docker",
+        )
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: False)
+        from odoodev.core.global_config import GlobalConfig
+
+        self.saved: list[str] = []
+        monkeypatch.setattr("odoodev.core.global_config.load_global_config", lambda: GlobalConfig())
+        monkeypatch.setattr(
+            "odoodev.core.global_config.save_global_config",
+            lambda cfg: self.saved.append(cfg.container_runtime),
+        )
+        # the interactive path must never reach the multi-runtime picker
+        monkeypatch.setattr(
+            "odoodev.output.select",
+            lambda *a, **k: pytest.fail("select must not be called when Apple Container is unsupported"),
+        )
+
+    def test_interactive_confirm_accept_returns_docker(self, monkeypatch):
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda *a, **k: True)
+        assert _select_runtime(None, no_confirm=False) == "docker"
+        assert self.saved == []  # docker == configured default → no persist prompt
+
+    def test_interactive_confirm_decline_returns_none(self, monkeypatch):
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda *a, **k: False)
+        assert _select_runtime(None, no_confirm=False) is None
+        assert self.saved == []
+
+    def test_explicit_apple_override_errors(self):
+        with pytest.raises(SystemExit) as exc:
+            _select_runtime("apple", no_confirm=True)
+        assert exc.value.code == 1
+
+    def test_configured_apple_falls_back_to_docker(self, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.resolve_runtime",
+            lambda override=None: override or "apple",
+        )
+        assert _select_runtime(None, no_confirm=True) == "docker"
+
+    def test_docker_override_still_works(self, monkeypatch):
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda *a, **k: False)
+        assert _select_runtime("docker", no_confirm=False) == "docker"
 
 
 class TestExtractDbFromArgs:

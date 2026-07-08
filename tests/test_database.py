@@ -768,6 +768,216 @@ class TestRunRecompute:
         assert "env.cr.commit()" in script
 
 
+class TestParseModuleNames:
+    """Normalization of module-list arguments (CLI string / playbook list)."""
+
+    def test_comma_string_split_strip_dedupe(self):
+        from odoodev.core.database import parse_module_names
+
+        assert parse_module_names(" eq_a, eq_b ,eq_a,, eq_c ") == ["eq_a", "eq_b", "eq_c"]
+
+    def test_list_passthrough_normalized(self):
+        from odoodev.core.database import parse_module_names
+
+        assert parse_module_names(["eq_a", " eq_b ", "eq_a", ""]) == ["eq_a", "eq_b"]
+
+    def test_none_and_empty(self):
+        from odoodev.core.database import parse_module_names
+
+        assert parse_module_names(None) == []
+        assert parse_module_names("") == []
+        assert parse_module_names([]) == []
+        assert parse_module_names(" , ,") == []
+
+
+class TestBuildUninstallModulesScript:
+    def test_script_contains_modules_and_uninstall_call(self):
+        from odoodev.core.database import _build_uninstall_modules_script
+
+        script = _build_uninstall_modules_script(["eq_a", "eq_b"])
+        assert "['eq_a', 'eq_b']" in script
+        assert "button_immediate_uninstall" in script
+        assert "env.cr.commit()" in script
+        assert 'state == "installed"' in script
+        # stdout markers for CLI feedback
+        assert "odoodev-uninstall: not-found" in script
+        assert "odoodev-uninstall: not-installed" in script
+        assert "odoodev-uninstall: uninstalled" in script
+
+
+class TestRunUninstallModules:
+    """odoo-bin shell module uninstall before the sanitize pipeline (v0.45.0)."""
+
+    def test_builds_shell_command_and_pipes_script(self, monkeypatch):
+        from odoodev.core.database import run_uninstall_modules
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["input"] = kwargs.get("input")
+
+            class _R:
+                stdout = "odoodev-uninstall: uninstalled eq_a"
+
+            return _R()
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, out = run_uninstall_modules("mydb", ["eq_a"], "/venv/py", "/srv/odoo-bin", "/c.conf", {"A": "1"}, "/cwd")
+        assert ok is True
+        assert "uninstalled eq_a" in out
+        assert captured["cmd"] == [
+            "/venv/py",
+            "/srv/odoo-bin",
+            "shell",
+            "-c",
+            "/c.conf",
+            "-d",
+            "mydb",
+            "--no-http",
+        ]
+        assert "button_immediate_uninstall" in captured["input"]
+        assert "'eq_a'" in captured["input"]
+
+    def test_returns_false_on_error(self, monkeypatch):
+        import subprocess as sp
+
+        from odoodev.core.database import run_uninstall_modules
+
+        def fake_run(cmd, **kwargs):
+            raise sp.CalledProcessError(1, cmd, stderr="uninstall boom")
+
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, out = run_uninstall_modules("mydb", ["eq_a"], "/venv/py", "/srv/odoo-bin", "/c.conf", {}, "/cwd")
+        assert ok is False
+        assert "uninstall boom" in out
+
+
+class TestDbUninstallCommand:
+    """CLI tests for the standalone 'db uninstall' command."""
+
+    def _patch_cmd(self, monkeypatch, tmp_path, calls, inv=None, uninstall_result=(True, "")):
+        from odoodev.commands import db as db_cmd
+        from odoodev.commands import start as start_cmd
+
+        cfg = types.SimpleNamespace(
+            version="18",
+            ports=types.SimpleNamespace(db=18432),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+        monkeypatch.setattr(start_cmd, "resolve_odoo_invocation", lambda vc, ev: inv)
+        monkeypatch.setattr(
+            db_cmd,
+            "run_uninstall_modules",
+            lambda name, modules, **k: (
+                calls.setdefault("uninstall", []).append((name, list(modules))),
+                uninstall_result,
+            )[1],
+        )
+
+    def test_yes_runs_uninstall(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        self._patch_cmd(monkeypatch, tmp_path, calls, inv={})
+        result = CliRunner().invoke(cli, ["db", "uninstall", "18", "-n", "testdb", "-m", "eq_a,eq_b", "-y"])
+        assert result.exit_code == 0, result.output
+        assert calls.get("uninstall") == [("testdb", ["eq_a", "eq_b"])]
+
+    def test_declined_confirm_aborts(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        self._patch_cmd(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
+        result = CliRunner().invoke(cli, ["db", "uninstall", "18", "-n", "testdb", "-m", "eq_a"])
+        assert result.exit_code == 0, result.output
+        assert "uninstall" not in calls
+        assert "Aborted" in result.output
+
+    def test_no_modules_errors(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        self._patch_cmd(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "")
+        result = CliRunner().invoke(cli, ["db", "uninstall", "18", "-n", "testdb", "-y"])
+        assert result.exit_code == 1
+        assert "No module names" in result.output
+
+    def test_env_not_ready_errors(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        self._patch_cmd(monkeypatch, tmp_path, calls, inv=None)
+        result = CliRunner().invoke(cli, ["db", "uninstall", "18", "-n", "testdb", "-m", "eq_a", "-y"])
+        assert result.exit_code == 1
+        assert "Cannot uninstall" in result.output
+        assert "uninstall" not in calls
+
+    def test_failure_exits_nonzero(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        self._patch_cmd(monkeypatch, tmp_path, calls, inv={}, uninstall_result=(False, "boom"))
+        result = CliRunner().invoke(cli, ["db", "uninstall", "18", "-n", "testdb", "-m", "eq_a", "-y"])
+        assert result.exit_code == 1
+        assert "boom" in result.output
+
+    def test_help(self):
+        result = CliRunner().invoke(cli, ["db", "uninstall", "--help"])
+        assert result.exit_code == 0
+        assert "button_immediate_uninstall" in result.output
+
+
+class TestDbUsersCommand:
+    """CLI tests for 'db users' — the TUI itself is covered in test_tui_users_app.py."""
+
+    def _patch_cmd(self, monkeypatch, tmp_path, launched):
+        from odoodev.commands import db as db_cmd
+
+        cfg = types.SimpleNamespace(
+            version="18",
+            ports=types.SimpleNamespace(db=18432),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+
+        class _FakeApp:
+            def __init__(self, **kwargs):
+                launched.append(kwargs)
+
+            def run(self):
+                pass
+
+        monkeypatch.setattr("odoodev.tui.users_app.UsersTuiApp", _FakeApp)
+
+    def test_launches_tui_with_db_params(self, monkeypatch, tmp_path):
+        launched: list[dict] = []
+        self._patch_cmd(monkeypatch, tmp_path, launched)
+        result = CliRunner().invoke(cli, ["db", "users", "18", "-n", "testdb"])
+        assert result.exit_code == 0, result.output
+        assert len(launched) == 1
+        assert launched[0]["db_name"] == "testdb"
+        assert launched[0]["port"] == 18432
+
+    def test_no_name_launches_with_empty_db(self, monkeypatch, tmp_path):
+        launched: list[dict] = []
+        self._patch_cmd(monkeypatch, tmp_path, launched)
+        result = CliRunner().invoke(cli, ["db", "users", "18"])
+        assert result.exit_code == 0, result.output
+        assert launched[0]["db_name"] == ""
+
+    def test_invalid_name_errors(self, monkeypatch, tmp_path):
+        launched: list[dict] = []
+        self._patch_cmd(monkeypatch, tmp_path, launched)
+        result = CliRunner().invoke(cli, ["db", "users", "18", "-n", "bad;name"])
+        assert result.exit_code == 1
+        assert launched == []
+
+    def test_help(self):
+        result = CliRunner().invoke(cli, ["db", "users", "--help"])
+        assert result.exit_code == 0
+        assert "2FA" in result.output
+
+
 class TestRunNeutralize:
     def test_builds_neutralize_command(self, monkeypatch):
         captured = {}
@@ -878,10 +1088,18 @@ class TestRestoreCliFlags:
         monkeypatch.setattr(
             db_cmd, "run_recompute", lambda name, **k: (calls.setdefault("recompute", []).append(name), (True, ""))[1]
         )
+        monkeypatch.setattr(
+            db_cmd,
+            "run_uninstall_modules",
+            lambda name, modules, **k: (calls.setdefault("uninstall", []).append(list(modules)), (True, ""))[1],
+        )
         monkeypatch.setattr(db_cmd, "neutralize_bank_sync", lambda name, **k: True)
         # Disk-space check + delete-backup prompt — neutralized for deterministic flow.
         monkeypatch.setattr(db_cmd, "check_restore_space", lambda b, t, d: (True, "", 0))
         monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
+        # Uninstall-modules prompt (CliRunner has no TTY — questionary would return
+        # None and text_input would raise SystemExit(0), truncating the flow).
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "")
 
     def _restore(self, backup, *flags):
         return CliRunner().invoke(cli, ["db", "restore", "18", "-n", "testdb", "-z", str(backup), *flags])
@@ -897,6 +1115,7 @@ class TestRestoreCliFlags:
             "--deactivate-cron",
             "--purge-transactions",
             "--recompute",
+            "--uninstall-modules",
         ):
             assert flag in result.output
         # removed cloud-integrations flag must be gone
@@ -1024,6 +1243,122 @@ class TestRestoreCliFlags:
         result = self._restore(backup, "--wipe")
         assert result.exit_code == 0, result.output
         assert "recompute" not in calls  # recompute is tied to anonymize
+
+    def test_uninstall_modules_flag_runs_before_sanitize(self, monkeypatch, tmp_path):
+        """--uninstall-modules runs before every sanitize step (cron first among them)."""
+        order: list[str] = []
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(
+            db_cmd,
+            "run_uninstall_modules",
+            lambda name, modules, **k: (order.append("uninstall"), (True, ""))[1],
+        )
+        monkeypatch.setattr(db_cmd, "deactivate_cronjobs", lambda name, **k: (order.append("cron"), True)[1])
+        result = self._restore(backup, "--sanitize", "--uninstall-modules", "eq_x")
+        assert result.exit_code == 0, result.output
+        assert order[:2] == ["uninstall", "cron"]
+
+    def test_uninstall_modules_graceful_skip_when_env_missing(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv=None)
+        result = self._restore(backup, "--uninstall-modules", "eq_x")
+        assert result.exit_code == 0, result.output
+        assert "uninstall" not in calls
+        assert "odoodev db uninstall" in result.output  # hint to run standalone later
+
+    def test_uninstall_modules_not_prompted_without_sanitize_step(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(
+            db_cmd,
+            "text_input",
+            lambda *a, **k: pytest.fail("must not prompt for modules without a sanitize step"),
+        )
+        result = self._restore(backup)
+        assert result.exit_code == 0, result.output
+        assert "uninstall" not in calls
+
+    def test_uninstall_modules_prompted_when_interactive_and_sanitize(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "eq_foo, eq_bar")
+        result = self._restore(backup, "--sanitize")
+        assert result.exit_code == 0, result.output
+        assert calls.get("uninstall") == [["eq_foo", "eq_bar"]]
+
+    def test_uninstall_modules_flag_skips_prompt(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(
+            db_cmd,
+            "text_input",
+            lambda *a, **k: pytest.fail("must not prompt when --uninstall-modules is given"),
+        )
+        result = self._restore(backup, "--sanitize", "--uninstall-modules", "eq_x")
+        assert result.exit_code == 0, result.output
+        assert calls.get("uninstall") == [["eq_x"]]
+
+    def test_uninstall_modules_yes_skips_prompt(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(
+            db_cmd,
+            "text_input",
+            lambda *a, **k: pytest.fail("must not prompt with -y"),
+        )
+        result = self._restore(backup, "--sanitize", "-y")
+        assert result.exit_code == 0, result.output
+        assert "uninstall" not in calls
+
+    def test_uninstall_modules_failure_nonfatal_with_yes(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(db_cmd, "run_uninstall_modules", lambda name, modules, **k: (False, "boom"))
+        result = self._restore(backup, "--sanitize", "-y", "--uninstall-modules", "eq_x")
+        assert result.exit_code == 0, result.output
+        assert "non-fatal" in result.output
+        assert calls.get("cron") == ["testdb"]  # sanitize pipeline continued
+
+    def test_uninstall_modules_failure_interactive_abort(self, monkeypatch, tmp_path):
+        calls: dict[str, list] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        from odoodev.commands import db as db_cmd
+
+        monkeypatch.setattr(db_cmd, "run_uninstall_modules", lambda name, modules, **k: (False, "boom"))
+        # confirm stubbed to False in _patch_flow → decline "continue anyway" → abort
+        result = self._restore(backup, "--sanitize", "--uninstall-modules", "eq_x")
+        assert result.exit_code == 1
+        assert "Aborted" in result.output
+        assert "cron" not in calls  # sanitize pipeline never ran
 
     def test_purge_command_help(self):
         result = CliRunner().invoke(cli, ["db", "purge", "--help"])
@@ -1226,6 +1561,159 @@ class TestAnonymizeUsers:
         assert len(salt) > 0 and len(checksum) > 0
         # salted: two hashes of the same password must differ
         assert h != _pbkdf2_sha512_hash("ownerp")
+
+
+class TestListUsers:
+    """User listing for the db users TUI."""
+
+    _PSQL_OUT = (
+        "                ?column?                \n"
+        "----------------------------------------\n"
+        " 1\tadmin\tAdministrator\tt\tt\tf\n"
+        " 5\tjweber\tJörg Weber\tf\tt\tf\n"
+        " 7\tmmueller\tMax Müller\tt\tf\tf\n"
+        "(3 rows)\n"
+    )
+
+    def test_parses_users_from_psql_output(self, monkeypatch):
+        from odoodev.core.database import list_users
+
+        queries: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"id", "login", "active", "totp_secret", "share", "partner_id"},
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (queries.append(q), (True, self._PSQL_OUT))[1],
+        )
+        users = list_users("db")
+        assert [u.login for u in users] == ["admin", "jweber", "mmueller"]
+        admin, jweber, mmueller = users
+        assert admin.id == 1 and admin.totp_enabled and admin.active
+        assert jweber.id == 5 and not jweber.active and jweber.totp_enabled
+        assert mmueller.id == 7 and mmueller.active and not mmueller.totp_enabled
+        # portal users excluded by default, technical logins always excluded, admin kept
+        assert "share, false) = false" in queries[0]
+        assert "'__system__'" in queries[0]
+        assert "'admin'" not in queries[0]
+
+    def test_include_portal_drops_share_filter(self, monkeypatch):
+        from odoodev.core.database import list_users
+
+        queries: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"totp_secret", "share"},
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (queries.append(q), (True, ""))[1],
+        )
+        list_users("db", include_portal=True)
+        assert "= false" not in queries[0].split("WHERE", 1)[1].split("ORDER")[0].replace("share, false)", "")
+
+    def test_totp_column_guard(self, monkeypatch):
+        from odoodev.core.database import list_users
+
+        queries: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"id", "login", "share"},  # no totp_secret
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (queries.append(q), (True, " 1\tadmin\tAdministrator\tt\tf\tf\n"))[1],
+        )
+        users = list_users("db")
+        assert "totp_secret" not in queries[0]
+        assert users[0].totp_enabled is False
+
+    def test_missing_table_returns_empty(self, monkeypatch):
+        from odoodev.core.database import list_users
+
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: set())
+        assert list_users("db") == []
+
+
+class TestSetUserPassword:
+    def test_updates_password_with_hash_only(self, monkeypatch):
+        from odoodev.core.database import set_user_password
+
+        psql: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (psql.append(q), (True, "UPDATE 1"))[1],
+        )
+        ok, _ = set_user_password("db", 7, "sup3r-secret")
+        assert ok is True
+        assert len(psql) == 1
+        assert "UPDATE res_users SET password = " in psql[0]
+        assert "WHERE id = 7;" in psql[0]
+        assert "pbkdf2-sha512" in psql[0]
+        # the plaintext must never reach the SQL
+        assert "sup3r-secret" not in psql[0]
+
+
+class TestDisableUser2fa:
+    def test_clears_secret_and_devices(self, monkeypatch):
+        from odoodev.core.database import disable_user_2fa
+
+        psql: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"totp_secret"} if table == "res_users" else {"id", "user_id"},
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (psql.append(q), (True, ""))[1],
+        )
+        ok, msg = disable_user_2fa("db", 7)
+        assert ok is True
+        assert psql == [
+            "UPDATE res_users SET totp_secret = NULL WHERE id = 7;",
+            "DELETE FROM auth_totp_device WHERE user_id = 7;",
+        ]
+
+    def test_no_device_table_only_clears_secret(self, monkeypatch):
+        from odoodev.core.database import disable_user_2fa
+
+        psql: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"totp_secret"} if table == "res_users" else set(),
+        )
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: (psql.append(q), (True, ""))[1],
+        )
+        ok, _ = disable_user_2fa("db", 7)
+        assert ok is True
+        assert psql == ["UPDATE res_users SET totp_secret = NULL WHERE id = 7;"]
+
+    def test_no_totp_column_is_successful_noop(self, monkeypatch):
+        from odoodev.core.database import disable_user_2fa
+
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id", "login"})
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda q, **k: pytest.fail("no SQL must run without a totp_secret column"),
+        )
+        ok, msg = disable_user_2fa("db", 7)
+        assert ok is True
+        assert "not installed" in msg
+
+    def test_failure_propagates(self, monkeypatch):
+        from odoodev.core.database import disable_user_2fa
+
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"totp_secret"} if table == "res_users" else set(),
+        )
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda q, **k: (False, "boom"))
+        ok, msg = disable_user_2fa("db", 7)
+        assert ok is False
+        assert "boom" in msg
 
 
 class TestSqlGuards:

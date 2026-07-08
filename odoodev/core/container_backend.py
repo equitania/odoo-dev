@@ -22,7 +22,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-from odoodev.core.environment import command_exists, detect_user
+from odoodev.core.environment import command_exists, detect_os, detect_user, is_macos
 
 # Runtime identifiers used across config, CLI flags and the factory.
 RUNTIME_DOCKER = "docker"
@@ -336,6 +336,11 @@ def _parse_apple_stats(raw: str) -> str | None:
     return " / ".join(parts)
 
 
+def apple_runtime_supported() -> bool:
+    """Whether Apple Container is a viable runtime choice on this OS (macOS only)."""
+    return is_macos()
+
+
 def get_backend(runtime: str) -> ContainerBackend:
     """Return the backend for a runtime identifier.
 
@@ -343,11 +348,18 @@ def get_backend(runtime: str) -> ContainerBackend:
         runtime: One of ``"docker"`` / ``"apple"``.
 
     Raises:
+        SystemExit: If the Apple runtime is requested on a non-macOS host.
         ValueError: If the runtime is unknown.
     """
     if runtime == RUNTIME_DOCKER:
         return DockerBackend()
     if runtime == RUNTIME_APPLE:
+        if not apple_runtime_supported():
+            from odoodev.output import print_error, print_info
+
+            print_error(f"Apple Container is only supported on macOS (detected: {detect_os()}).")
+            print_info("Use --runtime docker, or: odoodev config set container_runtime docker")
+            raise SystemExit(1)
         return AppleContainerBackend()
     raise ValueError(f"Unknown container runtime '{runtime}'. Valid: {', '.join(VALID_RUNTIMES)}")
 

@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.44.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.45.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -25,6 +25,8 @@
 - DSGVO-Anonymisierung (Faker-basiert, inkl. HR-/Mitarbeiterdaten) mit automatischem Neuberechnen gespeicherter Computed Fields (`complete_name`), sodass Übersichten die anonymisierten Daten zeigen; `res_users` optional via `--anonymize-users`; eigenständiger Befehl `db recompute`
 - Bewegungsdaten-Reset für Stresstests: `db purge` / `db restore --purge-transactions` löscht Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS und setzt Bestände auf 0 — Produkte, Preislisten und Adressen bleiben erhalten
 - Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, opt-in) + ergänzende Bank-Sync-Bereinigung + eigenständiger Befehl `db neutralize`
+- Modul-Deinstallation vor den Sanitize-Schritten: `db restore --uninstall-modules mod1,mod2` (interaktive Abfrage ohne Flag) + eigenständiger Befehl `db uninstall`
+- Benutzer-Verwaltung als TUI: `db users` — Passwort-Reset und 2FA-Deaktivierung (TOTP) nach einem Restore, mit Suche und DB-Wechsel
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
@@ -172,6 +174,11 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.45.0:**
+- **Neu:** `db users` — interaktive TUI für die Benutzer-Verwaltung nach einem Restore: Benutzerliste mit 2FA-Status, `p` setzt ein neues Passwort (pbkdf2_sha512-Hash), `t` deaktiviert TOTP-2FA (Secret + vertrauenswürdige Geräte), `/` Suche, `d` Datenbank-Wechsel.
+- **Neu:** Modul-Deinstallation vor dem Sanitize: `db restore --uninstall-modules mod1,mod2` bzw. interaktive Abfrage (Enter überspringt) deinstalliert störende Module via `odoo-bin shell`, bevor Neutralize/Anonymize/Wipe laufen; zusätzlich eigenständiges `db uninstall` und Playbook-Argument `uninstall-modules`. `db restore` hat jetzt `-y/--yes` für Skripte.
+- **Geändert:** Apple Container wird nur noch auf macOS angeboten — auf Linux reduziert sich die Runtime-Auswahl auf eine Docker-Bestätigung; konfiguriertes `apple` fällt mit Warnung auf Docker zurück, explizites `--runtime apple` bricht ab.
+
 **Version 0.44.0:**
 - **Neu:** `db purge` / `db restore --purge-transactions` setzt eine Datenbank für Stresstests auf einen leeren Bewegungsdaten-Stand zurück — löscht Lagerbewegungen, Aufträge, Rechnungen, Lieferscheine (MRP/POS inklusive) und setzt Bestände auf 0, behält aber Produkte, Preislisten, Adressen, Benutzer und Konfiguration. Mit `--anonymize` kombinierbar. `--dry-run` zeigt die Zieltabellen; separates Opt-in (nicht in `--sanitize`).
 - **Behoben:** Nach der Anonymisierung zeigen Kanban- und Rechnungsübersichten jetzt die anonymisierten Daten. Die per Raw-SQL geänderten Felder ließen das gespeicherte `complete_name` (aus dem `display_name` liest) veraltet — `db restore --anonymize` berechnet die betroffenen Computed Fields jetzt via `odoo-bin shell` neu; eigenständiger Befehl `db recompute`, abschaltbar mit `--no-recompute`.
@@ -285,6 +292,8 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - GDPR anonymization (Faker-based, incl. HR/employee data) with automatic recompute of stored computed fields (`complete_name`) so overviews show the anonymized data; `res_users` opt-in via `--anonymize-users`; standalone `db recompute` command
 - Transactional-data reset for stress tests: `db purge` / `db restore --purge-transactions` deletes stock/sale/purchase/accounting/MRP/POS data and zeroes stock — products, pricelists and partners are kept
 - Native Odoo neutralization on restore (`odoo-bin neutralize`, opt-in) + supplementary bank-sync cleanup + standalone `db neutralize` command
+- Module uninstall before the sanitize steps: `db restore --uninstall-modules mod1,mod2` (interactive prompt without the flag) + standalone `db uninstall` command
+- User management TUI: `db users` — password reset and 2FA (TOTP) disable after a restore, with search and DB switching
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
@@ -431,6 +440,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.45.0:**
+- **Added:** `db users` — interactive TUI for user management after a restore: user list with 2FA status, `p` sets a new password (pbkdf2_sha512 hash), `t` disables TOTP 2FA (secret + trusted devices), `/` search, `d` database switch.
+- **Added:** Module uninstall before sanitizing: `db restore --uninstall-modules mod1,mod2` or an interactive prompt (Enter skips) uninstalls conflicting modules via `odoo-bin shell` before neutralize/anonymize/wipe run; also standalone `db uninstall` and playbook arg `uninstall-modules`. `db restore` gained `-y/--yes` for scripting.
+- **Changed:** Apple Container is only offered on macOS — on Linux the runtime picker collapses to a Docker confirm; a configured `apple` falls back to Docker with a warning, an explicit `--runtime apple` errors out.
 
 **Version 0.44.0:**
 - **Added:** `db purge` / `db restore --purge-transactions` resets a database to an empty transactional state for stress tests — deletes stock moves, orders, invoices, deliveries (incl. MRP/POS) and zeroes stock, while keeping products, pricelists, partners, users and configuration. Combines with `--anonymize`. `--dry-run` lists the target tables; a separate opt-in (not in `--sanitize`).

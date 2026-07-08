@@ -37,10 +37,15 @@ def _parse_and_validate(key: str, raw_value: str) -> str | list[str]:
             )
         return requested
     if key == "container_runtime":
-        from odoodev.core.container_backend import VALID_RUNTIMES
+        from odoodev.core.container_backend import RUNTIME_APPLE, VALID_RUNTIMES, apple_runtime_supported
 
         if raw_value not in VALID_RUNTIMES:
             raise click.UsageError(f"Invalid container_runtime '{raw_value}'. Valid: {', '.join(VALID_RUNTIMES)}")
+        if raw_value == RUNTIME_APPLE and not apple_runtime_supported():
+            print_warning(
+                "Apple Container is only supported on macOS; this setting has no effect on this machine "
+                "until it is used on one."
+            )
         return raw_value
     if key in ("base_dir", "db.user", "db.password"):
         if not raw_value.strip():

@@ -37,12 +37,14 @@ from odoodev.core.database import (
     list_databases,
     move_filestore,
     neutralize_bank_sync,
+    parse_module_names,
     purge_transactional_data,
     rename_database,
     resolve_purge_tables,
     restore_database,
     run_neutralize,
     run_recompute,
+    run_uninstall_modules,
     terminate_connections,
     wipe_database,
 )
@@ -441,6 +443,14 @@ def db_rename(
     show_default=True,
     help="Dev password set on anonymized users (only with --anonymize-users)",
 )
+@click.option(
+    "--uninstall-modules",
+    "uninstall_modules_raw",
+    default=None,
+    help="Comma-separated technical module names to uninstall before the sanitize steps run "
+    "(prompted when omitted, interactive, and a sanitize step is enabled)",
+)
+@click.option("-y", "--yes", "yes_flag", is_flag=True, help="Skip confirmation prompts")
 @click.option("--keep-temp", is_flag=True, help="Keep extracted temp files (filestore is copied, not moved)")
 @click.option(
     "--check-space/--no-check-space",
@@ -473,6 +483,8 @@ def db_restore(
     recompute: bool | None,
     anon_users: bool,
     user_password: str,
+    uninstall_modules_raw: str | None,
+    yes_flag: bool,
     keep_temp: bool,
     check_space: bool,
     delete_backup: bool,
@@ -519,6 +531,17 @@ def db_restore(
     if not _validate_db_name(name):
         print_error(f"Invalid database name: '{name}' (only letters, digits, underscores allowed)")
         raise SystemExit(1)
+
+    # Modules to uninstall before sanitizing (some modules break the sanitize
+    # steps). Asked up front so all interactive questions precede the
+    # destructive work.
+    uninstall_modules = parse_module_names(uninstall_modules_raw)
+    if uninstall_modules_raw is None and not yes_flag and any((deactivate_cron, neutralize, anonymize, wipe)):
+        answer = text_input(
+            "Modules to uninstall before sanitizing (comma-separated technical names, Enter to skip):",
+            default="",
+        )
+        uninstall_modules = parse_module_names(answer)
 
     backup_file = os.path.abspath(backup_file)
     print_info(f"Restoring database '{name}' from {os.path.basename(backup_file)}")
@@ -585,6 +608,31 @@ def db_restore(
             print_success("Filestore transferred")
         else:
             print_warning("Filestore transfer failed — attachments may be missing")
+
+    # Uninstall conflicting modules BEFORE any sanitize step runs.
+    if uninstall_modules:
+        from odoodev.commands.start import resolve_odoo_invocation
+
+        inv = resolve_odoo_invocation(version_cfg, env_vars)
+        if inv is None:
+            print_warning(
+                "Module uninstall skipped — venv/odoo-bin/odoo_*.conf not ready "
+                f"(run 'odoodev db uninstall {version} -n {name} -m {','.join(uninstall_modules)}' after setup)"
+            )
+        else:
+            print_info(f"Uninstalling module(s): {', '.join(uninstall_modules)}...")
+            ok, msg = run_uninstall_modules(name, uninstall_modules, **inv)
+            if ok:
+                _print_uninstall_markers(msg)
+                print_success("Module uninstall complete")
+            else:
+                print_warning(f"Module uninstall failed (non-fatal): {msg.strip()}")
+                if not yes_flag and any((deactivate_cron, neutralize, anonymize, wipe)):
+                    # These modules may break the sanitize steps — give the
+                    # operator a chance to bail before touching the DB further.
+                    if not confirm("Continue with the sanitize pipeline despite the uninstall failure?", default=False):
+                        print_info("Aborted.")
+                        raise SystemExit(1)
 
     # Post-restore operations
     if deactivate_cron:
@@ -753,6 +801,110 @@ def db_neutralize(
         print_info("Disabling bank synchronisation...")
         if not neutralize_bank_sync(name, **params):
             print_warning("Bank-sync neutralization partially failed — some tables may be missing (non-fatal)")
+
+
+def _print_uninstall_markers(output: str) -> None:
+    """Pretty-print the ``odoodev-uninstall: ...`` marker lines from the shell output."""
+    for line in output.strip().splitlines():
+        if line.startswith("odoodev-uninstall: "):
+            console.print(f"  {line.removeprefix('odoodev-uninstall: ')}")
+
+
+@db.command("uninstall")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option("-m", "--modules", "modules_raw", default=None, help="Comma-separated technical module names")
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.pass_context
+def db_uninstall(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+    modules_raw: str | None,
+    yes: bool,
+) -> None:
+    """Uninstall modules via 'odoo-bin shell' (button_immediate_uninstall).
+
+    Only modules currently installed are targeted; names that don't exist or
+    aren't installed are reported, not treated as errors. Useful when a module
+    conflicts with the sanitize steps after a restore. Requires a ready dev
+    environment (venv, server checkout, generated odoo_*.conf).
+    """
+    from odoodev.commands.start import resolve_odoo_invocation
+
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    if modules_raw is None:
+        modules_raw = text_input("Modules to uninstall (comma-separated technical names):", default="")
+    modules = parse_module_names(modules_raw)
+    if not modules:
+        print_error("No module names given")
+        raise SystemExit(1)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    if not yes:
+        print_warning(f"This will uninstall {len(modules)} module(s) from '{name}': {', '.join(modules)}")
+        if not confirm("Proceed? Module data will be dropped by Odoo.", default=False):
+            print_info("Aborted.")
+            return
+
+    inv = resolve_odoo_invocation(version_cfg, env_vars)
+    if inv is None:
+        print_error(
+            "Cannot uninstall — venv, odoo-bin or odoo_*.conf not found. Run 'odoodev init' / 'odoodev repos' first."
+        )
+        raise SystemExit(1)
+
+    print_info(f"Uninstalling module(s) in '{name}': {', '.join(modules)}...")
+    ok, output = run_uninstall_modules(name, modules, **inv)
+    if not ok:
+        print_error(f"Module uninstall failed: {output.strip()}")
+        raise SystemExit(1)
+    _print_uninstall_markers(output)
+    print_success(f"Module uninstall complete in '{name}'")
+
+
+@db.command("users")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (picker shown inside the TUI if omitted)")
+@click.pass_context
+def db_users(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+) -> None:
+    """Interactive TUI for user management: password reset + 2FA disable.
+
+    Browse the users of a restored database, set a new password (stored as an
+    Odoo-compatible pbkdf2_sha512 hash) and disable TOTP two-factor
+    authentication — handy after restoring a production backup for development.
+    """
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    if name and not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    from odoodev.tui.users_app import UsersTuiApp
+
+    app = UsersTuiApp(db_name=name or "", host=params["host"], port=params["port"], user=params["user"])
+    app.run()
 
 
 @db.command("purge")

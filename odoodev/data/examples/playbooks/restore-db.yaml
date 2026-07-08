@@ -15,6 +15,9 @@ steps:
       drop: true
       deactivate-cron: true
       neutralize: true
+      # Optional: uninstall modules that conflict with the sanitize steps
+      # before neutralize/anonymize/wipe run (string or YAML list).
+      # uninstall-modules: [account_online_synchronization, l10n_de_datev]
 
   - name: "Start Odoo dev server"
     command: start

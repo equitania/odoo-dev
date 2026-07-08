@@ -135,6 +135,8 @@ jede Nachbehandlung muss explizit per Flag angefordert werden:
 | `--anonymize-users` | `res_users` anonymisieren — eigenstaendig, NICHT in `--sanitize` enthalten |
 | `--purge-transactions` | Transaktionsdaten loeschen (Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS) fuer eine saubere Stresstest-DB — eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.44.0) |
 | `--recompute` | Stored-Computed-Felder neu berechnen (z.B. `complete_name`) — automatisch nach `--anonymize`, abschaltbar mit `--no-recompute` (seit v0.44.0) |
+| `--uninstall-modules` | Module VOR den Sanitize-Schritten deinstallieren (kommagetrennte technische Namen); ohne Flag fragt der interaktive Modus nach, wenn ein Sanitize-Schritt aktiv ist (seit v0.45.0) |
+| `-y/--yes` | Interaktive Rueckfragen ueberspringen (Modul-Abfrage, Fehler-Bestaetigung) — fuer Skripte (seit v0.45.0) |
 
 Ohne Flags weist die Ausgabe darauf hin, dass die Datenbank unangetastet blieb.
 
@@ -232,6 +234,59 @@ Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis 
 > **Kunden-Sonderdokument:** Eine ausfuehrliche, kundenfaehige Darstellung beider Schutzschichten
 > (DSGVO-Kontext, vollstaendige Feldtabelle, Audit-Snippets, Restrisiken) liegt unter
 > [data-protection.md](data-protection.md).
+
+### Modul-Deinstallation vor Sanitize (`--uninstall-modules` / `db uninstall`, seit v0.45.0)
+
+Manche installierten Module vertragen sich nicht mit den Sanitize-Schritten (z.B.
+Bank-Sync-/Cloud-Module). `db restore` kann sie deshalb VOR neutralize/anonymize/wipe
+deinstallieren — via `odoo-bin shell` (`button_immediate_uninstall`):
+
+```bash
+# Explizit per Flag
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --uninstall-modules account_online_synchronization,l10n_de_datev
+
+# Interaktiv: ohne Flag fragt der Restore nach, wenn ein Sanitize-Schritt aktiv ist
+# (Enter ueberspringt); -y unterdrueckt die Abfrage
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize
+```
+
+- Nicht gefundene oder nicht installierte Modulnamen sind Warnungen, keine Fehler.
+- Schlaegt die Deinstallation fehl, fragt der interaktive Modus, ob die Sanitize-Pipeline
+  trotzdem fortgesetzt werden soll (Standard: Abbruch); mit `-y` laeuft sie mit Warnung weiter.
+- Braucht eine fertige Dev-Umgebung (venv, odoo-bin, odoo_*.conf) — sonst graceful skip.
+
+Eigenstaendig, wenn die DB schon restored ist:
+
+```bash
+odoodev db uninstall 18 -n v18_test -m account_online_synchronization,l10n_de_datev
+odoodev db uninstall 18 -n v18_test -m eq_xyz -y    # ohne Rueckfrage
+```
+
+Im Playbook (`db.restore`): `uninstall-modules: [mod1, mod2]` (oder kommagetrennter String).
+
+### Benutzer-Verwaltung (`db users`, seit v0.45.0)
+
+Interaktive TUI fuer den Dev-Alltag nach einem Restore — Passwort zuruecksetzen und
+Zwei-Faktor-Authentifizierung (TOTP) deaktivieren:
+
+```bash
+odoodev db users 18                 # DB-Auswahl in der TUI
+odoodev db users 18 -n v18_test     # direkt in die Benutzerliste
+```
+
+| Taste | Aktion |
+|-------|--------|
+| `p` | Neues Passwort setzen (vorbelegt mit dem Dev-Passwort, als pbkdf2_sha512-Hash gespeichert) |
+| `t` | 2FA deaktivieren: `totp_secret` leeren + `auth_totp_device` (vertrauenswuerdige Geraete) loeschen |
+| `d` | Datenbank wechseln |
+| `/` | Suche (Login/Name), `Esc` leert den Filter |
+| `a` | Portal-Benutzer ein-/ausblenden |
+| `r` | Liste neu laden |
+| `q` | Beenden |
+
+Die 2FA-Spalte zeigt `totp_secret IS NOT NULL`; Datenbanken ohne `auth_totp`-Modul werden
+schema-geschuetzt behandelt (Deaktivieren ist dann ein No-op). Technische Konten
+(`__system__`, `public`, ...) sind ausgeblendet, `admin` bleibt sichtbar.
 
 ### Transaktionsdaten purgen (`db purge` / `--purge-transactions`, seit v0.44.0)
 
@@ -427,6 +482,8 @@ post-processing step must be requested explicitly:
 | `--anonymize-users` | Anonymize `res_users` — standalone, NOT included in `--sanitize` |
 | `--purge-transactions` | Delete transactional data (stock/sales/purchase/accounting/MRP/POS) for a clean stress-test DB — standalone, NOT included in `--sanitize` (since v0.44.0) |
 | `--recompute` | Recompute stored computed fields (e.g. `complete_name`) — automatic after `--anonymize`, disable with `--no-recompute` (since v0.44.0) |
+| `--uninstall-modules` | Uninstall modules BEFORE the sanitize steps (comma-separated technical names); without the flag the interactive mode asks when a sanitize step is enabled (since v0.45.0) |
+| `-y/--yes` | Skip interactive prompts (module question, failure confirmation) — for scripts (since v0.45.0) |
 
 Without processing flags the output notes that the database was left untouched.
 
@@ -523,6 +580,59 @@ When running `odoodev db drop`, the filestore directory is also removed (with no
 > **Customer-facing reference:** A detailed, customer-ready write-up of both protection layers
 > (GDPR context, full field table, audit snippets, residual risks) lives at
 > [data-protection.md](data-protection.md).
+
+### Module uninstall before sanitizing (`--uninstall-modules` / `db uninstall`, since v0.45.0)
+
+Some installed modules conflict with the sanitize steps (e.g. bank-sync/cloud modules).
+`db restore` can therefore uninstall them BEFORE neutralize/anonymize/wipe run — via
+`odoo-bin shell` (`button_immediate_uninstall`):
+
+```bash
+# Explicit flag
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --uninstall-modules account_online_synchronization,l10n_de_datev
+
+# Interactive: without the flag the restore asks when a sanitize step is enabled
+# (Enter skips); -y suppresses the prompt
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize
+```
+
+- Module names that don't exist or aren't installed are warnings, not errors.
+- If the uninstall fails, the interactive mode asks whether to continue the sanitize
+  pipeline anyway (default: abort); with `-y` it continues with a warning.
+- Requires a ready dev environment (venv, odoo-bin, odoo_*.conf) — graceful skip otherwise.
+
+Standalone, when the DB is already restored:
+
+```bash
+odoodev db uninstall 18 -n v18_test -m account_online_synchronization,l10n_de_datev
+odoodev db uninstall 18 -n v18_test -m eq_xyz -y    # without confirmation
+```
+
+In playbooks (`db.restore`): `uninstall-modules: [mod1, mod2]` (or a comma-separated string).
+
+### User management (`db users`, since v0.45.0)
+
+Interactive TUI for the dev workflow after a restore — reset passwords and disable
+two-factor authentication (TOTP):
+
+```bash
+odoodev db users 18                 # database picker inside the TUI
+odoodev db users 18 -n v18_test     # straight into the user list
+```
+
+| Key | Action |
+|-----|--------|
+| `p` | Set a new password (pre-filled with the dev password, stored as a pbkdf2_sha512 hash) |
+| `t` | Disable 2FA: clear `totp_secret` + delete `auth_totp_device` (trusted devices) |
+| `d` | Switch database |
+| `/` | Search (login/name), `Esc` clears the filter |
+| `a` | Show/hide portal users |
+| `r` | Reload the list |
+| `q` | Quit |
+
+The 2FA column shows `totp_secret IS NOT NULL`; databases without the `auth_totp` module
+are schema-guarded (disabling is a no-op there). Technical accounts (`__system__`,
+`public`, ...) are hidden, `admin` stays visible.
 
 ### Purge transactional data (`db purge` / `--purge-transactions`, since v0.44.0)
 

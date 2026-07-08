@@ -11,6 +11,7 @@ from odoodev.core.automation import (
     COMMAND_HANDLERS,
     handle_db_drop,
     handle_db_list,
+    handle_db_restore,
     handle_docker_down,
     handle_docker_status,
     handle_docker_up,
@@ -130,6 +131,87 @@ class TestDbHandlers:
         result = handle_db_drop(mock_version_cfg, {})
         assert result.status == "error"
         assert "name" in result.message.lower()
+
+
+class TestDbRestoreHandler:
+    """Playbook db.restore — focused on the module-uninstall wiring (v0.45.0)."""
+
+    def _patch_restore_flow(self, monkeypatch, tmp_path, calls):
+        """Stub the whole restore flow on the database module (imported lazily)."""
+        import odoodev.core.database as dbmod
+
+        monkeypatch.setattr("odoodev.core.automation._load_env_vars", lambda cfg: {})
+        monkeypatch.setattr(dbmod, "drop_database", lambda name, **k: True)
+        monkeypatch.setattr(dbmod, "get_restore_temp_dir", lambda b: str(tmp_path / "extract"))
+        monkeypatch.setattr(dbmod, "get_filestore_path", lambda v, n: str(tmp_path / "fs"))
+        monkeypatch.setattr(dbmod, "check_restore_space", lambda b, t, d: (True, "", 0))
+        monkeypatch.setattr(dbmod, "extract_backup", lambda b, e: True)
+        monkeypatch.setattr(dbmod, "detect_backup_type", lambda e: {"sql_file": "/x", "filestore": None})
+        monkeypatch.setattr(dbmod, "create_database", lambda name, **k: True)
+        monkeypatch.setattr(dbmod, "restore_database", lambda name, sql, **k: True)
+        monkeypatch.setattr(dbmod, "cleanup_restore_temp", lambda e: None)
+        monkeypatch.setattr(
+            dbmod, "deactivate_cronjobs", lambda name, **k: (calls.setdefault("cron", []).append(name), True)[1]
+        )
+        monkeypatch.setattr(
+            dbmod,
+            "run_uninstall_modules",
+            lambda name, modules, **k: (calls.setdefault("uninstall", []).append(list(modules)), (True, ""))[1],
+        )
+        monkeypatch.setattr("odoodev.commands.start.resolve_odoo_invocation", lambda vc, ev: {})
+
+    def _restore_args(self, tmp_path, **extra):
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        return {"name": "testdb", "backup-file": str(backup), **extra}
+
+    def test_uninstall_modules_string_arg(self, monkeypatch, tmp_path, mock_version_cfg):
+        calls: dict[str, list] = {}
+        self._patch_restore_flow(monkeypatch, tmp_path, calls)
+        args = self._restore_args(tmp_path, **{"uninstall-modules": "eq_a, eq_b"})
+        result = handle_db_restore(mock_version_cfg, args)
+        assert result.status == "ok"
+        assert calls.get("uninstall") == [["eq_a", "eq_b"]]
+
+    def test_uninstall_modules_underscore_key_and_list(self, monkeypatch, tmp_path, mock_version_cfg):
+        calls: dict[str, list] = {}
+        self._patch_restore_flow(monkeypatch, tmp_path, calls)
+        args = self._restore_args(tmp_path, uninstall_modules=["eq_a", "eq_a", " eq_b "])
+        result = handle_db_restore(mock_version_cfg, args)
+        assert result.status == "ok"
+        assert calls.get("uninstall") == [["eq_a", "eq_b"]]
+
+    def test_uninstall_runs_before_deactivate_cron(self, monkeypatch, tmp_path, mock_version_cfg):
+        order: list[str] = []
+        calls: dict[str, list] = {}
+        self._patch_restore_flow(monkeypatch, tmp_path, calls)
+        import odoodev.core.database as dbmod
+
+        monkeypatch.setattr(
+            dbmod, "run_uninstall_modules", lambda name, modules, **k: (order.append("uninstall"), (True, ""))[1]
+        )
+        monkeypatch.setattr(dbmod, "deactivate_cronjobs", lambda name, **k: (order.append("cron"), True)[1])
+        args = self._restore_args(tmp_path, **{"uninstall-modules": "eq_a", "deactivate-cron": True})
+        result = handle_db_restore(mock_version_cfg, args)
+        assert result.status == "ok"
+        assert order == ["uninstall", "cron"]
+
+    def test_uninstall_failure_is_nonfatal(self, monkeypatch, tmp_path, mock_version_cfg):
+        calls: dict[str, list] = {}
+        self._patch_restore_flow(monkeypatch, tmp_path, calls)
+        import odoodev.core.database as dbmod
+
+        monkeypatch.setattr(dbmod, "run_uninstall_modules", lambda name, modules, **k: (False, "boom"))
+        args = self._restore_args(tmp_path, **{"uninstall-modules": "eq_a", "sanitize": False})
+        result = handle_db_restore(mock_version_cfg, args)
+        assert result.status == "ok"
+
+    def test_no_uninstall_without_arg(self, monkeypatch, tmp_path, mock_version_cfg):
+        calls: dict[str, list] = {}
+        self._patch_restore_flow(monkeypatch, tmp_path, calls)
+        result = handle_db_restore(mock_version_cfg, self._restore_args(tmp_path))
+        assert result.status == "ok"
+        assert "uninstall" not in calls
 
 
 # =============================================================================

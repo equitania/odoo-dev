@@ -617,14 +617,28 @@ def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | Non
     ``--runtime`` wins outright. Otherwise, when interactive, offer the choice
     (default = configured runtime) plus a 'skip' option; non-interactive uses the
     configured default. When interactive and the effective runtime differs from
-    the stored default, offer to persist it. Returns the runtime id, or None to
-    skip starting services.
+    the stored default, offer to persist it. Apple Container is only offered on
+    macOS — on other platforms the picker collapses to a Docker yes/no confirm,
+    and a configured/overridden 'apple' falls back to Docker (warning) or errors
+    out (explicit ``--runtime apple``). Returns the runtime id, or None to skip
+    starting services.
     """
-    from odoodev.core.container_backend import resolve_runtime
+    from odoodev.core.container_backend import (
+        RUNTIME_APPLE,
+        RUNTIME_DOCKER,
+        apple_runtime_supported,
+        resolve_runtime,
+    )
 
     configured = resolve_runtime(None)
+    if configured == RUNTIME_APPLE and not apple_runtime_supported():
+        print_warning("Configured runtime 'apple' is not supported on this OS — using 'docker' instead.")
+        configured = RUNTIME_DOCKER
 
     if runtime_override:
+        if runtime_override == RUNTIME_APPLE and not apple_runtime_supported():
+            print_error("Apple Container is only supported on macOS. Use --runtime docker.")
+            raise SystemExit(1)
         chosen = resolve_runtime(runtime_override)
         if not no_confirm:
             _persist_runtime_if_confirmed(chosen, configured)
@@ -632,6 +646,12 @@ def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | Non
 
     if no_confirm:
         return configured
+
+    if not apple_runtime_supported():
+        if not confirm("PostgreSQL is not running. Start it with Docker?", default=True):
+            return None
+        _persist_runtime_if_confirmed(RUNTIME_DOCKER, configured)
+        return RUNTIME_DOCKER
 
     import questionary
 

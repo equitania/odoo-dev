@@ -76,6 +76,15 @@ class TestConfigSet:
         assert result.exit_code != 0
         assert "Invalid container_runtime" in result.output
 
+    def test_set_container_runtime_apple_warns_on_non_macos(self, monkeypatch, tmp_path):
+        _isolate_config(monkeypatch, tmp_path)
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: False)
+        result = CliRunner().invoke(cli, ["config", "set", "container_runtime", "apple"])
+        assert result.exit_code == 0
+        assert "only supported on macOS" in result.output
+        global_config.clear_config_cache()
+        assert global_config.load_global_config().container_runtime == "apple"
+
     def test_set_unknown_key(self, monkeypatch, tmp_path):
         _isolate_config(monkeypatch, tmp_path)
         result = CliRunner().invoke(cli, ["config", "set", "bogus", "x"])

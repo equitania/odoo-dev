@@ -1,5 +1,37 @@
 # Release Notes
 
+## Version 0.45.0 (08.07.2026)
+
+### Added
+- **`odoodev db users` — interactive TUI for user management after a restore.** Textual-based
+  user browser (Login / Name / 2FA / Active columns, live search with `/`, portal-user toggle
+  with `a`, DB switch with `d`): `p` sets a new password (stored as an Odoo-compatible
+  `pbkdf2_sha512` hash, input pre-filled with the team dev password), `t` disables TOTP
+  two-factor authentication (clears `res_users.totp_secret` and removes `auth_totp_device`
+  trusted devices, both schema-guarded so databases without `auth_totp` are a safe no-op).
+  Without `-n` the database picker opens inside the TUI. New core helpers `list_users()`,
+  `set_user_password()`, `disable_user_2fa()`.
+- **Module uninstall before the sanitize pipeline.** Some installed modules conflict with the
+  sanitize steps — `odoodev db restore` now accepts `--uninstall-modules mod1,mod2`
+  (technical names) and, when run interactively with a sanitize step enabled and no flag
+  given, asks which modules to uninstall (Enter skips). The uninstall runs via
+  `odoo-bin shell` (`button_immediate_uninstall`) BEFORE deactivate-cron/neutralize/
+  anonymize/wipe; not-found / not-installed names are reported as warnings, not errors.
+  On uninstall failure the interactive flow asks whether to continue the sanitize pipeline
+  (default: abort). Also available standalone as `odoodev db uninstall [-n DB] -m mod1,mod2`
+  and as playbook arg `uninstall-modules` (string or YAML list) for `db.restore`.
+- **`db restore` gained `-y/--yes`** to skip its interactive prompts (module-uninstall
+  question, uninstall-failure confirmation) for scripted use.
+
+### Changed
+- **Apple Container is only offered on macOS.** The runtime picker in `odoodev start`
+  (PostgreSQL not running) and the setup wizard no longer list Apple Container on Linux —
+  on non-macOS hosts the picker collapses to a simple "Start it with Docker?" confirm.
+  A configured `container_runtime: apple` (e.g. synced config) falls back to Docker with a
+  warning; an explicit `--runtime apple` on non-macOS errors out; `config set
+  container_runtime apple` warns but still persists (shared-config friendly). New guard in
+  `get_backend()` as the single enforcement point.
+
 ## Version 0.44.4 (06.07.2026)
 
 ### Changed

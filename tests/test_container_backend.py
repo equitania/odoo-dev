@@ -192,8 +192,15 @@ class TestFactory:
     def test_docker(self):
         assert isinstance(get_backend(RUNTIME_DOCKER), DockerBackend)
 
-    def test_apple(self):
+    def test_apple(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: True)
         assert isinstance(get_backend(RUNTIME_APPLE), AppleContainerBackend)
+
+    def test_apple_raises_when_unsupported(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: False)
+        with pytest.raises(SystemExit) as exc:
+            get_backend(RUNTIME_APPLE)
+        assert exc.value.code == 1
 
     def test_unknown_raises(self):
         with pytest.raises(ValueError):

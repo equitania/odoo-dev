@@ -34,6 +34,52 @@ def config_dir(tmp_dir, monkeypatch):
     return config_path
 
 
+class TestSelectContainerRuntime:
+    """Platform gating of the runtime question in the setup wizard."""
+
+    def test_non_macos_returns_docker_without_prompt(self, monkeypatch):
+        from odoodev.commands.setup_cmd import _select_container_runtime
+
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: False)
+        monkeypatch.setattr(
+            "questionary.select",
+            lambda *a, **k: pytest.fail("questionary.select must not be called on non-macOS"),
+        )
+        assert _select_container_runtime("apple", style=None) == "docker"
+
+    def test_macos_offers_both_runtimes(self, monkeypatch):
+        from odoodev.commands.setup_cmd import _select_container_runtime
+
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: True)
+        captured = {}
+
+        class _FakePrompt:
+            def ask(self):
+                return "apple"
+
+        def fake_select(message, choices=None, default=None, style=None):
+            captured["values"] = [c.value for c in choices]
+            captured["default"] = default
+            return _FakePrompt()
+
+        monkeypatch.setattr("questionary.select", fake_select)
+        assert _select_container_runtime("docker", style=None) == "apple"
+        assert captured["values"] == ["docker", "apple"]
+        assert captured["default"] == "docker"
+
+    def test_macos_cancel_returns_none(self, monkeypatch):
+        from odoodev.commands.setup_cmd import _select_container_runtime
+
+        monkeypatch.setattr("odoodev.core.container_backend.apple_runtime_supported", lambda: True)
+
+        class _FakePrompt:
+            def ask(self):
+                return None
+
+        monkeypatch.setattr("questionary.select", lambda *a, **k: _FakePrompt())
+        assert _select_container_runtime("docker", style=None) is None
+
+
 class TestSetupNonInteractive:
     """Test non-interactive setup."""
 

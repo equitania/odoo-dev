@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import click
 
 from odoodev import i18n
@@ -30,6 +32,31 @@ from odoodev.output import (
     print_table,
     print_warning,
 )
+
+
+def _select_container_runtime(default_runtime: str, style: Any) -> str | None:
+    """Ask for the container runtime, offering Apple Container on macOS only.
+
+    On other platforms there is nothing to choose — returns ``"docker"``
+    without prompting. Returns None when the user cancels the prompt.
+    """
+    import questionary
+
+    from odoodev.core.container_backend import RUNTIME_APPLE, RUNTIME_DOCKER, apple_runtime_supported
+
+    if not apple_runtime_supported():
+        return RUNTIME_DOCKER
+
+    runtime_choices = [
+        questionary.Choice("Docker (Docker Desktop / Docker Engine)", value=RUNTIME_DOCKER),
+        questionary.Choice("Apple Container (macOS 26+, Apple silicon)", value=RUNTIME_APPLE),
+    ]
+    return questionary.select(
+        i18n.t("setup.runtime_question"),
+        choices=runtime_choices,
+        default=default_runtime if default_runtime in (RUNTIME_DOCKER, RUNTIME_APPLE) else RUNTIME_DOCKER,
+        style=style,
+    ).ask()
 
 
 def _run_interactive_wizard() -> GlobalConfig:
@@ -101,16 +128,7 @@ def _run_interactive_wizard() -> GlobalConfig:
 
     # Step 2b: Container runtime for the local PostgreSQL service
     default_runtime = load_global_config().container_runtime if config_exists() else DEFAULT_CONTAINER_RUNTIME
-    runtime_choices = [
-        questionary.Choice("Docker (Docker Desktop / Docker Engine)", value="docker"),
-        questionary.Choice("Apple Container (macOS 26+, Apple silicon)", value="apple"),
-    ]
-    container_runtime = questionary.select(
-        i18n.t("setup.runtime_question"),
-        choices=runtime_choices,
-        default=default_runtime,
-        style=style,
-    ).ask()
+    container_runtime = _select_container_runtime(default_runtime, style)
     if container_runtime is None:
         raise SystemExit(0)
 

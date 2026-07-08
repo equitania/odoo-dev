@@ -997,6 +997,84 @@ def run_recompute(
         return False, e.stderr
 
 
+def parse_module_names(raw: str | list[str] | None) -> list[str]:
+    """Normalize a module-list argument into a deduped, order-preserving list.
+
+    Accepts a comma-separated string (CLI option / interactive prompt) or a
+    list (playbook YAML), stripping blanks and dropping duplicates.
+    """
+    if not raw:
+        return []
+    items = raw if isinstance(raw, list) else str(raw).split(",")
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        name = str(item).strip()
+        if name and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
+def _build_uninstall_modules_script(modules: list[str]) -> str:
+    """Build the ``odoo-bin shell`` script that uninstalls the given modules.
+
+    Only modules actually in state 'installed' are targeted; names that don't
+    exist or aren't installed are reported via stdout markers, not treated as
+    failures — a stale/optional module name is a common, harmless input.
+    ``button_immediate_uninstall`` commits internally, but ``odoo-bin shell``
+    rolls back on exit, so commit explicitly for consistency.
+    """
+    return textwrap.dedent(
+        f"""\
+        MODULES = {modules!r}
+        _Module = env["ir.module.module"].with_context(active_test=False)
+        _found = _Module.search([("name", "in", MODULES)])
+        _installed = _found.filtered(lambda m: m.state == "installed")
+        _installed_names = sorted(_installed.mapped("name"))
+        for _name in sorted(set(MODULES) - set(_found.mapped("name"))):
+            print(f"odoodev-uninstall: not-found {{_name}}")
+        for _name in sorted(set(_found.mapped("name")) - set(_installed_names)):
+            print(f"odoodev-uninstall: not-installed {{_name}}")
+        if _installed:
+            _installed.button_immediate_uninstall()
+            env.cr.commit()
+        for _name in _installed_names:
+            print(f"odoodev-uninstall: uninstalled {{_name}}")
+        """
+    )
+
+
+def run_uninstall_modules(
+    db_name: str,
+    modules: list[str],
+    venv_python: str,
+    odoo_bin: str,
+    config_path: str,
+    env: dict[str, str],
+    cwd: str,
+) -> tuple[bool, str]:
+    """Uninstall the given technical module names via ``odoo-bin shell``.
+
+    Runs before the sanitize pipeline (neutralize/anonymize/wipe) so modules
+    that interfere with those steps are removed first. Same kwargs as
+    :func:`run_neutralize`/:func:`run_recompute` (from ``resolve_odoo_invocation``),
+    so callers use ``run_uninstall_modules(name, modules, **inv)``.
+
+    Returns:
+        Tuple of (success, output_or_error). The output contains
+        ``odoodev-uninstall: ...`` marker lines for not-found / not-installed /
+        uninstalled modules.
+    """
+    cmd = [venv_python, odoo_bin, "shell", "-c", config_path, "-d", db_name, "--no-http"]
+    script = _build_uninstall_modules_script(modules)
+    try:
+        result = subprocess.run(cmd, env=env, cwd=cwd, input=script, check=True, capture_output=True, text=True)
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        return False, e.stderr
+
+
 # --------------------------------------------------------------------------- #
 # GDPR data anonymization (post-restore)
 #
@@ -1574,6 +1652,144 @@ def anonymize_users(
         success = False
 
     return success
+
+
+# --------------------------------------------------------------------------- #
+# User management (db users TUI): password reset + 2FA disable
+#
+
+# Technical accounts hidden from the user-management view. Unlike
+# _USER_ANON_WHERE, 'admin' is NOT excluded — resetting admin's password/2FA is
+# a legitimate target after restoring a database for development.
+_USER_LIST_EXCLUDED_LOGINS = "('__system__', 'default', 'public', 'portaltemplate')"
+
+
+@dataclass(frozen=True)
+class UserInfo:
+    """One res_users row as shown in the user-management TUI."""
+
+    id: int
+    login: str
+    name: str
+    active: bool
+    totp_enabled: bool
+    share: bool  # portal/public user flag
+
+
+def list_users(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+    include_portal: bool = False,
+) -> list[UserInfo]:
+    """List Odoo users with their 2FA status for the user-management TUI.
+
+    Joins ``res_partner`` for the display name and reports 2FA as
+    ``totp_secret IS NOT NULL`` (column-guarded: databases without ``auth_totp``
+    report False for everyone). Inactive users are included; portal/public
+    users (``share = true``) only with ``include_portal``. Returns an empty
+    list on any error.
+    """
+    user_cols = _existing_columns("res_users", db_name, host=host, port=port, user=user)
+    if not user_cols:
+        return []
+    totp_expr = "(u.totp_secret IS NOT NULL)::text" if "totp_secret" in user_cols else "'f'"
+    share_expr = "COALESCE(u.share, false)::text" if "share" in user_cols else "'f'"
+    portal_filter = "" if include_portal or "share" not in user_cols else " AND COALESCE(u.share, false) = false"
+    # One tab-joined text column per row — survives psql's aligned output
+    # without a custom field separator (logins/names never contain tabs).
+    query = (
+        "SELECT u.id::text || E'\\t' || u.login || E'\\t' || COALESCE(p.name, u.login) || E'\\t' || "
+        f"u.active::text || E'\\t' || {totp_expr} || E'\\t' || {share_expr} "
+        "FROM res_users u LEFT JOIN res_partner p ON p.id = u.partner_id "
+        f"WHERE u.id > 0 AND u.login NOT IN {_USER_LIST_EXCLUDED_LOGINS}{portal_filter} "
+        "ORDER BY u.login;"
+    )
+    ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return []
+    users: list[UserInfo] = []
+    for line in out.splitlines():
+        parts = line.strip().split("\t")
+        # Header/separator/footer lines have no tab-joined 6-tuple with a numeric id.
+        if len(parts) != 6 or not parts[0].isdigit():
+            continue
+        users.append(
+            UserInfo(
+                id=int(parts[0]),
+                login=parts[1],
+                name=parts[2],
+                active=parts[3] == "t",
+                totp_enabled=parts[4] == "t",
+                share=parts[5] == "t",
+            )
+        )
+    return users
+
+
+def set_user_password(
+    db_name: str,
+    user_id: int,
+    new_password: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, str]:
+    """Set a user's password to an Odoo-compatible ``pbkdf2_sha512`` hash.
+
+    The plaintext never appears in the SQL (only the salted hash) and must
+    never be logged by callers.
+
+    Returns:
+        Tuple of (success, output_or_error).
+    """
+    pw_hash = _pbkdf2_sha512_hash(new_password)
+    stmt = f"UPDATE res_users SET password = {_sql_literal(pw_hash)} WHERE id = {int(user_id)};"
+    return _run_psql(stmt, db=db_name, host=host, port=port, user=user)
+
+
+def disable_user_2fa(
+    db_name: str,
+    user_id: int,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, str]:
+    """Disable TOTP 2FA for a user: clear the secret + drop trusted devices.
+
+    Column/table guarded like :func:`neutralize_bank_sync`: a database without
+    ``auth_totp`` (no ``totp_secret`` column) is a successful no-op, and the
+    ``auth_totp_device`` trusted-device table is only touched when present.
+
+    Returns:
+        Tuple of (success, info_message).
+    """
+    user_cols = _existing_columns("res_users", db_name, host=host, port=port, user=user)
+    if "totp_secret" not in user_cols:
+        return True, "totp_secret column not present (auth_totp not installed) — nothing to disable"
+
+    ok1, out1 = _run_psql(
+        f"UPDATE res_users SET totp_secret = NULL WHERE id = {int(user_id)};",
+        db=db_name,
+        host=host,
+        port=port,
+        user=user,
+    )
+
+    ok2, out2 = True, ""
+    if _existing_columns("auth_totp_device", db_name, host=host, port=port, user=user):
+        ok2, out2 = _run_psql(
+            f"DELETE FROM auth_totp_device WHERE user_id = {int(user_id)};",
+            db=db_name,
+            host=host,
+            port=port,
+            user=user,
+        )
+
+    if ok1 and ok2:
+        return True, "TOTP secret cleared and trusted devices removed"
+    return False, (out1 if not ok1 else out2)
 
 
 def neutralize_bank_sync(

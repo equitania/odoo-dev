@@ -503,10 +503,12 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         get_filestore_path,
         get_restore_temp_dir,
         move_filestore,
+        parse_module_names,
         purge_transactional_data,
         restore_database,
         run_neutralize,
         run_recompute,
+        run_uninstall_modules,
         wipe_database,
     )
 
@@ -531,6 +533,8 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
     purge_flag = args.get("purge-transactions", args.get("purge_transactions", False))
     # Recompute defaults to on whenever anonymize ran.
     recompute_flag = args.get("recompute", anonymize_flag)
+    # Modules to uninstall before the sanitize steps (string or YAML list).
+    uninstall_modules = parse_module_names(args.get("uninstall-modules", args.get("uninstall_modules")))
 
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
@@ -568,6 +572,18 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         # Filestore — move (no double storage); dest computed above
         if filestore_src and os.path.isdir(filestore_src):
             move_filestore(filestore_src, filestore_dest)
+
+        # Uninstall conflicting modules BEFORE any sanitize step runs.
+        if uninstall_modules:
+            from odoodev.commands.start import resolve_odoo_invocation
+
+            inv = resolve_odoo_invocation(version_cfg, env_vars)
+            if inv is None:
+                logger.warning("Module uninstall skipped — venv/odoo-bin/odoo_*.conf not ready (non-fatal)")
+            else:
+                ok, msg = run_uninstall_modules(name, uninstall_modules, **inv)
+                if not ok:
+                    logger.warning("Module uninstall failed (non-fatal): %s", msg.strip())
 
         # Post-restore
         if deactivate_cron_flag:
