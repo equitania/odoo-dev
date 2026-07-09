@@ -520,6 +520,48 @@ class TestAnonymizeSpecs:
         assert partner_static is not None
         assert ("eq_birthday", "NULL") in partner_static.assignments
 
+    def test_res_partner_specs_exclude_user_partners(self):
+        """Partners linked to a res_users row keep their name/contact so internal
+        users stay recognizable while testing (v0.47.0). res_users itself is not
+        anonymized by default, so its partner must not be either."""
+        partner_specs = [s for s in ANONYMIZE_TABLES if s.table == "res_partner"]
+        for spec in partner_specs:
+            assert "partner_id FROM res_users" in spec.where
+
+    def test_person_spec_parenthesizes_is_company_or(self):
+        """The is_company OR must be grouped so the user-exclusion AND binds to the
+        whole predicate (operator precedence), not just the IS NULL branch."""
+        person_spec = next(s for s in ANONYMIZE_TABLES if s.table == "res_partner" and "false" in s.where)
+        assert "(is_company = false OR is_company IS NULL)" in person_spec.where
+
+    def test_static_res_partner_excludes_user_partners(self):
+        """The static res_partner pass (eq_birthday NULL) also skips user partners."""
+        partner_static = next(s for s in ANONYMIZE_STATIC_TABLES if s.table == "res_partner")
+        assert "partner_id FROM res_users" in partner_static.where
+
+    def test_fetch_ids_query_carries_user_exclusion(self, monkeypatch):
+        """The exclusion actually reaches the emitted SELECT for both partner specs."""
+        from odoodev.core import database as d
+
+        captured: dict[str, str] = {}
+        monkeypatch.setattr(d, "_run_psql", lambda q, **k: (captured.__setitem__("q", q), (True, ""))[1])
+        for spec in [s for s in ANONYMIZE_TABLES if s.table == "res_partner"]:
+            d._fetch_ids(spec, "db")
+            assert "NOT IN (SELECT partner_id FROM res_users" in captured["q"]
+
+    def test_user_exclusion_passes_where_guard(self):
+        """The subquery must survive the WHERE-fragment safety guard."""
+        from odoodev.core.database import _NON_USER_PARTNER_WHERE, _check_where_fragment
+
+        assert _check_where_fragment(_NON_USER_PARTNER_WHERE) == _NON_USER_PARTNER_WHERE
+
+    def test_anonymize_keep_also_excludes_company_partners(self):
+        """v0.48.0: the own company's partner is kept legible too (not just users)."""
+        from odoodev.core.database import _NON_USER_PARTNER_WHERE
+
+        assert "partner_id FROM res_users" in _NON_USER_PARTNER_WHERE
+        assert "partner_id FROM res_company" in _NON_USER_PARTNER_WHERE
+
 
 def _all_known_columns() -> set[str]:
     """Every column referenced by any anonymization spec (+ id) for mocking schema."""
@@ -1143,6 +1185,12 @@ class TestRestoreCliFlags:
             "purge_transactional_data",
             lambda name, **k: (calls.setdefault("purge", []).append(name), (True, "ok"))[1],
         )
+        monkeypatch.setattr(db_cmd, "count_deletable_partners", lambda name, **k: 3)
+        monkeypatch.setattr(
+            db_cmd,
+            "purge_master_data",
+            lambda name, **k: (calls.setdefault("master_purge", []).append(name), (True, "ok"))[1],
+        )
         monkeypatch.setattr(
             db_cmd, "run_recompute", lambda name, **k: (calls.setdefault("recompute", []).append(name), (True, ""))[1]
         )
@@ -1172,6 +1220,8 @@ class TestRestoreCliFlags:
             "--wipe",
             "--deactivate-cron",
             "--purge-transactions",
+            "--purge-master-data",
+            "--no-purge-master-data",
             "--recompute",
             "--uninstall-modules",
         ):
@@ -1233,15 +1283,39 @@ class TestRestoreCliFlags:
         backup = tmp_path / "b.zip"
         backup.write_text("x")
         self._patch_flow(monkeypatch, tmp_path, calls, inv={})
-        result = self._restore(backup, "--sanitize")
+        result = self._restore(backup, "--sanitize", "-y")
         assert result.exit_code == 0, result.output
         assert calls.get("cron") == ["testdb"]
         assert calls.get("neut") == ["testdb"]
         assert calls.get("anon") == ["testdb"]
         assert calls.get("wipe") == ["testdb"]
         assert calls.get("recompute") == ["testdb"]  # auto-runs after anonymize
+        assert calls.get("master_purge") == ["testdb"]  # v0.48.0: master-data purge is in --sanitize
         assert "users" not in calls  # --anonymize-users stays a separate opt-in
-        assert "purge" not in calls  # --purge-transactions is NOT in --sanitize
+        assert "purge" not in calls  # movement-only purge skipped (master purge includes it)
+
+    def test_no_purge_master_data_escapes_sanitize(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--sanitize", "--no-purge-master-data", "-y")
+        assert result.exit_code == 0, result.output
+        assert "master_purge" not in calls  # explicit --no- wins
+        assert calls.get("wipe") == ["testdb"]  # the anonymize-only sanitize still runs
+
+    def test_master_purge_strong_confirmation_wrong_number_aborts(self, monkeypatch, tmp_path):
+        from odoodev.commands import db as db_cmd
+
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "1")  # count patched to 3
+        result = self._restore(backup, "--purge-master-data")
+        assert result.exit_code == 0, result.output
+        assert "master_purge" not in calls
+        assert "Aborted master-data purge" in result.output
 
     def test_explicit_no_flag_wins_over_sanitize(self, monkeypatch, tmp_path):
         calls: dict[str, list[str]] = {}
@@ -1366,11 +1440,12 @@ class TestRestoreCliFlags:
         self._patch_flow(monkeypatch, tmp_path, calls, inv={})
         from odoodev.commands import db as db_cmd
 
-        monkeypatch.setattr(
-            db_cmd,
-            "text_input",
-            lambda *a, **k: pytest.fail("must not prompt when --uninstall-modules is given"),
-        )
+        def _no_uninstall_prompt(msg, *a, **k):
+            if "uninstall" in msg.lower():
+                pytest.fail("must not prompt for uninstall when --uninstall-modules is given")
+            return ""  # other prompts (master-data confirmation) → empty, harmless here
+
+        monkeypatch.setattr(db_cmd, "text_input", _no_uninstall_prompt)
         result = self._restore(backup, "--sanitize", "--uninstall-modules", "eq_x")
         assert result.exit_code == 0, result.output
         assert calls.get("uninstall") == [["eq_x"]]
@@ -2273,3 +2348,323 @@ class TestRestoreBackupHandling:
         )
         assert result.exit_code == 0, result.output
         assert spy == ["copy"]
+
+
+class TestDbDropMulti:
+    """`db drop` multi-select / bulk deletion (-m / --all / --filter, v0.47.0)."""
+
+    def _patch(self, monkeypatch, tmp_path, available, dropped, *, drop_ok=True, exists=None):
+        """Patch the drop command; `dropped` collects names actually dropped."""
+        from odoodev.commands import db as db_cmd
+
+        cfg = types.SimpleNamespace(
+            version="18",
+            ports=types.SimpleNamespace(db=18432),
+            paths=types.SimpleNamespace(native_dir=str(tmp_path), server_dir=str(tmp_path), myconfs_dir=str(tmp_path)),
+        )
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+        monkeypatch.setattr(db_cmd, "_print_migration_hint", lambda v: None)
+        monkeypatch.setattr(db_cmd, "_ensure_pg_reachable", lambda v, p: None)
+        monkeypatch.setattr(db_cmd, "list_databases", lambda **k: list(available))
+        monkeypatch.setattr(db_cmd, "database_exists", lambda n, **k: (exists or available).__contains__(n))
+
+        def _drop(n, **k):
+            if drop_ok:
+                dropped.append(n)
+            return drop_ok
+
+        monkeypatch.setattr(db_cmd, "drop_database", _drop)
+        monkeypatch.setattr(db_cmd, "get_filestore_path", lambda v, db_name: str(tmp_path / "nofs" / db_name))
+        return db_cmd
+
+    def test_all_drops_every_candidate(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b", "v18_c"], dropped)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "--all", "-y"])
+        assert result.exit_code == 0, result.output
+        assert sorted(dropped) == ["v18_a", "v18_b", "v18_c"]
+
+    def test_filter_narrows_all(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a", "test_x", "test_y"], dropped)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "--all", "--filter", "test_", "-y"])
+        assert result.exit_code == 0, result.output
+        assert sorted(dropped) == ["test_x", "test_y"]
+
+    def test_multiple_explicit_names(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "-n", "v18_a", "-n", "v18_b", "-y"])
+        assert result.exit_code == 0, result.output
+        assert sorted(dropped) == ["v18_a", "v18_b"]
+
+    def test_system_db_guard_rejects_explicit(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a"], dropped, exists=["v18_a", "postgres"])
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "-n", "postgres", "-y"])
+        assert result.exit_code == 1
+        assert dropped == []
+        assert "system database" in result.output.lower()
+
+    def test_multi_checkbox_selection(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b", "v18_c"], dropped)
+        monkeypatch.setattr(db_cmd, "checkbox", lambda msg, choices: ["v18_a", "v18_c"])
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "-m", "-y"])
+        assert result.exit_code == 0, result.output
+        assert sorted(dropped) == ["v18_a", "v18_c"]
+
+    def test_empty_filter_match_aborts(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "--all", "--filter", "nomatch", "-y"])
+        assert result.exit_code == 1
+        assert dropped == []
+
+    def test_bulk_confirmation_wrong_count_aborts(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped)
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "1")  # expected "2"
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "--all"])
+        assert result.exit_code == 0, result.output
+        assert dropped == []
+        assert "Aborted" in result.output
+
+    def test_bulk_confirmation_correct_count_proceeds(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped)
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "2")
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "--all"])
+        assert result.exit_code == 0, result.output
+        assert sorted(dropped) == ["v18_a", "v18_b"]
+
+    def test_mutually_exclusive_modes(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a"], dropped)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "-n", "v18_a", "--all", "-y"])
+        assert result.exit_code == 1
+        assert dropped == []
+
+    def test_failure_exits_nonzero_and_tallies(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped, drop_ok=False)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "--all", "-y"])
+        assert result.exit_code == 1
+        assert "failed" in result.output.lower()
+
+    def test_single_name_backward_compatible(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a"], dropped)
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: True)
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "-n", "v18_a"])
+        assert result.exit_code == 0, result.output
+        assert dropped == ["v18_a"]
+
+    def test_terminate_connections_flag(self, monkeypatch, tmp_path):
+        dropped: list[str] = []
+        db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a"], dropped)
+        term: list[str] = []
+        monkeypatch.setattr(db_cmd, "get_active_connection_count", lambda n, **k: 3)
+        monkeypatch.setattr(db_cmd, "terminate_connections", lambda n, **k: (term.append(n), True)[1])
+        result = CliRunner().invoke(cli, ["db", "drop", "18", "-n", "v18_a", "-y", "--terminate-connections"])
+        assert result.exit_code == 0, result.output
+        assert term == ["v18_a"] and dropped == ["v18_a"]
+
+    def test_help_lists_new_options(self):
+        result = CliRunner().invoke(cli, ["db", "drop", "--help"])
+        assert result.exit_code == 0
+        for token in ("--multi", "--all", "--filter", "--terminate-connections"):
+            assert token in result.output
+
+
+class TestPurgeMasterData:
+    """Full template-DB reset: movement + content + customer/partner deletion (v0.48.0)."""
+
+    def test_keep_temp_table_sql_covers_users_companies_and_ancestors(self):
+        from odoodev.core.database import _keep_partner_temp_table_sql
+
+        sql = _keep_partner_temp_table_sql()
+        assert "res_partner_keep" in sql and "ON COMMIT DROP" in sql
+        assert "partner_id FROM res_users" in sql
+        assert "partner_id FROM res_company" in sql
+        assert "parent_id" in sql and "commercial_partner_id" in sql
+
+    def test_purge_model_names_exclude_kept_models(self):
+        """Product/view/module/company/user attachments must never be delete targets."""
+        from odoodev.core.database import PURGE_MODEL_NAMES
+
+        kept = {"product.template", "product.product", "product.pricelist", "ir.ui.view", "res.company", "res.users"}
+        assert not (set(PURGE_MODEL_NAMES.values()) & kept)
+        # movement + content roots are covered
+        for tbl in ("sale_order", "account_move", "crm_lead", "hr_employee", "mail_message", "helpdesk_ticket"):
+            assert tbl in PURGE_MODEL_NAMES
+
+    def test_attachment_sql_keeps_products_deletes_removed(self):
+        from odoodev.core.database import _attachment_delete_sql
+
+        sql = _attachment_delete_sql(["sale.order", "crm.lead"])
+        assert "'sale.order'" in sql and "'crm.lead'" in sql
+        assert "product.template" not in sql and "product.product" not in sql
+        assert "res_model = 'res.partner' AND res_id" in sql
+
+    def test_cascade_delete_plan_orders_deepest_first(self, monkeypatch):
+        """Multi-hop cascade children must be deleted before their parents, and
+        res_partner itself last, so no orphans remain."""
+        from odoodev.core import database as d
+
+        graph = {
+            ("res_partner",): [("child_a", "cola", "res_partner"), ("link1", "colL", "res_partner")],
+            ("child_a", "link1"): [("child_b", "colb", "child_a")],
+            ("child_b",): [],
+        }
+        monkeypatch.setattr(d, "_cascade_child_edges", lambda parents, *a, **k: graph.get(tuple(parents), []))
+        plan = d._partner_cascade_delete_plan("db")
+        joined = "\n".join(plan)
+        assert plan[-1] == "DELETE FROM res_partner WHERE id NOT IN (SELECT id FROM res_partner_keep);"
+        # deepest (child_b) before its parent (child_a), which is before res_partner
+        assert joined.index("child_b") < joined.index('"child_a"')
+        assert joined.index('"child_a"') < joined.index("DELETE FROM res_partner ")
+        # row-scoped, not whole-table
+        assert 'WHERE "cola" IN (SELECT id FROM "res_partner"' in joined
+
+    def test_cascade_plan_bounded_against_cycles(self, monkeypatch):
+        """A cyclic/self-feeding graph must terminate (seen-guard + depth bound)."""
+        from odoodev.core import database as d
+
+        monkeypatch.setattr(
+            d,
+            "_cascade_child_edges",
+            lambda parents, *a, **k: [("t", "c", parents[0])] if "res_partner" in parents else [],
+        )
+        plan = d._partner_cascade_delete_plan("db")
+        assert plan[-1].startswith("DELETE FROM res_partner")
+
+    def _patch_intro(self, monkeypatch, *, movement, content, closure, edges, superuser=True, count=(10, 7)):
+        """Patch all introspection helpers purge_master_data depends on."""
+        from odoodev.core import database as d
+
+        monkeypatch.setattr(d, "resolve_purge_tables", lambda *a, **k: list(movement))
+        monkeypatch.setattr(d, "_resolve_content_purge_tables", lambda *a, **k: list(content))
+        monkeypatch.setattr(d, "_cascade_closure", lambda tables, *a, **k: set(closure))
+        monkeypatch.setattr(d, "_fk_edges_into", lambda t, *a, **k: list(edges))
+        monkeypatch.setattr(d, "_null_repair_targets", lambda *a, **k: [])
+        monkeypatch.setattr(
+            d,
+            "_partner_cascade_delete_plan",
+            lambda *a, **k: ["DELETE FROM res_partner WHERE id NOT IN (SELECT id FROM res_partner_keep);"],
+        )
+        monkeypatch.setattr(d, "_is_superuser", lambda *a, **k: superuser)
+        monkeypatch.setattr(d, "count_deletable_partners", lambda *a, **k: count[1])
+        monkeypatch.setattr(d, "_run_psql_tuples", lambda q, **k: (True, [[str(count[0]), str(count[1])]]))
+        return d
+
+    def test_dry_run_deletes_nothing(self, monkeypatch):
+        d = self._patch_intro(
+            monkeypatch, movement=["sale_order"], content=["crm_lead"], closure={"sale_order", "crm_lead"}, edges=[]
+        )
+        called = {"file": False}
+        monkeypatch.setattr(d, "_run_psql_file", lambda *a, **k: (called.__setitem__("file", True), (True, ""))[1])
+        ok, msg = d.purge_master_data("db", dry_run=True)
+        assert ok is True and called["file"] is False
+        assert "dry-run" in msg and "7" in msg
+
+    def test_aborts_when_closure_hits_protected(self, monkeypatch):
+        d = self._patch_intro(
+            monkeypatch, movement=["sale_order"], content=[], closure={"sale_order", "res_partner"}, edges=[]
+        )
+        called = {"file": False}
+        monkeypatch.setattr(d, "_run_psql_file", lambda *a, **k: (called.__setitem__("file", True), (True, ""))[1])
+        ok, msg = d.purge_master_data("db")
+        assert ok is False and called["file"] is False
+        assert "protected" in msg and "res_partner" in msg
+
+    def test_aborts_without_superuser(self, monkeypatch):
+        d = self._patch_intro(
+            monkeypatch, movement=["sale_order"], content=[], closure={"sale_order"}, edges=[], superuser=False
+        )
+        called = {"file": False}
+        monkeypatch.setattr(d, "_run_psql_file", lambda *a, **k: (called.__setitem__("file", True), (True, ""))[1])
+        ok, msg = d.purge_master_data("db")
+        assert ok is False and called["file"] is False
+        assert "superuser" in msg
+
+    def test_happy_path_builds_single_transaction(self, monkeypatch):
+        d = self._patch_intro(
+            monkeypatch,
+            movement=["sale_order"],
+            content=["crm_lead"],
+            closure={"sale_order", "crm_lead"},
+            edges=[("mail_push_device", "partner_id", "r"), ("website_visitor", "partner_id", "n")],
+        )
+        captured = {}
+        monkeypatch.setattr(d, "_run_psql_file", lambda sql, **k: (captured.__setitem__("sql", sql), (True, ""))[1])
+        ok, msg = d.purge_master_data("db")
+        assert ok is True
+        sql = captured["sql"]
+        assert sql.startswith("BEGIN;") and sql.strip().endswith("COMMIT;")
+        assert "session_replication_role = replica" in sql
+        assert 'DELETE FROM "sale_order";' in sql and 'DELETE FROM "crm_lead";' in sql
+        assert "res_partner_keep" in sql
+        # unhandled restrict edge → drift-guard DO block; set-null edge → repair UPDATE
+        assert "odoodev-purge-abort: unhandled FK mail_push_device.partner_id" in sql
+        assert 'UPDATE "website_visitor" SET "partner_id" = NULL' in sql
+        assert "DELETE FROM ir_attachment" in sql
+
+    def test_abort_marker_surfaced_as_clean_error(self, monkeypatch):
+        d = self._patch_intro(monkeypatch, movement=["sale_order"], content=[], closure={"sale_order"}, edges=[])
+        monkeypatch.setattr(
+            d, "_run_psql_file", lambda *a, **k: (False, "ERROR:  odoodev-purge-abort: unhandled FK x.y ...")
+        )
+        ok, msg = d.purge_master_data("db")
+        assert ok is False and "Aborted (no data deleted)" in msg
+
+
+class TestDbPurgeMasterDataCommand:
+    """Standalone `db purge-master-data` CLI command (v0.48.0)."""
+
+    def _patch(self, monkeypatch, spy):
+        from odoodev.commands import db as db_cmd
+
+        cfg = types.SimpleNamespace(version="18", ports=types.SimpleNamespace(db=18432), paths=types.SimpleNamespace())
+        monkeypatch.setattr(db_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(db_cmd, "get_version", lambda v: cfg)
+        monkeypatch.setattr(db_cmd, "_load_env_vars", lambda cfg: {})
+        monkeypatch.setattr(db_cmd, "_get_db_params", lambda cfg, ev: {"host": "h", "port": 1, "user": "u"})
+        monkeypatch.setattr(db_cmd, "_ensure_pg_reachable", lambda v, p: None)
+        monkeypatch.setattr(db_cmd, "count_deletable_partners", lambda name, **k: 4)
+        monkeypatch.setattr(
+            db_cmd,
+            "purge_master_data",
+            lambda name, dry_run=False, **k: (spy.append((name, dry_run)), (True, "done"))[1],
+        )
+
+    def test_dry_run_deletes_nothing(self, monkeypatch):
+        spy: list = []
+        self._patch(monkeypatch, spy)
+        result = CliRunner().invoke(cli, ["db", "purge-master-data", "18", "-n", "db", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert spy == [("db", True)]
+
+    def test_yes_runs_purge(self, monkeypatch):
+        spy: list = []
+        self._patch(monkeypatch, spy)
+        result = CliRunner().invoke(cli, ["db", "purge-master-data", "18", "-n", "db", "-y"])
+        assert result.exit_code == 0, result.output
+        assert spy == [("db", False)]
+
+    def test_wrong_confirmation_aborts(self, monkeypatch):
+        from odoodev.commands import db as db_cmd
+
+        spy: list = []
+        self._patch(monkeypatch, spy)
+        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "0")  # count is 4
+        result = CliRunner().invoke(cli, ["db", "purge-master-data", "18", "-n", "db"])
+        assert result.exit_code == 0, result.output
+        assert spy == []
+        assert "Aborted" in result.output
+
+    def test_help(self):
+        result = CliRunner().invoke(cli, ["db", "purge-master-data", "--help"])
+        assert result.exit_code == 0
+        assert "template-DB reset" in result.output.lower() or "master" in result.output.lower()

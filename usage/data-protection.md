@@ -191,6 +191,14 @@ werden auf reservierte, nicht zustellbare Werte gesetzt:
 > bleiben. Optionale Anonymisierung siehe Abschnitt
 > [res_users (optional)](#res_users-optional-anonymisieren).
 
+> **Seit v0.47.0: Partner interner Benutzer bleiben unangetastet.** Da `res_users`
+> per Default nicht anonymisiert wird, werden auch die daran haengenden
+> `res_partner`-Datensaetze (`id IN (SELECT partner_id FROM res_users)`) von jeder
+> `res_partner`-Anonymisierung ausgenommen — sonst stuenden Faker-Namen in der
+> Benutzerliste und man verliert beim Testen den Ueberblick. Interne Benutzer
+> behalten Name und Kontaktdaten; Kunden-/Lieferanten-Partner werden weiterhin
+> anonymisiert. Explizite Benutzer-Anonymisierung nur ueber `--anonymize-users`.
+
 > **Seit v0.44.0: Stored-Computed-Felder werden nachgerechnet.** Die
 > Anonymisierung schreibt per Raw-SQL direkt in `res_partner.name` & Co. Am
 > ORM vorbei bleibt das gespeicherte `complete_name` (von dem das live
@@ -263,8 +271,12 @@ dieser Reihenfolge aus:
 3. `neutralize_bank_sync()` — Bank-Sync-Bereinigung (Schicht 1c, unter `--neutralize`)
 4. `anonymize_database()` — Faker-Anonymisierung inkl. HR (Schicht 2, `--anonymize`)
 5. `wipe_database()` — Inhalte loeschen (Schicht 2b, `--wipe`)
-6. `purge_transactional_data()` — Transaktionsdaten loeschen (`--purge-transactions`,
-   eigenstaendig, seit v0.44.0, siehe [db.md](db.md))
+6. `purge_master_data()` — Template-DB-Reset (Schicht 3, `--purge-master-data`, in
+   `--sanitize` enthalten seit v0.48.0): loescht Bewegungsdaten + CRM/HR/Helpdesk/Mail
+   + Kunden-Partner + deren Anhaenge in EINER Superuser-Transaktion; ersetzt in diesem
+   Fall den reinen Bewegungsdaten-Purge (Schritt 6b)
+6b. `purge_transactional_data()` — nur Bewegungsdaten (`--purge-transactions`,
+   eigenstaendig, seit v0.44.0; uebersprungen, wenn `--purge-master-data` laeuft)
 7. `anonymize_users()` — nur bei `--anonymize-users` (optional)
 8. `run_recompute()` — Stored-Computed-Felder neu berechnen; laeuft nur, wenn
    zusaetzlich `--anonymize` aktiv ist (automatisch, abschaltbar mit
@@ -278,18 +290,33 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 
 | Flag | Default | Wirkung |
 |------|---------|---------|
-| `--sanitize` | **aus** | Sammel-Flag: aktiviert deactivate-cron + neutralize + anonymize + wipe; explizite `--no-*` gewinnen |
+| `--sanitize` | **aus** | Sammel-Flag: aktiviert deactivate-cron + neutralize + anonymize + wipe + **purge-master-data**; explizite `--no-*` gewinnen |
 | `--deactivate-cron` / `--no-deactivate-cron` | **aus** | Schicht 1a (Cron/Mail/Fetchmail stilllegen) |
 | `--neutralize` / `--no-neutralize` | **aus** | Schicht 1b + 1c (`odoo-bin neutralize` + Bank-Sync) |
 | `--anonymize` / `--no-anonymize` | **aus** | Schicht 2 (Faker-Anonymisierung inkl. HR — nur Ersatzwerte) |
 | `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen) |
+| `--purge-master-data` / `--no-purge-master-data` | **aus (an in `--sanitize`)** | Schicht 3 (seit v0.48.0): Template-DB-Reset — LOESCHT Bewegungsdaten + CRM/HR/Helpdesk/Mail + Kunden-/Lieferanten-/Kontakt-Partner + deren Anhaenge; behaelt Produkte, Preislisten, Benutzer, Firmen, Config. Superuser noetig; Bestaetigung per Partner-Anzahl (mit `-y` uebersprungen) |
 | `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort); NICHT in `--sanitize` enthalten |
+| `--purge-transactions` / `--no-purge-transactions` | **aus** | Nur Bewegungsdaten loeschen (Partner behalten); NICHT in `--sanitize` enthalten |
 | `--user-password TEXT` | `ownerp` | Dev-Passwort fuer anonymisierte Benutzer |
 | `--recompute` / `--no-recompute` | **an nach `--anonymize`** | Stored-Computed-Felder neu berechnen (z.B. `complete_name`), seit v0.44.0 |
 
 **Seit v0.43.0 sind alle Schichten Opt-in** — ohne Flags bleibt die Datenbank
-unangetastet. Fuer den Standardfall „Produktions-Backup entschaerfen" genuegt
-`--sanitize`; die Entscheidung liegt explizit beim Entwickler.
+unangetastet.
+
+> **BREAKING seit v0.48.0: `--sanitize` ist jetzt ein vollstaendiger
+> „Template-DB-aus-Produktion"-Reset.** Es anonymisiert nicht nur, sondern LOESCHT
+> zusaetzlich (Schicht 3, `--purge-master-data`) alle Bewegungsdaten, CRM-Leads,
+> HR-Mitarbeiter, Helpdesk-Tickets, Nachrichten/Aktivitaeten, die Kunden-/Lieferanten-/
+> Kontakt-Partner und deren Anhaenge. Behalten bleiben nur Produkte, Preislisten,
+> Benutzer (+ Partner), eigene Firmen (+ Partner) und Konfiguration. Ausstieg mit
+> `--no-purge-master-data`. Die Loeschung laeuft in EINER
+> `session_replication_role=replica`-Transaktion (Superuser noetig), verlangt die
+> Eingabe der Partner-Anzahl zur Bestaetigung (mit `-y` uebersprungen — Automatisierung
+> pruefen!) und bricht ohne Loeschung ab, falls eine geschuetzte Stammtabelle oder eine
+> unbehandelte RESTRICT-Referenz betroffen waere. Produktbilder und System-Assets
+> (`ir_attachment` mit `res_model` product/view/module/company/user) bleiben erhalten.
+> Eigenstaendig als `odoodev db purge-master-data` (mit `--dry-run`).
 
 ---
 

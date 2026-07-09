@@ -38,6 +38,15 @@ odoodev db drop 18 -n v18_test
 
 # Datenbank loeschen ohne Bestaetigungsprompt
 odoodev db drop 18 -n v18_test --yes
+
+# Mehrere Datenbanken auf einmal (Checkbox-Mehrfachauswahl)
+odoodev db drop 18 -m
+
+# Alle Test-Datenbanken aufraeumen (Namensfilter)
+odoodev db drop 18 --all --filter test_
+
+# Mehrere explizit, offene Verbindungen vorher beenden
+odoodev db drop 18 -n v18_a -n v18_b --terminate-connections
 ```
 
 ### Datenbank kopieren & umbenennen
@@ -142,9 +151,14 @@ Ohne Flags weist die Ausgabe darauf hin, dass die Datenbank unangetastet blieb.
 
 ```bash
 odoodev db restore 18 -n v18_test -z prod.zip                  # nur restore, DB unveraendert
-odoodev db restore 18 -n v18_test -z prod.zip --sanitize        # komplett entschaerft
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize        # Template-Reset: anonymisieren + Bewegungs-/Kundendaten LOESCHEN (v0.48.0)
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-purge-master-data  # nur anonymisieren (altes --sanitize)
 odoodev db restore 18 -n v18_test -z prod.zip --neutralize      # nur neutralisieren
-odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-wipe  # alles ausser Loeschung
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-wipe  # alles ausser Inhalts-Loeschung
+
+# Template-DB-Reset auf einer bereits wiederhergestellten DB (eigenstaendig)
+odoodev db purge-master-data 18 -n v18_test --dry-run           # Vorschau, loescht nichts
+odoodev db purge-master-data 18 -n v18_test -y                  # ausfuehren ohne Rueckfrage
 ```
 
 **Cron-/Mail-Deaktivierung (`--deactivate-cron`, psql-Baseline):**
@@ -386,6 +400,15 @@ odoodev db drop 18 -n v18_test
 
 # Drop database without confirmation prompt
 odoodev db drop 18 -n v18_test --yes
+
+# Drop several databases at once (checkbox multi-select)
+odoodev db drop 18 -m
+
+# Clean up all test databases (name filter)
+odoodev db drop 18 --all --filter test_
+
+# Several explicit names, terminate open connections first
+odoodev db drop 18 -n v18_a -n v18_b --terminate-connections
 ```
 
 ### Copy & Rename Databases

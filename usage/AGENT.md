@@ -26,7 +26,7 @@ you must pass it explicitly.
   Container (`--runtime`, persisted via `container_runtime`).
 - Benchmark PostgreSQL on Docker vs Apple Container (`odoodev bench`).
 - Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize, purge, recompute.
-- **Untouched-by-default restore:** the DB is left as-is; opt in per flag (`--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe`, or `--sanitize` for all four). `--purge-transactions` and `--anonymize-users` are separate opt-ins (not in `--sanitize`).
+- **Untouched-by-default restore:** the DB is left as-is; opt in per flag (`--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe`/`--purge-master-data`, or `--sanitize` for all of them). Since v0.48.0 `--sanitize` includes `--purge-master-data`, a full template-DB reset that DELETES movement + customer/master data (escape with `--no-purge-master-data`). `--purge-transactions` (movement-only) and `--anonymize-users` remain separate opt-ins (not in `--sanitize`).
 - **Space-aware, low-overhead restore:** pre-checks free disk space, moves the filestore instead of
   copying it (no triple data-holding), and can delete the original backup afterwards.
 - Clone/update Git repos and (re)generate the dated `odoo_*.conf` addons_path.
@@ -47,13 +47,14 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev config versions` | List all available Odoo versions with their configuration. | --plain, --json |
 | `odoodev db backup` | Create a database backup (SQL dump, ZIP or tar.zst with filestore). | [VERSION], -n/--name TEXT, -t/--type sql\|zip\|tar.zst, -l/--level INT (1-22, tar.zst only, default 5), -o/--output PATH |
 | `odoodev db copy` | Copy a database (incl. filestore) under a new name. | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db drop` | Drop a database. | [VERSION], -n/--name TEXT, --yes/-y |
+| `odoodev db drop` | Drop one or more databases (bulk/multi-select). | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --terminate-connections, --yes/-y |
 | `odoodev db list` | List all databases. | [VERSION], --json |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db purge` | Delete transactional/movement data for a clean stress-test DB (keeps products, pricelists, partners, users, config). | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
+| `odoodev db purge-master-data` | Full template-DB reset: delete movement + CRM/HR/helpdesk/mail data + customer/vendor/contact partners + their attachments; keep products, pricelists, users, companies, config. Superuser role required. | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
 | `odoodev db recompute` | Recompute stored computed fields (e.g. `complete_name`) via `odoo-bin shell`. | [VERSION], -n/--name TEXT |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --anonymize-users/--no-anonymize-users, --user-password TEXT, --uninstall-modules TEXT, -y/--yes, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
+| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default; `--sanitize` = full template reset incl. master-data deletion). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --purge-master-data/--no-purge-master-data, --anonymize-users/--no-anonymize-users, --user-password TEXT, --uninstall-modules TEXT, -y/--yes, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup |
 | `odoodev db uninstall` | Uninstall modules via `odoo-bin shell` (`button_immediate_uninstall`) — e.g. modules that conflict with the sanitize steps. | [VERSION], -n/--name TEXT, -m/--modules TEXT (comma-separated technical names), -y/--yes |
 | `odoodev db users` | Interactive TUI: user list with 2FA status; reset passwords (pbkdf2_sha512) and disable TOTP 2FA. | [VERSION], -n/--name TEXT (DB picker inside the TUI if omitted) |
 | `odoodev docker down` | Stop the local PostgreSQL service (data volume kept). | [VERSION], --runtime docker\|apple |
@@ -120,18 +121,29 @@ odoodev start 18 -c ~/gitbase/v18/myconfs/odoo_custom.conf
 odoodev db backup 18 -n v18_exam -t zip               # ZIP incl. filestore
 odoodev db backup 18 -n v18_exam -t tar.zst           # tar.zst (zstd, large DBs); -l 19 for max compression
 odoodev db restore 18 -n v18_restored -z backup.zip   # plain restore — DB left untouched
-odoodev db restore 18 -n v18_restored -z backup.zip --sanitize   # cron off + neutralized + anonymized + wiped
+odoodev db restore 18 -n v18_restored -z backup.zip --sanitize   # FULL template reset: anonymize + DELETE movement + customer/master data
+odoodev db restore 18 -n v18_restored -z backup.zip --sanitize --no-purge-master-data   # anonymize-only (pre-v0.48.0 --sanitize behavior)
 odoodev db restore 18 -n v18_restored -z backup.zip --sanitize --uninstall-modules mod1,mod2 -y   # drop conflicting modules first, no prompts
+odoodev db purge-master-data 18 -n v18_restored --dry-run        # preview the full reset on an existing DB
 odoodev db uninstall 18 -n v18_restored -m mod1,mod2 -y          # uninstall modules on an existing DB
 odoodev db users 18 -n v18_restored                              # TUI: reset passwords / disable 2FA
+odoodev db drop 18 -m                                            # checkbox multi-select of databases to drop
+odoodev db drop 18 --all --filter test_                          # bulk-drop all test_* databases (type the count to confirm)
 ```
 Restore post-processing is **OFF by default** (v0.43.0) — the restored database is left
 completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize`,
 `--anonymize` (Faker only), `--wipe` (content deletion: mail_message, ir_attachment,
-linkage tables), or `--sanitize` for all four at once (explicit `--no-*` flags win).
+linkage tables), `--purge-master-data`, or `--sanitize` for all of them at once (explicit
+`--no-*` flags win). **Since v0.48.0 `--sanitize` includes `--purge-master-data`** — a full
+"template DB from production" reset that DELETES movement data, CRM/HR/helpdesk/mail content,
+the customer/vendor/contact partners and their attachments (keeps products, pricelists,
+users+their partner, companies+their partner, config). It runs one superuser
+`session_replication_role=replica` transaction, requires typing the partner count to confirm
+(skipped with `-y`), and aborts cleanly (rollback) if a protected table or an unhandled
+RESTRICT FK would be hit. Escape with `--no-purge-master-data`. Standalone: `db purge-master-data`.
 `--anonymize-users` is a separate opt-in (works standalone, NOT included in `--sanitize`);
 its default dev login password is `ownerp` (override with `--user-password`).
-`--purge-transactions` (v0.44.0) is another separate opt-in, NOT included in `--sanitize`:
+`--purge-transactions` (v0.44.0) is a separate movement-only opt-in, NOT included in `--sanitize`:
 it deletes stock/sales/purchase/accounting/MRP/POS movement data for a clean stress-test DB
 while keeping products, pricelists, partners, users and config. Since v0.44.0, `--anonymize`
 also auto-recomputes stored computed fields (e.g. `complete_name`) via `odoo-bin shell` so

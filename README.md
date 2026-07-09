@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.46.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.48.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -173,6 +173,15 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.48.0:**
+- **Geändert (BREAKING):** `db restore --sanitize` ist jetzt ein vollständiger „Template-DB-aus-Produktion"-Reset. Zusätzlich zum Anonymisieren LÖSCHT es nun alle Bewegungsdaten, CRM-Leads, HR-Mitarbeiter, Helpdesk-Tickets, Nachrichten/Aktivitäten, die Kunden-/Lieferanten-/Kontakt-Partner und deren Anhänge. **Behalten:** Produkte, Preislisten, Benutzer (+ deren Partner), eigene Firmen (+ deren Partner), Konfiguration. Ausstieg mit `--no-purge-master-data`; die Löschung erfordert die Eingabe der Partner-Anzahl (mit `-y` übersprungen — Automatisierung prüfen!).
+- **Neu:** Flag `--purge-master-data/--no-purge-master-data` und eigenständiger Befehl `odoodev db purge-master-data` (`--dry-run`, `-y`). Läuft in einer `session_replication_role=replica`-Transaktion (Superuser nötig): folgt dem FK-Graph (Multi-Hop-Kaskaden, SET-NULL-Rückreferenzen, Ahnen-Keep-Set), bricht ohne Löschung ab, falls eine geschützte Stammtabelle oder eine unbehandelte RESTRICT-Referenz betroffen wäre. Produktbilder und System-Assets bleiben unangetastet.
+- **Neu:** `--anonymize` hält auch den Partner der eigenen Firma lesbar (Keep-Set schließt jetzt `res_company`-Partner ein).
+
+**Version 0.47.0:**
+- **Neu:** `db drop` kann jetzt mehrere Datenbanken auf einmal löschen — ideal zum Aufräumen nach vielen fehlgeschlagenen Testläufen. `-m/--multi` öffnet eine Checkbox-Mehrfachauswahl, `-n` ist wiederholbar (`-n a -n b`), `--all` zielt auf alle Nicht-System-DBs, `--filter test_` grenzt die Auswahl ein, `--terminate-connections` beendet offene Verbindungen vorher. System-DBs sind geschützt; Massenlöschungen erfordern die Eingabe der Anzahl zur Bestätigung. Filestore-Entfernung und Erfolgs-/Fehler-Bilanz je DB inklusive.
+- **Behoben:** `--anonymize` benennt interne Benutzer nicht mehr um. Die `res_partner`-Anonymisierung traf auch die zu `res_users` gehörenden Partner, sodass nach dem Sanitize Faker-Namen in der Benutzerliste standen — obwohl `res_users` bewusst unangetastet bleibt. Partner mit einem `res_users`-Bezug werden jetzt von jeder `res_partner`-Anonymisierung ausgenommen; interne Benutzer behalten Name und Kontaktdaten. Benutzer-Anonymisierung weiterhin per `--anonymize-users` opt-in.
 
 **Version 0.46.2:**
 - **Behoben:** `db users` zeigte immer „No users found" — die Benutzerliste baute eine tab-verkettete Textspalte, aber psqls Standard-Ausgabeformat rendert eingebettete Tabs als Leerzeichen, sodass keine Zeile geparst wurde. Zeilen-Abfragen laufen jetzt über `psql -t -A -F <tab>` (unaligned, Booleans nativ `t`/`f`).
@@ -449,6 +458,15 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.48.0:**
+- **Changed (BREAKING):** `db restore --sanitize` is now a full "template DB from production" reset. On top of anonymizing, it now DELETES all movement data, CRM leads, HR employees, helpdesk tickets, messages/activities, the customer/vendor/contact partners and their attachments. **Kept:** products, pricelists, users (+ their partner), companies (+ their partner), config. Opt out with `--no-purge-master-data`; the deletion requires typing the partner count (skipped with `-y` — review your automation!).
+- **Added:** `--purge-master-data/--no-purge-master-data` flag and standalone `odoodev db purge-master-data` command (`--dry-run`, `-y`). Runs in one `session_replication_role=replica` transaction (superuser required): follows the FK graph (multi-hop cascades, SET-NULL back-references, ancestor keep-set), aborts with no deletion if a protected master table or an unhandled RESTRICT reference would be hit. Product images and system assets are never targeted.
+- **Added:** `--anonymize` also keeps the own company's partner legible (keep-set now includes `res_company` partners).
+
+**Version 0.47.0:**
+- **Added:** `db drop` can now delete multiple databases at once — ideal for cleaning up after many failed test runs. `-m/--multi` opens a checkbox multi-select, `-n` is repeatable (`-n a -n b`), `--all` targets every non-system DB, `--filter test_` narrows the selection, `--terminate-connections` kills open connections first. System DBs are protected; bulk deletions require typing the count to confirm. Per-DB filestore removal and a dropped/failed tally included.
+- **Fixed:** `--anonymize` no longer renames internal users. The `res_partner` anonymization also hit the partners linked to `res_users`, so after a sanitize the user list showed Faker names even though `res_users` is deliberately left untouched. Partners referenced by a `res_users.partner_id` are now excluded from every `res_partner` anonymization pass; internal users keep their real name and contact data. User anonymization stays opt-in via `--anonymize-users`.
 
 **Version 0.46.2:**
 - **Fixed:** `db users` always showed "No users found" — the user list built a tab-joined text column, but psql's default aligned format renders embedded tabs as spaces, so no row ever parsed. Row queries now run via `psql -t -A -F <tab>` (unaligned, booleans natively `t`/`f`).

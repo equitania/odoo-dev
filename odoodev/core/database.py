@@ -1214,6 +1214,20 @@ _PARTNER_COMMON_FIELDS: tuple[AnonField, ...] = (
     AnonField("eq_citypart", lambda f, i: None),
 )
 
+# Partners to KEEP: those backing an internal user (res_users) or a company
+# (res_company). res_users/res_company are intentionally not anonymized or purged
+# by default, so their partner must be left alone too — otherwise an anonymized
+# name would hide which user/company is which and make testing confusing. This
+# direct keep-set is reused by the master-data purge (extended there with the
+# transitive parent/commercial ancestors so kept rows never dangle).
+_KEEP_PARTNER_DIRECT_SUBQUERY = (
+    "SELECT partner_id FROM res_users WHERE partner_id IS NOT NULL "
+    "UNION SELECT partner_id FROM res_company WHERE partner_id IS NOT NULL"
+)
+# ANDed onto every res_partner anonymization filter so user/company partners keep
+# their real name/contact.
+_NON_USER_PARTNER_WHERE = f"id NOT IN ({_KEEP_PARTNER_DIRECT_SUBQUERY})"
+
 # Per-row Faker tables. Field order is stable so seeded generation is reproducible.
 # res_partner is split by is_company: companies get a company name (and no job title),
 # persons get a personal name and a job title.
@@ -1221,7 +1235,7 @@ ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
     AnonTable(
         table="res_partner",
         fields=(AnonField("name", lambda f, i: f.company()),) + _PARTNER_COMMON_FIELDS,
-        where="is_company = true",
+        where=f"is_company = true AND {_NON_USER_PARTNER_WHERE}",
     ),
     AnonTable(
         table="res_partner",
@@ -1234,7 +1248,9 @@ ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
             # so it is also listed in RECOMPUTE_TRIGGERS below.
             AnonField("eq_firstname", lambda f, i: f.first_name()),
         ),
-        where="is_company = false OR is_company IS NULL",
+        # Parenthesize the is_company OR so the user exclusion ANDs onto the whole
+        # predicate, not just the IS NULL branch (SQL precedence: AND binds tighter).
+        where=f"(is_company = false OR is_company IS NULL) AND {_NON_USER_PARTNER_WHERE}",
     ),
     # NOTE: res_users is intentionally NOT anonymized by default — that would make
     # every login unusable and break testing. Opt in via anonymize_users() / the
@@ -1336,6 +1352,7 @@ ANONYMIZE_STATIC_TABLES: tuple[StaticAnonTable, ...] = (
     StaticAnonTable(
         table="res_partner",
         assignments=(("eq_birthday", "NULL"),),
+        where=_NON_USER_PARTNER_WHERE,
     ),
     StaticAnonTable(
         table="hr_employee",
@@ -2125,6 +2142,345 @@ def purge_transactional_data(
     if not ok:
         return False, f"Purge failed: {err.strip()}"
     return True, f"{len(closure)} transactional table(s) emptied, {len(repairs)} reference(s) detached"
+
+
+# --------------------------------------------------------------------------- #
+# Master-data purge — full "template DB from production" reset.
+#
+# Superset of purge_transactional_data: in ONE session_replication_role=replica
+# transaction it (1) empties the movement tables + their cascade closure, (2) empties
+# the content roots below + closure, (3) deletes every res_partner EXCEPT those
+# backing an internal user or a company (and their ancestors), following the FK graph
+# so no orphans/dangling refs remain on kept rows, (4) deletes the attachments of the
+# removed records while keeping product images and system assets. Products, pricelists,
+# users, companies and config survive. Requires a superuser DB role.
+# --------------------------------------------------------------------------- #
+
+# Whole-table content roots deleted on top of the movement tables (PURGE_TABLES).
+# Like PURGE_TABLES these are roots; their ON-DELETE-CASCADE children are added by
+# _cascade_closure. Filtered to tables that actually exist in the target DB.
+CONTENT_PURGE_TABLES: dict[str, tuple[str, ...]] = {
+    "helpdesk": ("helpdesk_ticket",),
+    "crm": ("crm_lead",),
+    "hr": ("hr_employee", "hr_contract", "hr_version"),
+    # mail_push_device / mail_scheduled_message / snailmail_letter carry ON DELETE
+    # RESTRICT FKs into res_partner; emptying them wholesale here (they are
+    # communication artifacts that go anyway) keeps the partner-prune drift guard
+    # from aborting on production DBs that sent customer letters / registered devices.
+    "mail": (
+        "mail_message",
+        "mail_activity",
+        "mail_followers",
+        "mail_scheduled_message",
+        "mail_push_device",
+        "snailmail_letter",
+    ),
+}
+
+# Odoo model name per purged root table, for the polymorphic ir_attachment.res_model
+# filter. Hardcoded (not table.replace("_", ".")) — a few Odoo _table names break the
+# convention, and being explicit documents exactly which attachments are removed.
+# Product/view/module/company/user models are deliberately absent → their attachments
+# (product images, asset bundles, logos, avatars) are never a delete target.
+PURGE_MODEL_NAMES: dict[str, str] = {
+    "stock_picking": "stock.picking",
+    "stock_move": "stock.move",
+    "stock_scrap": "stock.scrap",
+    "sale_order": "sale.order",
+    "purchase_order": "purchase.order",
+    "account_move": "account.move",
+    "account_payment": "account.payment",
+    "mrp_production": "mrp.production",
+    "pos_order": "pos.order",
+    "pos_session": "pos.session",
+    "helpdesk_ticket": "helpdesk.ticket",
+    "crm_lead": "crm.lead",
+    "hr_employee": "hr.employee",
+    "hr_contract": "hr.contract",
+    "hr_version": "hr.version",
+    "mail_message": "mail.message",
+    "mail_activity": "mail.activity",
+}
+
+# WHERE fragment selecting res_partner rows to DELETE (everything not in the keep set).
+_PARTNER_DELETE_WHERE = "id NOT IN (SELECT id FROM res_partner_keep)"
+
+# Bound on the FK-graph walk when building the partner cascade-delete plan. Odoo's
+# partner cascade depth is 1-2 hops; 6 is a generous ceiling that aborts a runaway.
+_PARTNER_CASCADE_MAX_DEPTH = 6
+
+
+def _resolve_content_purge_tables(
+    db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
+) -> list[str]:
+    """Return the CONTENT_PURGE_TABLES roots that exist in this DB."""
+    tables: list[str] = []
+    for group in CONTENT_PURGE_TABLES.values():
+        for table in group:
+            if _existing_columns(table, db_name, host=host, port=port, user=user):
+                tables.append(table)
+    return tables
+
+
+def _keep_partner_temp_table_sql() -> str:
+    """SQL creating the res_partner_keep temp table (ids of user/company partners
+    plus their transitive parent_id/commercial_partner_id ancestors).
+
+    Kept partners' parent/commercial ancestors are included so that after the prune
+    no kept row has a dangling parent_id/commercial_partner_id self-reference.
+    """
+    # Single self-reference in the recursive term (Postgres allows only one): the
+    # LATERAL VALUES unnests both parent_id and commercial_partner_id into rows so
+    # one JOIN onto `keep` walks both ancestor links per hop.
+    return (
+        "CREATE TEMP TABLE res_partner_keep ON COMMIT DROP AS\n"
+        "WITH RECURSIVE keep(id) AS (\n"
+        "    SELECT partner_id FROM res_users WHERE partner_id IS NOT NULL\n"
+        "    UNION SELECT partner_id FROM res_company WHERE partner_id IS NOT NULL\n"
+        "    UNION SELECT v.anc FROM keep k\n"
+        "        JOIN res_partner p ON p.id = k.id\n"
+        "        CROSS JOIN LATERAL (VALUES (p.parent_id), (p.commercial_partner_id)) AS v(anc)\n"
+        "        WHERE v.anc IS NOT NULL\n"
+        ")\n"
+        "SELECT DISTINCT id FROM keep;\n"
+        "CREATE INDEX ON res_partner_keep (id);"
+    )
+
+
+def _fk_edges_into(
+    table: str, db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
+) -> list[tuple[str, str, str]]:
+    """Return (child_table, child_col, confdeltype) for every FK referencing ``table``.
+
+    ``confdeltype``: 'c' cascade, 'n' set null, 'r' restrict, 'a' no action, 'd' set default.
+    """
+    _check_identifier(table)
+    query = (
+        "SELECT con.conrelid::regclass::text, a.attname, con.confdeltype "
+        "FROM pg_constraint con "
+        "JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1] "
+        f"WHERE con.contype = 'f' AND con.confrelid = '{table}'::regclass;"
+    )
+    ok, rows = _run_psql_tuples(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return []
+    edges: list[tuple[str, str, str]] = []
+    for r in rows:
+        if len(r) == 3 and _SQL_IDENTIFIER_RE.match(r[0]) and _SQL_IDENTIFIER_RE.match(r[1]):
+            edges.append((r[0], r[1], r[2]))
+    return edges
+
+
+def _cascade_child_edges(
+    parents: list[str], db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
+) -> list[tuple[str, str, str]]:
+    """Return (child_table, child_col, parent_table) for ON-DELETE-CASCADE FKs whose
+    referenced table is one of ``parents``."""
+    if not parents:
+        return []
+    safe = [_check_identifier(p) for p in parents]
+    in_list = ", ".join(f"'{p}'" for p in safe)
+    query = (
+        "SELECT con.conrelid::regclass::text, a.attname, con.confrelid::regclass::text "
+        "FROM pg_constraint con "
+        "JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1] "
+        f"WHERE con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid::regclass::text IN ({in_list});"
+    )
+    ok, rows = _run_psql_tuples(query, db=db_name, host=host, port=port, user=user)
+    if not ok:
+        return []
+    edges: list[tuple[str, str, str]] = []
+    for r in rows:
+        if len(r) == 3 and all(_SQL_IDENTIFIER_RE.match(x) for x in r):
+            edges.append((r[0], r[1], r[2]))
+    return edges
+
+
+def _partner_cascade_delete_plan(
+    db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
+) -> list[str]:
+    """Ordered DELETE statements that remove non-kept res_partner rows + their
+    ON-DELETE-CASCADE descendants without leaving orphans (deepest child first).
+
+    Walks the cascade FK graph outward from res_partner via a bounded BFS, tracking
+    the per-hop FK column so each child delete is row-scoped to the ancestor chain
+    (``col IN (SELECT id FROM parent WHERE <parent-delete-cond>)``). The final
+    statement deletes the non-kept partners themselves. Runs under FK enforcement
+    off, so ordering is for orphan-avoidance, not delete success.
+    """
+    frontier: dict[str, str] = {"res_partner": _PARTNER_DELETE_WHERE}
+    seen = {"res_partner"}
+    levels: list[dict[str, str]] = []
+    for _ in range(_PARTNER_CASCADE_MAX_DEPTH):
+        edges = _cascade_child_edges(list(frontier), db_name, host=host, port=port, user=user)
+        next_frontier: dict[str, str] = {}
+        for child, col, parent in edges:
+            if child in seen or parent not in frontier:
+                continue
+            cond = f'"{col}" IN (SELECT id FROM "{parent}" WHERE {frontier[parent]})'
+            next_frontier[child] = f"{next_frontier[child]} OR {cond}" if child in next_frontier else cond
+        if not next_frontier:
+            break
+        seen |= set(next_frontier)
+        levels.append(next_frontier)
+        frontier = next_frontier
+
+    statements: list[str] = []
+    for level in reversed(levels):
+        for child, cond in level.items():
+            statements.append(f'DELETE FROM "{child}" WHERE {cond};')
+    statements.append(f"DELETE FROM res_partner WHERE {_PARTNER_DELETE_WHERE};")
+    return statements
+
+
+def _partner_purge_model_list(purged_tables: list[str]) -> list[str]:
+    """Odoo model names (for the attachment filter) of the purged root tables."""
+    return [PURGE_MODEL_NAMES[t] for t in purged_tables if t in PURGE_MODEL_NAMES]
+
+
+def count_deletable_partners(
+    db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
+) -> int:
+    """Count res_partner rows the master-data purge would delete (non-user/company)."""
+    ok, rows = _run_psql_tuples(
+        "WITH keep AS (SELECT partner_id AS id FROM res_users WHERE partner_id IS NOT NULL "
+        "UNION SELECT partner_id FROM res_company WHERE partner_id IS NOT NULL) "
+        "SELECT count(*) FROM res_partner WHERE id NOT IN (SELECT id FROM keep);",
+        db=db_name,
+        host=host,
+        port=port,
+        user=user,
+    )
+    if ok and rows and rows[0] and rows[0][0].isdigit():
+        return int(rows[0][0])
+    return 0
+
+
+def _attachment_delete_sql(model_names: list[str]) -> str:
+    """DELETE for ir_attachment: rows of removed records (by res_model) plus the
+    avatars of removed partners. Product/view/module/company/user attachments are
+    never named, so product images and system assets survive."""
+    models = ", ".join(_sql_literal(m) for m in sorted(set(model_names)))
+    clause = f"res_model IN ({models}) OR " if models else ""
+    return (
+        f"DELETE FROM ir_attachment WHERE {clause}"
+        "(res_model = 'res.partner' AND res_id IS NOT NULL AND res_id NOT IN (SELECT id FROM res_partner));"
+    )
+
+
+def purge_master_data(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+    dry_run: bool = False,
+) -> tuple[bool, str]:
+    """Full template-DB reset: delete movement + content + customer/partner data.
+
+    Keeps products, pricelists, users (+ their partner), companies (+ their partner)
+    and config; deletes everything transactional plus CRM/HR/helpdesk/mail content,
+    the customer/vendor/contact partners, and the attachments of all removed records.
+    Runs as ONE transaction with ``session_replication_role = replica`` (superuser
+    required). Aborts with no deletion if the movement/content cascade would reach a
+    protected master table, or if an unhandled FK still references a to-be-deleted
+    partner after the content purge (drift guard).
+
+    Args:
+        dry_run: If True, delete nothing and return a summary of what would be removed.
+
+    Returns:
+        Tuple of (success, summary_or_error).
+    """
+    movement = resolve_purge_tables(db_name, host=host, port=port, user=user)
+    content = _resolve_content_purge_tables(db_name, host=host, port=port, user=user)
+
+    move_closure = _cascade_closure(movement, db_name, host=host, port=port, user=user) if movement else set()
+    content_closure = _cascade_closure(content, db_name, host=host, port=port, user=user) if content else set()
+    full_closure = move_closure | content_closure
+
+    breached = sorted(full_closure & PURGE_PROTECTED_TABLES)
+    if breached:
+        return (
+            False,
+            f"Aborted — the movement/content purge would also empty protected table(s): {', '.join(breached)}. "
+            "A custom/OCA module likely adds an ON DELETE CASCADE foreign key into a purged table. No data deleted.",
+        )
+
+    edges = _fk_edges_into("res_partner", db_name, host=host, port=port, user=user)
+    setnull_edges = [(c, col) for c, col, t in edges if t == "n" and c != "res_partner"]
+    unhandled_edges = [(c, col) for c, col, t in edges if t not in ("c", "n") and c not in ("res_users", "res_company")]
+
+    if dry_run:
+        to_delete = count_deletable_partners(db_name, host=host, port=port, user=user)
+        return True, (
+            f"[dry-run] would empty {len(full_closure)} movement/content table(s), "
+            f"delete {to_delete} partner(s) (customers/vendors/contacts), and their attachments. "
+            "Kept: products, pricelists, users, companies, config."
+        )
+
+    if not _is_superuser(db_name, host, port, user):
+        return (
+            False,
+            "Aborted — master-data purge requires a superuser role (to disable FK enforcement during the bulk "
+            "delete). Connect as the database superuser and retry. No data deleted.",
+        )
+
+    repairs = _null_repair_targets(full_closure, db_name, host=host, port=port, user=user)
+    partner_deletes = _partner_cascade_delete_plan(db_name, host=host, port=port, user=user)
+    model_names = _partner_purge_model_list(movement + content)
+
+    stmts = ["BEGIN;", "SET LOCAL session_replication_role = replica;"]
+    # 1-2. movement + content whole-table closure, then SET-NULL back-references from kept tables.
+    for table in sorted(full_closure):
+        _check_identifier(table)
+        stmts.append(f'DELETE FROM "{table}";')
+    for table, column in repairs:
+        _check_identifier(table)
+        _check_identifier(column)
+        stmts.append(f'UPDATE "{table}" SET "{column}" = NULL WHERE "{column}" IS NOT NULL;')
+    # 3. partner keep set.
+    stmts.append(_keep_partner_temp_table_sql())
+    # 3a. drift guard: an unhandled FK still pointing at a to-be-deleted partner aborts (rollback).
+    for child, col in unhandled_edges:
+        _check_identifier(child)
+        _check_identifier(col)
+        stmts.append(
+            'DO $$ BEGIN IF EXISTS (SELECT 1 FROM "' + child + '" WHERE "' + col + '" IS NOT NULL '
+            'AND "' + col + '" NOT IN (SELECT id FROM res_partner_keep)) THEN '
+            f"RAISE EXCEPTION 'odoodev-purge-abort: unhandled FK {child}.{col} still references a partner to delete'; "
+            "END IF; END $$;"
+        )
+    # 3b. partner cascade deletes (deepest first) + final res_partner delete.
+    stmts.extend(partner_deletes)
+    # 3c. defensive assertion: no kept row left with a dangling self-reference.
+    stmts.append(
+        "DO $$ BEGIN IF EXISTS (SELECT 1 FROM res_partner WHERE parent_id IS NOT NULL "
+        "AND parent_id NOT IN (SELECT id FROM res_partner)) THEN "
+        "RAISE EXCEPTION 'odoodev-purge-abort: kept partner has a dangling parent_id (keep-set bug)'; "
+        "END IF; END $$;"
+    )
+    # 3d. SET-NULL repair for kept tables that reference a now-deleted partner.
+    for child, col in setnull_edges:
+        _check_identifier(child)
+        _check_identifier(col)
+        stmts.append(
+            f'UPDATE "{child}" SET "{col}" = NULL WHERE "{col}" IS NOT NULL '
+            f'AND "{col}" NOT IN (SELECT id FROM res_partner);'
+        )
+    # 4. attachments of removed records (product/system attachments never targeted).
+    stmts.append(_attachment_delete_sql(model_names))
+    stmts.append("COMMIT;")
+
+    ok, err = _run_psql_file("\n".join(stmts), db=db_name, host=host, port=port, user=user)
+    if not ok:
+        detail = err.strip()
+        if "odoodev-purge-abort" in detail:
+            return False, f"Aborted (no data deleted): {detail}"
+        return False, f"Master-data purge failed: {detail}"
+    return True, (
+        f"{len(full_closure)} movement/content table(s) emptied, non-user/company partners deleted, "
+        f"attachments of removed records purged (products, pricelists, users, companies, config kept)"
+    )
 
 
 # Heuristic multiplier for estimating the uncompressed size of compressed

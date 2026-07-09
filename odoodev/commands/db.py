@@ -23,6 +23,7 @@ from odoodev.core.database import (
     cleanup_restore_temp,
     copy_database,
     copy_filestore,
+    count_deletable_partners,
     create_backup_tar_zst,
     create_backup_zip,
     create_database,
@@ -39,6 +40,7 @@ from odoodev.core.database import (
     move_filestore,
     neutralize_bank_sync,
     parse_module_names,
+    purge_master_data,
     purge_transactional_data,
     rename_database,
     resolve_purge_tables,
@@ -51,6 +53,7 @@ from odoodev.core.database import (
 )
 from odoodev.core.version_registry import get_version
 from odoodev.output import (
+    checkbox,
     confirm,
     console,
     path_input,
@@ -208,13 +211,114 @@ def db_list(ctx: click.Context, version: str | None, as_json: bool) -> None:
         print_warning("No databases found (or PostgreSQL not accessible)")
 
 
+# System databases that must never be dropped, even when named explicitly.
+# list_databases() already excludes them, so this only guards explicit -n input.
+_SYSTEM_DBS = frozenset({"postgres", "template0", "template1"})
+
+
+def _candidate_databases(params: dict, name_filter: str | None) -> list[str]:
+    """List droppable databases (system DBs already excluded), narrowed by filter."""
+    databases = list_databases(host=params["host"], port=params["port"], user=params["user"])
+    if name_filter:
+        databases = [d for d in databases if name_filter in d]
+    return databases
+
+
+def _resolve_drop_targets(
+    params: dict,
+    names: tuple[str, ...],
+    multi: bool,
+    drop_all: bool,
+    name_filter: str | None,
+) -> list[str]:
+    """Resolve the list of databases to drop from the selection options.
+
+    Precedence: explicit ``-n`` names > ``--all`` > ``-m`` checkbox > single
+    interactive select (current default). Raises SystemExit on invalid input.
+    """
+    if names:
+        targets: list[str] = []
+        for n in names:
+            if n in _SYSTEM_DBS:
+                print_error(f"Refusing to drop system database '{n}'")
+                raise SystemExit(1)
+            if not database_exists(n, **params):
+                print_warning(f"Database '{n}' does not exist — skipping")
+                continue
+            targets.append(n)
+        return targets
+
+    candidates = _candidate_databases(params, name_filter)
+    if not candidates:
+        if name_filter:
+            print_error(f"No databases match filter '{name_filter}'")
+        else:
+            print_error("No databases found (or PostgreSQL not accessible)")
+        raise SystemExit(1)
+
+    if drop_all:
+        return candidates
+    if multi:
+        print_info(f"{len(candidates)} database(s) available (Space: toggle, Enter: confirm):")
+        return list(checkbox("Select databases to drop:", choices=candidates))
+    return [select("Select database:", choices=candidates)]
+
+
+def _drop_one_with_filestore(name: str, version: str, params: dict, terminate: bool) -> bool:
+    """Drop a single database and its filestore. Returns True on success.
+
+    With ``terminate`` active connections are killed first; otherwise a database
+    held open by a running Odoo server fails the drop and is reported.
+    """
+    if terminate:
+        count = get_active_connection_count(name, **params)
+        if count > 0:
+            if not terminate_connections(name, **params):
+                print_error(f"'{name}': failed to terminate {count} connection(s)")
+                return False
+            print_info(f"'{name}': terminated {count} connection(s)")
+
+    if not drop_database(name, **params):
+        print_error(f"Failed to drop '{name}'")
+        return False
+    print_success(f"Database '{name}' dropped")
+
+    filestore_path = get_filestore_path(version, db_name=name)
+    if os.path.isdir(filestore_path):
+        try:
+            shutil.rmtree(filestore_path)
+            print_success(f"Filestore removed: {filestore_path}")
+        except OSError as e:
+            print_warning(f"'{name}': could not remove filestore: {e}")
+    return True
+
+
 @db.command("drop")
 @click.argument("version", required=False)
-@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option("-n", "--name", "names", multiple=True, help="Database name (repeatable; interactive if omitted)")
+@click.option("-m", "--multi", is_flag=True, help="Interactive multi-select (checkbox) of databases to drop")
+@click.option("--all", "drop_all", is_flag=True, help="Drop ALL databases (narrow with --filter)")
+@click.option("--filter", "name_filter", default=None, help="Only offer/target databases whose name contains TEXT")
+@click.option("--terminate-connections", "terminate", is_flag=True, help="Kill active connections before dropping")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
-def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool) -> None:
-    """Drop a database."""
+def db_drop(
+    ctx: click.Context,
+    version: str | None,
+    names: tuple[str, ...],
+    multi: bool,
+    drop_all: bool,
+    name_filter: str | None,
+    terminate: bool,
+    yes: bool,
+) -> None:
+    """Drop one or more databases.
+
+    Single interactive select by default; `-m/--multi` opens a checkbox for bulk
+    selection, `--all` targets every (non-system) database, `-n` is repeatable,
+    and `--filter TEXT` narrows the candidates. Bulk deletions require typing the
+    count to confirm.
+    """
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     env_vars = _load_env_vars(version_cfg)
@@ -222,37 +326,50 @@ def db_drop(ctx: click.Context, version: str | None, name: str | None, yes: bool
     _print_migration_hint(version)
     _ensure_pg_reachable(version, params)
 
-    if not name:
-        name = _select_database(params)
-        if not name:
-            raise SystemExit(1)
+    if sum([bool(names), multi, drop_all]) > 1:
+        print_error("Choose only one selection mode: -n/--name, -m/--multi, or --all")
+        raise SystemExit(1)
+    if name_filter and names:
+        print_error("--filter cannot be combined with explicit -n/--name")
+        raise SystemExit(1)
 
-    filestore_path = get_filestore_path(version, db_name=name)
-    has_filestore = os.path.isdir(filestore_path)
+    targets = _resolve_drop_targets(params, names, multi, drop_all, name_filter)
+    if not targets:
+        print_info("No databases selected — nothing to drop.")
+        return
 
     if not yes:
         print_warning("This will permanently delete:")
-        print_warning(f"  Database: {name}")
-        if has_filestore:
-            print_warning(f"  Filestore: {filestore_path}")
+        for n in targets:
+            filestore_path = get_filestore_path(version, db_name=n)
+            suffix = f"  (+ filestore {filestore_path})" if os.path.isdir(filestore_path) else ""
+            print_warning(f"  {n}{suffix}")
         console.print()
-        if not confirm("Proceed with deletion? This cannot be undone.", default=False):
-            print_info("Aborted.")
-            return
+        if len(targets) == 1:
+            if not confirm("Proceed with deletion? This cannot be undone.", default=False):
+                print_info("Aborted.")
+                return
+        else:
+            answer = text_input(f"Type {len(targets)} to confirm deletion of {len(targets)} databases:")
+            if answer.strip() != str(len(targets)):
+                print_info("Aborted.")
+                return
 
-    if drop_database(name, host=params["host"], port=params["port"], user=params["user"]):
-        print_success(f"Database '{name}' dropped")
-    else:
-        print_error(f"Failed to drop database '{name}'")
+    dropped: list[str] = []
+    failed: list[str] = []
+    for n in targets:
+        if _drop_one_with_filestore(n, version, params, terminate):
+            dropped.append(n)
+        else:
+            failed.append(n)
+
+    console.print()
+    if dropped:
+        print_success(f"{len(dropped)} database(s) dropped: {', '.join(dropped)}")
+    if failed:
+        print_error(f"{len(failed)} database(s) failed: {', '.join(failed)}")
+        print_info("Hint: a running Odoo server holds a connection — retry with --terminate-connections")
         raise SystemExit(1)
-
-    # Remove filestore directory
-    if has_filestore:
-        try:
-            shutil.rmtree(filestore_path)
-            print_success(f"Filestore removed: {filestore_path}")
-        except OSError as e:
-            print_warning(f"Could not remove filestore: {e}")
 
 
 def _resolve_copy_names(params: dict, src: str | None, dst: str | None) -> tuple[str, str]:
@@ -397,6 +514,7 @@ class RestoreOptions:
     anonymize: bool
     wipe: bool
     purge_transactions: bool
+    purge_master_data: bool
     recompute: bool
     anon_users: bool
     user_password: str
@@ -405,8 +523,8 @@ class RestoreOptions:
 
     @property
     def any_sanitize_step(self) -> bool:
-        """True if any of the four --sanitize steps is enabled."""
-        return any((self.deactivate_cron, self.neutralize, self.anonymize, self.wipe))
+        """True if any of the --sanitize steps is enabled."""
+        return any((self.deactivate_cron, self.neutralize, self.anonymize, self.wipe, self.purge_master_data))
 
     @property
     def any_step(self) -> bool:
@@ -418,6 +536,7 @@ class RestoreOptions:
                 self.anonymize,
                 self.wipe,
                 self.purge_transactions,
+                self.purge_master_data,
                 self.anon_users,
             )
         )
@@ -454,6 +573,7 @@ class RestorePipeline:
         self._neutralize_step()
         self._anonymize_step()
         self._wipe_step()
+        self._purge_master_data_step()
         self._purge_step()
         self._anonymize_users_step()
         self._recompute_step()
@@ -535,8 +655,31 @@ class RestorePipeline:
         else:
             print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
 
+    def _purge_master_data_step(self) -> None:
+        if not self.opts.purge_master_data:
+            return
+        if not self.opts.yes_flag:
+            n = count_deletable_partners(self.name, **self.params)
+            print_warning("MASTER-DATA PURGE — this permanently deletes:")
+            print_warning("  all movement data (stock / sale / purchase / account / mrp / pos)")
+            print_warning("  CRM leads, HR employees, helpdesk tickets, messages & activities")
+            print_warning(f"  {n} customer/vendor/contact partner(s) and their attachments")
+            print_warning("  KEPT: products, pricelists, users, companies, config")
+            console.print()
+            answer = text_input(f"Type {n} to confirm deletion of {n} partner(s):")
+            if answer.strip() != str(n):
+                print_info("Aborted master-data purge.")
+                return
+        print_info("Purging master data (movement + content + customer partners)...")
+        ok, msg = purge_master_data(self.name, **self.params)
+        if ok:
+            print_success(f"Master data purged — {msg}")
+        else:
+            print_warning(f"Master-data purge skipped — {msg}")
+
     def _purge_step(self) -> None:
-        if not self.opts.purge_transactions:
+        # Master-data purge already includes the movement data — don't run it twice.
+        if not self.opts.purge_transactions or self.opts.purge_master_data:
             return
         print_info("Purging transactional data (keeping products, pricelists, partners)...")
         ok, msg = purge_transactional_data(self.name, **self.params)
@@ -588,8 +731,10 @@ class RestorePipeline:
 @click.option(
     "--sanitize",
     is_flag=True,
-    help="Enable all post-restore processing at once (deactivate-cron + neutralize + anonymize + wipe); "
-    "explicit --no-* flags win over --sanitize",
+    help="Enable all post-restore processing at once (deactivate-cron + neutralize + anonymize + wipe + "
+    "purge-master-data). WARNING: purge-master-data DELETES customers/vendors, CRM/HR/helpdesk data, "
+    "messages and attachments — keeps only products, pricelists, users, companies, config. "
+    "Escape with --no-purge-master-data; explicit --no-* flags win over --sanitize",
 )
 @click.option(
     "--deactivate-cron/--no-deactivate-cron",
@@ -617,6 +762,14 @@ class RestorePipeline:
     default=None,
     help="Delete all movement data (stock/sale/purchase/account/mrp/pos), zero stock; keep products, "
     "pricelists, partners — OFF by default, NOT included in --sanitize",
+)
+@click.option(
+    "--purge-master-data/--no-purge-master-data",
+    "purge_master_data",
+    default=None,
+    help="Template-DB reset: DELETE movement data + CRM/HR/helpdesk/mail content + customer/vendor/contact "
+    "partners + their attachments; keep products, pricelists, users, companies, config. Included in "
+    "--sanitize (escape with --no-purge-master-data). Requires a superuser DB role",
 )
 @click.option(
     "--recompute/--no-recompute",
@@ -673,6 +826,7 @@ def db_restore(
     anonymize: bool | None,
     wipe: bool | None,
     purge_transactions: bool | None,
+    purge_master_data: bool | None,
     recompute: bool | None,
     anon_users: bool,
     user_password: str,
@@ -689,17 +843,23 @@ def db_restore(
     Automatically detects backup structure and handles filestore.
 
     By default the restored database is left completely untouched. All
-    post-restore processing (cron deactivation, neutralize, anonymize, wipe)
-    is opt-in — enable individually or all at once with --sanitize.
-    --purge-transactions (movement-data reset) is a separate opt-in, NOT in
-    --sanitize.
+    post-restore processing is opt-in — enable individually or all at once with
+    --sanitize. WARNING: since v0.48.0 --sanitize includes --purge-master-data,
+    which DELETES customers/vendors, CRM/HR/helpdesk data, messages and
+    attachments (keeping only products, pricelists, users, companies, config).
+    Escape with --no-purge-master-data. With -y the deletion runs without a
+    prompt. --purge-transactions (movement-data-only reset) remains a separate
+    opt-in, NOT auto-enabled by --sanitize.
     """
     # Resolve tri-state toggles: explicit flag > --sanitize > off.
     deactivate_cron = deactivate_cron if deactivate_cron is not None else sanitize
     neutralize = neutralize if neutralize is not None else sanitize
     anonymize = anonymize if anonymize is not None else sanitize
     wipe = wipe if wipe is not None else sanitize
-    # Purge is deliberately NOT part of --sanitize (destructive, specific use case).
+    # Master-data purge IS part of --sanitize (v0.48.0) — the strong confirmation
+    # in the pipeline step guards the deletion; --no-purge-master-data opts out.
+    purge_master_data = purge_master_data if purge_master_data is not None else sanitize
+    # Movement-only purge stays a separate opt-in (not auto-enabled by --sanitize).
     purge_transactions = bool(purge_transactions)
     # Recompute auto-runs after anonymize unless explicitly disabled.
     recompute = recompute if recompute is not None else anonymize
@@ -729,7 +889,11 @@ def db_restore(
     # steps). Asked up front so all interactive questions precede the
     # destructive work.
     uninstall_modules = parse_module_names(uninstall_modules_raw)
-    if uninstall_modules_raw is None and not yes_flag and any((deactivate_cron, neutralize, anonymize, wipe)):
+    if (
+        uninstall_modules_raw is None
+        and not yes_flag
+        and any((deactivate_cron, neutralize, anonymize, wipe, purge_master_data))
+    ):
         answer = text_input(
             "Modules to uninstall before sanitizing (comma-separated technical names, Enter to skip):",
             default="",
@@ -809,6 +973,7 @@ def db_restore(
         anonymize=anonymize,
         wipe=wipe,
         purge_transactions=purge_transactions,
+        purge_master_data=purge_master_data,
         recompute=recompute,
         anon_users=anon_users,
         user_password=user_password,
@@ -1067,6 +1232,69 @@ def db_purge(
     ok, msg = purge_transactional_data(name, **params)
     if ok:
         print_success(f"Transactional data purged — {msg}")
+    else:
+        print_error(msg)
+        raise SystemExit(1)
+
+
+@db.command("purge-master-data")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option("--dry-run", is_flag=True, help="Report what would be deleted, delete nothing")
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.pass_context
+def db_purge_master_data(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Full template-DB reset: delete movement + customer/master data on an existing DB.
+
+    Deletes all movement data (stock/sale/purchase/account/mrp/pos), CRM leads, HR
+    employees, helpdesk tickets, messages & activities, the customer/vendor/contact
+    partners and their attachments. KEEPS products, pricelists, users, companies and
+    config. Requires a superuser DB role. This is the standalone form of the
+    --purge-master-data restore step (which --sanitize enables).
+    """
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    if dry_run:
+        ok, msg = purge_master_data(name, dry_run=True, **params)
+        print_info(msg) if ok else print_error(msg)
+        return
+
+    if not yes:
+        n = count_deletable_partners(name, **params)
+        print_warning(
+            f"This PERMANENTLY DELETES movement + CRM/HR/helpdesk/mail data, {n} "
+            "customer/vendor/contact partner(s) and their attachments in "
+            f"'{name}'."
+        )
+        print_warning("  KEPT: products, pricelists, users, companies, config.")
+        console.print()
+        answer = text_input(f"Type {n} to confirm deletion of {n} partner(s):")
+        if answer.strip() != str(n):
+            print_info("Aborted.")
+            return
+
+    print_info(f"Purging master data in '{name}'...")
+    ok, msg = purge_master_data(name, **params)
+    if ok:
+        print_success(f"Master data purged — {msg}")
     else:
         print_error(msg)
         raise SystemExit(1)

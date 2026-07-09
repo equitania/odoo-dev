@@ -1,5 +1,68 @@
 # Release Notes
 
+## Version 0.48.0 (09.07.2026)
+
+### Changed
+- **`--sanitize` now performs a full "template-DB from production" reset (BREAKING).**
+  Previously `--sanitize` only anonymized data and never deleted master records.
+  It now additionally runs a new **`--purge-master-data`** step that DELETES all
+  movement data (stock/sale/purchase/account/MRP/POS), CRM leads, HR employee
+  records, helpdesk tickets, messages/activities and communication artifacts, the
+  customer/vendor/contact partners, and the attachments of every removed record.
+  **Kept:** products, pricelists, users (+ their partner), companies (+ their
+  partner) and configuration. Opt out with `--no-purge-master-data`; the deletion
+  requires typing the partner count to confirm (skipped with `-y`, so scripted
+  `--sanitize -y` now deletes master data — review your automation).
+
+### Added
+- **`--purge-master-data/--no-purge-master-data` restore flag + standalone
+  `odoodev db purge-master-data` command** (`-n`, `--dry-run`, `-y`). Runs one
+  `session_replication_role = replica` transaction (superuser required): empties the
+  movement + content cascade closures, deletes non-user/company partners following
+  the FK graph (multi-hop cascade children removed, SET-NULL back-references nulled,
+  the keep-set includes each kept partner's parent/commercial ancestors so nothing
+  dangles), then deletes the attachments of the removed records — product images and
+  system assets are never targeted. Aborts with no deletion (rollback) if the cascade
+  would reach a protected master table or if an unhandled RESTRICT FK still references
+  a to-be-deleted partner (drift guard). `--dry-run` reports the impact without
+  deleting.
+- **`--anonymize` also keeps the own company's partner legible.** The res_partner
+  anonymization keep-set now excludes `res_company` partners too (not just
+  `res_users`), consistent with the master-data purge keep-set.
+
+## Version 0.47.0 (09.07.2026)
+
+### Added
+- **`db drop`: bulk / multi-database deletion.** Cleaning up after many failed
+  test runs no longer means dropping databases one at a time. New options on
+  `odoodev db drop`:
+  - `-m/--multi` — interactive checkbox multi-select (reuses the `[✔]`/`[ ]`
+    checkbox helper); single-select stays the default without the flag.
+  - `-n/--name` is now **repeatable** (`-n a -n b`) for non-interactive bulk drops.
+  - `--all` — target every non-system database at once.
+  - `--filter TEXT` — narrow the candidates to names containing TEXT (e.g.
+    `--filter test_`); combines with `--all` and `-m`.
+  - `--terminate-connections` — kill active connections per database before
+    dropping (reuses `terminate_connections`); without it a database held open by
+    a running Odoo server fails and is reported in the tally.
+
+  Safety: system databases (`postgres`/`template0`/`template1`) are never offered
+  and are rejected when named explicitly; the three selection modes are mutually
+  exclusive; bulk deletions (`>1` database) require typing the exact count to
+  confirm (single-database drop keeps the simple yes/no prompt). Each database's
+  filestore is removed on success, and a final tally reports dropped vs. failed
+  (exit code 1 if any failed).
+
+### Fixed
+- **`--anonymize` no longer renames internal users.** The `res_partner`
+  anonymization also hit the partners linked to `res_users`, so after a sanitize
+  the user list showed Faker names even though `res_users` itself is deliberately
+  left untouched — which made it hard to keep track of who is who while testing.
+  Partners referenced by a `res_users.partner_id` are now excluded from every
+  `res_partner` anonymization pass (per-row Faker + the static `eq_birthday`
+  wipe), so internal users keep their real name and contact data. Opt into user
+  anonymization explicitly with `--anonymize-users` as before.
+
 ## Version 0.46.2 (09.07.2026)
 
 ### Fixed
