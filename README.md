@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.45.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.46.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -173,6 +173,11 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.46.1:**
+- **Neu:** `odoodev start -c <pfad>` / `--config` — explizite Konfigurationsdatei statt glob-basierter "neueste gewinnt"-Auswahl in `myconfs/`. Bei mehreren `odoo_*.conf` für verschiedene Systeme kann jetzt eine konkrete ausgewählt werden. Ohne `-c` bleibt die bisherige Logik. Playbook-Argument `config` für den `start`-Schritt entsprechend.
+- **Behoben (v0.46.0):** Second-Order-SQL-Injection in der Purge-Introspektion (`_null_repair_targets`) — DB-gelesene Tabellennamen werden jetzt via `_check_identifier` validiert.
+- **Geändert (v0.46.0):** `db restore` intern in `RestorePipeline`-Klasse + `RestoreOptions`-Dataclass refactored (keine Verhaltensänderung); `VersionConfigProtocol` ersetzt 13 `type: ignore`; mypy-Konfiguration, `SECURITY.md`, `.pre-commit-config.yaml` hinzugefügt.
 
 **Version 0.45.0:**
 - **Neu:** `db users` — interaktive TUI für die Benutzer-Verwaltung nach einem Restore: Benutzerliste mit 2FA-Status, `p` setzt ein neues Passwort (pbkdf2_sha512-Hash), `t` deaktiviert TOTP-2FA (Secret + vertrauenswürdige Geräte), `/` Suche, `d` Datenbank-Wechsel.
@@ -440,6 +445,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.46.1:**
+- **Added:** `odoodev start -c <path>` / `--config` — explicit config file instead of glob-based latest-wins selection in `myconfs/`. When multiple `odoo_*.conf` exist for different systems, a specific one can be selected. Without `-c` the existing logic is unchanged. Playbook arg `config` for the `start` step accordingly.
+- **Fixed (v0.46.0):** Second-order SQL injection in purge introspection (`_null_repair_targets`) — DB-sourced table names are now validated via `_check_identifier`.
+- **Changed (v0.46.0):** `db restore` internals refactored into `RestorePipeline` class + `RestoreOptions` dataclass (no behavioral change); `VersionConfigProtocol` replaces 13 `type: ignore`; mypy config, `SECURITY.md`, `.pre-commit-config.yaml` added.
 
 **Version 0.45.0:**
 - **Added:** `db users` — interactive TUI for user management after a restore: user list with 2FA status, `p` sets a new password (pbkdf2_sha512 hash), `t` disables TOTP 2FA (secret + trusted devices), `/` search, `d` database switch.

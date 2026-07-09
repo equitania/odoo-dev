@@ -77,7 +77,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --var/-D TEXT |
 | `odoodev setup` | Interactive setup wizard for odoodev configuration. | --non-interactive, --reset |
 | `odoodev shell-setup` | Install odoodev shell wrapper function. | --shell fish\|bash\|zsh\|auto |
-| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, --allow-default-credentials, [EXTRA_ARGS] |
+| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, [EXTRA_ARGS] |
 | `odoodev stop` | Stop Odoo server and Docker services for the given version. | [VERSION], --keep-docker, --force |
 | `odoodev venv activate` | Print the venv activation command for current shell. | [VERSION] |
 | `odoodev venv check` | Check venv status and requirements freshness. | [VERSION], --json |
@@ -106,6 +106,13 @@ odoodev start 19 -- -d v19_exam -u my_module   # equivalent, passthrough form
 ### Run a module's tests
 ```bash
 odoodev start 19 --test -- -d test_db -i my_module
+```
+
+### Start with a specific config file (v0.46.1)
+```bash
+odoodev start 18 -c ~/gitbase/v18/myconfs/odoo_custom.conf
+# Without -c: glob odoo_*.conf in myconfs/, latest by date wins.
+# Playbook equivalent: args: { config: ~/gitbase/v18/myconfs/odoo_custom.conf }
 ```
 
 ### Back up, then restore with PII anonymized (safe default)

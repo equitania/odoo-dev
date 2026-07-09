@@ -12,6 +12,7 @@ import click
 
 from odoodev import i18n
 from odoodev.cli import resolve_version
+from odoodev.click_types import ExpandedPath
 from odoodev.core.environment import detect_shell
 from odoodev.core.prerequisites import check_port, wait_for_postgres_ready
 from odoodev.core.venv_manager import (
@@ -568,15 +569,29 @@ def _check_odoo_source(ctx: click.Context, version: str, odoo_dir: str) -> None:
             raise SystemExit(1)
 
 
-def _check_odoo_config(ctx: click.Context, version: str, myconfs_dir: str) -> str:
+def _check_odoo_config(
+    ctx: click.Context,
+    version: str,
+    myconfs_dir: str,
+    config_override: str | None = None,
+) -> str:
     """Ensure an Odoo config file exists, offer to generate if missing.
+
+    When *config_override* is given, that path is used directly (bypassing the
+    glob-based latest-wins selection). When it is ``None``, the existing
+    discovery + generate-prompt logic runs.
 
     Returns:
         Path to the Odoo config file.
 
     Raises:
-        SystemExit: If config cannot be found or generated.
+        SystemExit: If config cannot be found, generated, or the override is missing.
     """
+    if config_override:
+        if not os.path.isfile(config_override):
+            print_error(f"Config not found: {config_override}")
+            raise SystemExit(1)
+        return config_override
     config_path = _find_odoo_config(myconfs_dir)
     if not config_path:
         print_warning(f"No Odoo config found in {myconfs_dir}")
@@ -895,6 +910,14 @@ def _build_odoo_extra_args(
     default=None,
     help="Container runtime for PostgreSQL when it must be started (overrides config). docker | apple",
 )
+@click.option(
+    "-c",
+    "--config",
+    "config_override",
+    type=ExpandedPath(),
+    default=None,
+    help="Path to a specific odoo_*.conf (bypasses the glob-based latest-wins selection in myconfs/).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def start(
@@ -914,6 +937,7 @@ def start(
     bind_host: str,
     allow_default_credentials: bool,
     runtime: str | None,
+    config_override: str | None,
     extra_args: tuple[str, ...],
 ) -> None:
     """Start Odoo server for the given version.
@@ -960,7 +984,7 @@ def start(
     env = _set_environment(env_vars, bind_host=bind_host, version=version)
     _check_venv(ctx, version, version_cfg, venv_dir)
     _check_odoo_source(ctx, version, odoo_dir)
-    config_path = _check_odoo_config(ctx, version, myconfs_dir)
+    config_path = _check_odoo_config(ctx, version, myconfs_dir, config_override)
     _clean_sessions(config_path, version, clean_sessions, no_confirm)
     _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm, runtime=runtime)
 

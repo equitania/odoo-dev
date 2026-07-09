@@ -325,9 +325,15 @@ def handle_start(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult
     if not os.path.exists(odoo_bin):
         return _step_error("start", "start", f"odoo-bin not found at {odoo_bin}", 0)
 
-    config_path = _find_odoo_config(myconfs_dir)
-    if not config_path:
-        return _step_error("start", "start", f"No Odoo config found in {myconfs_dir}", 0)
+    config_override = args.get("config")
+    if config_override:
+        if not os.path.isfile(config_override):
+            return _step_error("start", "start", f"Config not found: {config_override}", 0)
+        config_path = config_override
+    else:
+        config_path = _find_odoo_config(myconfs_dir)
+        if not config_path:
+            return _step_error("start", "start", f"No Odoo config found in {myconfs_dir}", 0)
 
     # Check DB port — start Docker if needed
     from odoodev.core.migration_config import resolve_db_port

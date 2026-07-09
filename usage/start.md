@@ -88,6 +88,19 @@ Seit v0.4.50 bindet Odoo standardmaessig nur auf `127.0.0.1` (Loopback), damit d
 odoodev start 18 --host 0.0.0.0
 ```
 
+### Explizite Konfiguration (`-c` / `--config`, v0.46.1)
+
+Standardmäßig wählt `start` die neueste `odoo_*.conf` in `myconfs/` aus (glob, sortiert,
+letzte gewinnt). Bei mehreren Konfigurationen für verschiedene Systeme kann mit `-c` eine
+konkrete Datei ausgewählt werden:
+
+```bash
+odoodev start 18 -c ~/gitbase/v18/myconfs/odoo_custom.conf
+```
+
+Ohne `-c` gilt die bisherige glob-Logik. Ein nicht existierender Pfad bricht ab (kein
+Generate-Prompt, da die Auswahl explizit war). Im Playbook: `args: { config: <pfad> }`.
+
 ### Container-Runtime (`--runtime`)
 
 Muss `start` PostgreSQL erst hochfahren, nutzt es die konfigurierte Runtime
@@ -221,6 +234,18 @@ Since v0.4.50 Odoo binds to `127.0.0.1` (loopback) only by default, so the dev s
 ```bash
 odoodev start 18 --host 0.0.0.0
 ```
+
+### Explicit config file (`-c` / `--config`, v0.46.1)
+
+By default `start` selects the latest `odoo_*.conf` in `myconfs/` (glob, sorted, last wins).
+When multiple configs exist for different systems, `-c` picks a specific one:
+
+```bash
+odoodev start 18 -c ~/gitbase/v18/myconfs/odoo_custom.conf
+```
+
+Without `-c` the existing glob logic is unchanged. A non-existent path exits with an error
+(no generate-prompt, since the choice was explicit). In playbooks: `args: { config: <path> }`.
 
 ### Container Runtime (`--runtime`)
 

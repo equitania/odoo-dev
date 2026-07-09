@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+import types
 
 import pytest
 
@@ -12,6 +13,7 @@ import pytest
 import odoodev.cli  # noqa: F401
 from odoodev.commands.start import (
     _add_v19_log_handlers,
+    _check_odoo_config,
     _check_services,
     _clean_sessions,
     _extract_db_from_args,
@@ -237,6 +239,37 @@ class TestFindOdooConfig:
         path = os.path.join(tmp_dir, "odoo_250101.conf")
         open(path, "w").close()
         assert _find_odoo_config(tmp_dir) == path
+
+
+class TestCheckOdooConfigOverride:
+    """_check_odoo_config(config_override=...) bypasses the glob selection."""
+
+    def test_override_returns_path_directly(self, tmp_dir):
+        """An explicit override path is returned as-is, bypassing glob."""
+        custom = os.path.join(tmp_dir, "my_custom.conf")
+        open(custom, "w").close()
+        # Even though myconfs_dir has a newer odoo_*.conf, the override wins.
+        myconfs = os.path.join(tmp_dir, "myconfs")
+        os.makedirs(myconfs, exist_ok=True)
+        open(os.path.join(myconfs, "odoo_990101.conf"), "w").close()
+        result = _check_odoo_config(None, "18", myconfs, config_override=custom)
+        assert result == custom
+
+    def test_override_missing_errors(self, tmp_dir):
+        """A non-existent override path exits with an error (no generate-prompt)."""
+        with pytest.raises(SystemExit) as exc:
+            _check_odoo_config(None, "18", tmp_dir, config_override="/nonexistent/odoo.conf")
+        assert exc.value.code == 1
+
+    def test_override_none_falls_back_to_glob(self, tmp_dir):
+        """config_override=None keeps the legacy glob-based discovery."""
+        myconfs = os.path.join(tmp_dir, "myconfs")
+        os.makedirs(myconfs, exist_ok=True)
+        path = os.path.join(myconfs, "odoo_250101.conf")
+        open(path, "w").close()
+        # ctx=None, no generate-prompt needed because a config exists.
+        result = _check_odoo_config(None, "18", myconfs, config_override=None)
+        assert result == path
 
 
 class TestGetConfigValue:
@@ -544,6 +577,68 @@ class TestCleanSessions:
         runner = CliRunner()
         result = runner.invoke(start, ["--help"], catch_exceptions=False)
         assert "--clean-sessions" in result.output
+
+    def test_config_flag_in_help(self):
+        """-c/--config flag is visible in start command help."""
+        from click.testing import CliRunner
+
+        from odoodev.commands.start import start
+
+        runner = CliRunner()
+        result = runner.invoke(start, ["--help"], catch_exceptions=False)
+        assert "-c, --config" in result.output
+        assert "bypasses the" in result.output  # help wraps across lines
+
+    def test_start_with_c_flag_uses_override(self, monkeypatch, tmp_path):
+        """`odoodev start 18 -c <path>` uses the explicit config, not the glob result."""
+        from click.testing import CliRunner
+
+        import odoodev.commands.start as start_cmd
+        from odoodev.commands.start import start
+
+        custom_conf = tmp_path / "custom.conf"
+        custom_conf.write_text("[options]\n")
+        glob_conf = tmp_path / "myconfs" / "odoo_990101.conf"
+        glob_conf.parent.mkdir(parents=True)
+        glob_conf.write_text("[options]\n")
+
+        captured: dict[str, str] = {}
+
+        def fake_check(ctx, version, myconfs_dir, config_override=None):
+            captured["override"] = config_override
+            return str(custom_conf)
+
+        monkeypatch.setattr(start_cmd, "_check_odoo_config", fake_check)
+        monkeypatch.setattr(start_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(start_cmd, "load_versions", lambda: {})
+        monkeypatch.setattr(
+            start_cmd,
+            "get_version",
+            lambda v, versions=None: types.SimpleNamespace(
+                version="18",
+                python="3.12",
+                postgres="16",
+                ports=types.SimpleNamespace(db=18432, odoo=8069, gevent=8072, mailpit=1025, smtp=1025),
+                paths=types.SimpleNamespace(
+                    native_dir=str(tmp_path),
+                    server_dir=str(tmp_path),
+                    myconfs_dir=str(glob_conf.parent),
+                ),
+            ),
+        )
+        monkeypatch.setattr(start_cmd, "_check_env_file", lambda ctx, v, d: {})
+        monkeypatch.setattr(start_cmd, "_check_placeholder_password", lambda *a, **k: None)
+        monkeypatch.setattr(start_cmd, "_set_environment", lambda env_vars, bind_host="", version="": {})
+        monkeypatch.setattr(start_cmd, "_check_venv", lambda *a, **k: None)
+        monkeypatch.setattr(start_cmd, "_check_odoo_source", lambda *a, **k: None)
+        monkeypatch.setattr(start_cmd, "_clean_sessions", lambda *a, **k: None)
+        monkeypatch.setattr(start_cmd, "_check_services", lambda *a, **k: None)
+        monkeypatch.setattr(start_cmd, "_start_odoo", lambda *a, **k: None)
+
+        runner = CliRunner()
+        result = runner.invoke(start, ["18", "-c", str(custom_conf), "-y"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert captured["override"] == str(custom_conf)
 
 
 class TestStartOdooProcessGroup:

@@ -1,4 +1,4 @@
-# odoodev-equitania v0.45.0 | python/uv
+# odoodev-equitania v0.46.1 | python/uv
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▸ Setup:    uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Run:      odoodev --help
@@ -10,6 +10,7 @@
 ▸ Python:   3.12/3.13 (tested), >=3.12 (pyproject.toml)
 ▸ Mac/Apple Container: odoodev config set container_runtime apple   # persistent default; then `odoodev start 18` just works. See usage/apple-container.md
 ▸ Runtime:  odoodev start 18 --runtime apple     # one-off override; offers to save as default. Container: `container ls` (NOT `container machine list`)
+▸ Config:   odoodev start 18 -c ~/gitbase/v18/myconfs/custom.conf   # explicit config override (v0.46.1); without -c: glob latest-wins
 ▸ Restore:  odoodev db restore 18 -z bak.zip -n db   # ZIP/7z/tar/tar.zst/gz/SQL; DB untouched by default — --sanitize for cron+neutralize+anon+wipe
 ▸ Anon-User: odoodev db restore 18 ... --anonymize-users   # opt-in: res_users -> user<id>/ownerp (admin kept)
 ▸ Uninstall: odoodev db restore 18 ... --sanitize --uninstall-modules m1,m2 [-y]   # drop conflicting modules BEFORE sanitize; standalone: db uninstall -n db -m m1,m2

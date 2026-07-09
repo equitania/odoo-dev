@@ -1,5 +1,28 @@
 # Release Notes
 
+## Version 0.46.1 (09.07.2026)
+
+### Added
+- **`-c` / `--config` option for `odoodev start`.** When multiple `odoo_*.conf`
+  files exist in `myconfs/` for different systems, a specific config can be selected
+  explicitly instead of relying on the glob-based latest-wins selection
+  (`_find_odoo_config` sorts `odoo_*.conf` lexicographically and takes the last).
+  Usage: `odoodev start 18 -c ~/gitbase/v18/myconfs/odoo_custom.conf`.
+  Without `-c`, the existing glob logic is unchanged. The option also accepts
+  relative paths (expanded via the `ExpandedPath` Click type). A non-existent
+  override path exits with a clear error (no generate-prompt, since the operator
+  chose it explicitly).
+- **Playbook `config` arg for the `start` step.** The automation handler
+  `handle_start` now reads `args.get("config")` and uses it directly when present,
+  bypassing `_find_odoo_config`. A missing override path produces a `StepResult`
+  error. Without the arg, the glob-based discovery runs as before.
+  Example:
+  ```yaml
+  - name: start
+    args:
+      config: ~/gitbase/v18/myconfs/odoo_custom.conf
+  ```
+
 ## Version 0.46.0 (09.07.2026)
 
 ### Fixed

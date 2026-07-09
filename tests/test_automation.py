@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Resolve the circular import chain (cli → start → cli) before patching start internals.
+import odoodev.cli  # noqa: F401
 from odoodev.core.automation import (
     COMMAND_HANDLERS,
     handle_db_drop,
@@ -17,6 +19,7 @@ from odoodev.core.automation import (
     handle_docker_up,
     handle_env_check,
     handle_pull,
+    handle_start,
     handle_stop,
     handle_venv_check,
 )
@@ -321,3 +324,87 @@ class TestPullHandler:
         result = handle_pull(mock_version_cfg, {})
         assert result.status == "error"
         assert "repos.yaml" in result.message
+
+
+# =============================================================================
+# Start handler tests
+# =============================================================================
+
+
+class TestStartHandler:
+    """handle_start config-override (args['config']) support."""
+
+    def _patch_prereqs(self, monkeypatch, tmp_dir, mock_version_cfg):
+        """Patch all prerequisites so handle_start reaches the config-resolution step."""
+        mock_version_cfg.paths.native_dir = tmp_dir
+        mock_version_cfg.paths.server_dir = str(tmp_dir / "server")
+        mock_version_cfg.paths.myconfs_dir = str(tmp_dir / "myconfs")
+        # .env file
+        (tmp_dir / ".env").write_text("ODOO_VERSION=18\nDB_PORT=18432\n")
+        # venv
+        venv_bin = tmp_dir / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python3").write_text("#!/bin/bash\n")
+        # odoo-bin
+        server_dir = tmp_dir / "server"
+        server_dir.mkdir(parents=True)
+        (server_dir / "odoo-bin").write_text("#!/bin/bash\n")
+
+        monkeypatch.setattr("odoodev.commands.start._load_env_file", lambda path: {"DB_PORT": "18432"})
+        monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda h, p: True)
+        monkeypatch.setattr("odoodev.core.venv_manager.get_venv_python", lambda v: str(venv_bin / "python3"))
+        monkeypatch.setattr("odoodev.commands.start._set_environment", lambda ev, version="": {})
+
+    def test_config_arg_uses_override(self, monkeypatch, tmp_path, mock_version_cfg):
+        """args['config'] is used directly, bypassing _find_odoo_config glob."""
+        import types as _types
+
+        self._patch_prereqs(monkeypatch, tmp_path, mock_version_cfg)
+        custom_conf = tmp_path / "custom.conf"
+        custom_conf.write_text("[options]\n")
+
+        captured: dict[str, str] = {}
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            proc = _types.SimpleNamespace(pid=999, poll=lambda: None, returncode=0)
+            return proc
+
+        monkeypatch.setattr("odoodev.core.automation.subprocess.Popen", fake_popen)
+        monkeypatch.setattr("odoodev.core.automation.time.sleep", lambda s: None)
+
+        result = handle_start(mock_version_cfg, {"config": str(custom_conf)})
+        assert result.status == "ok"
+        assert "-c" in captured["cmd"]
+        assert str(custom_conf) in captured["cmd"]
+
+    def test_config_arg_missing_errors(self, monkeypatch, tmp_path, mock_version_cfg):
+        """A non-existent args['config'] produces a StepResult error."""
+        self._patch_prereqs(monkeypatch, tmp_path, mock_version_cfg)
+        result = handle_start(mock_version_cfg, {"config": "/nonexistent/odoo.conf"})
+        assert result.status == "error"
+        assert "Config not found" in result.message
+
+    def test_no_config_arg_falls_back_to_glob(self, monkeypatch, tmp_path, mock_version_cfg):
+        """Without args['config'], _find_odoo_config runs as before."""
+        import types as _types
+
+        self._patch_prereqs(monkeypatch, tmp_path, mock_version_cfg)
+        myconfs = tmp_path / "myconfs"
+        myconfs.mkdir(parents=True)
+        glob_conf = myconfs / "odoo_250101.conf"
+        glob_conf.write_text("[options]\n")
+
+        captured: dict[str, str] = {}
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            proc = _types.SimpleNamespace(pid=999, poll=lambda: None, returncode=0)
+            return proc
+
+        monkeypatch.setattr("odoodev.core.automation.subprocess.Popen", fake_popen)
+        monkeypatch.setattr("odoodev.core.automation.time.sleep", lambda s: None)
+
+        result = handle_start(mock_version_cfg, {})
+        assert result.status == "ok"
+        assert str(glob_conf) in captured["cmd"]
