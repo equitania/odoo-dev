@@ -256,5 +256,5 @@ def _check_container_running(version: str) -> str:
         if status:
             return f"[green]running[/green] ({status})"
         return "[yellow]not running[/yellow]"
-    except Exception:
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError):
         return "[dim]unknown[/dim]"

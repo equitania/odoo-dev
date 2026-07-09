@@ -68,7 +68,12 @@ def _get_ssh_config_path() -> str | None:
         with os.fdopen(fd, "w") as f:
             f.write(f"IdentityFile {_ssh_key_path}\n")
             f.write("IdentitiesOnly yes\n")
-        atexit.register(lambda p=config_path: os.unlink(p) if os.path.exists(p) else None)
+
+        def _cleanup_ssh_config(p: str = config_path) -> None:
+            if os.path.exists(p):
+                os.unlink(p)
+
+        atexit.register(_cleanup_ssh_config)
         return config_path
     except OSError:
         logger.warning("Could not create SSH config file, using direct key reference")

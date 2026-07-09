@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import yaml
 
@@ -89,6 +90,35 @@ class VersionConfig:
     def version_prefix(self) -> str:
         """Version prefix for naming (e.g., 'v18')."""
         return f"v{self.version}"
+
+
+class VersionConfigProtocol(Protocol):
+    """Structural type for the subset of VersionConfig used by backend/start modules.
+
+    Avoids typing these consumers' ``version_cfg`` parameter as ``object`` (which
+    forces ``# type: ignore[attr-defined]`` at every attribute access). Any object
+    with these attributes satisfies the protocol — ``VersionConfig`` does so
+    structurally, no inheritance declaration needed.
+
+    Attributes are declared as properties because ``VersionConfig`` is a frozen
+    dataclass (read-only), and a plain Protocol attribute is settable — mypy
+    would reject the match.
+    """
+
+    @property
+    def version(self) -> str: ...
+
+    @property
+    def python(self) -> str: ...
+
+    @property
+    def postgres(self) -> str: ...
+
+    @property
+    def ports(self) -> PortConfig: ...
+
+    @property
+    def paths(self) -> PathConfig: ...
 
 
 def _get_bundled_versions_path() -> Path:

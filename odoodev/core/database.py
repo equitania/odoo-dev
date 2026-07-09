@@ -1969,7 +1969,8 @@ def _null_repair_targets(
     """
     if not closure:
         return []
-    in_closure = ", ".join(f"'{t}'" for t in sorted(closure))
+    safe_closure = [_check_identifier(t) for t in sorted(closure)]
+    in_closure = ", ".join(f"'{t}'" for t in safe_closure)
     query = (
         "SELECT con.conrelid::regclass::text AS tbl, a.attname AS col "
         "FROM pg_constraint con "

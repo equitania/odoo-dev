@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -387,6 +388,198 @@ def db_rename(
             print_warning(f"Could not move filestore: {e} (non-fatal)")
 
 
+@dataclass
+class RestoreOptions:
+    """Post-restore processing flags (tri-state already resolved to bool)."""
+
+    deactivate_cron: bool
+    neutralize: bool
+    anonymize: bool
+    wipe: bool
+    purge_transactions: bool
+    recompute: bool
+    anon_users: bool
+    user_password: str
+    uninstall_modules: list[str] = field(default_factory=list)
+    yes_flag: bool = False
+
+    @property
+    def any_sanitize_step(self) -> bool:
+        """True if any of the four --sanitize steps is enabled."""
+        return any((self.deactivate_cron, self.neutralize, self.anonymize, self.wipe))
+
+    @property
+    def any_step(self) -> bool:
+        """True if any post-restore step at all is enabled."""
+        return any(
+            (
+                self.deactivate_cron,
+                self.neutralize,
+                self.anonymize,
+                self.wipe,
+                self.purge_transactions,
+                self.anon_users,
+            )
+        )
+
+
+class RestorePipeline:
+    """Orchestrates the post-restore processing steps (uninstall → sanitize → recompute).
+
+    Each step delegates to the corresponding ``core.database`` function. Steps are
+    non-fatal by design — failures print a warning and the pipeline continues, except
+    for the interactive uninstall-failure case where the operator is prompted to abort.
+    """
+
+    def __init__(
+        self,
+        opts: RestoreOptions,
+        version: str,
+        name: str,
+        version_cfg: object,
+        env_vars: dict[str, str],
+        params: dict,
+    ) -> None:
+        self.opts = opts
+        self.version = version
+        self.name = name
+        self.version_cfg = version_cfg
+        self.env_vars = env_vars
+        self.params = params
+
+    def run(self) -> None:
+        """Execute all enabled post-restore steps in sequence."""
+        self._uninstall_modules_step()
+        self._deactivate_cron_step()
+        self._neutralize_step()
+        self._anonymize_step()
+        self._wipe_step()
+        self._purge_step()
+        self._anonymize_users_step()
+        self._recompute_step()
+        self._print_untouched_hint()
+
+    def _resolve_inv(self) -> dict | None:
+        """Lazily resolve the odoo-bin invocation spec (venv/server/conf readiness)."""
+        from odoodev.commands.start import resolve_odoo_invocation
+
+        return resolve_odoo_invocation(self.version_cfg, self.env_vars)
+
+    def _uninstall_modules_step(self) -> None:
+        if not self.opts.uninstall_modules:
+            return
+        inv = self._resolve_inv()
+        if inv is None:
+            print_warning(
+                "Module uninstall skipped — venv/odoo-bin/odoo_*.conf not ready "
+                f"(run 'odoodev db uninstall {self.version} -n {self.name} "
+                f"-m {','.join(self.opts.uninstall_modules)}' after setup)"
+            )
+            return
+        print_info(f"Uninstalling module(s): {', '.join(self.opts.uninstall_modules)}...")
+        ok, msg = run_uninstall_modules(self.name, self.opts.uninstall_modules, **inv)
+        if ok:
+            _print_uninstall_markers(msg)
+            print_success("Module uninstall complete")
+        else:
+            print_warning(f"Module uninstall failed (non-fatal): {msg.strip()}")
+            if not self.opts.yes_flag and self.opts.any_sanitize_step:
+                if not confirm("Continue with the sanitize pipeline despite the uninstall failure?", default=False):
+                    print_info("Aborted.")
+                    raise SystemExit(1)
+
+    def _deactivate_cron_step(self) -> None:
+        if not self.opts.deactivate_cron:
+            return
+        print_info("Deactivating cron jobs and mail servers...")
+        if not deactivate_cronjobs(self.name, **self.params):
+            print_warning("Cron/mail deactivation failed — some tables may be missing (non-fatal)")
+
+    def _neutralize_step(self) -> None:
+        if not self.opts.neutralize:
+            return
+        inv = self._resolve_inv()
+        if inv is None:
+            print_warning(
+                "Neutralize skipped — venv/odoo-bin/odoo_*.conf not ready "
+                f"(run 'odoodev db neutralize {self.version} -n {self.name}' after setup)"
+            )
+        else:
+            print_info("Neutralizing database (odoo-bin neutralize)...")
+            ok, msg = run_neutralize(self.name, **inv)
+            if ok:
+                print_success("Database neutralized")
+            else:
+                print_warning(f"Neutralize failed (non-fatal): {msg.strip()}")
+        # Disable bank synchronisation (not covered by odoo-bin neutralize). Pure
+        # psql, so it runs even when native neutralize was skipped above.
+        print_info("Disabling bank synchronisation...")
+        if not neutralize_bank_sync(self.name, **self.params):
+            print_warning("Bank-sync neutralization partially failed — some tables may be missing (non-fatal)")
+
+    def _anonymize_step(self) -> None:
+        if not self.opts.anonymize:
+            return
+        print_info("Anonymizing personal data (GDPR)...")
+        if anonymize_database(self.name, **self.params):
+            print_success("Personal data anonymized")
+        else:
+            print_warning("Anonymization partially failed — some tables may be missing (non-fatal)")
+
+    def _wipe_step(self) -> None:
+        if not self.opts.wipe:
+            return
+        print_info("Wiping message/attachment content...")
+        if wipe_database(self.name, **self.params):
+            print_success("Message and attachment content wiped")
+        else:
+            print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
+
+    def _purge_step(self) -> None:
+        if not self.opts.purge_transactions:
+            return
+        print_info("Purging transactional data (keeping products, pricelists, partners)...")
+        ok, msg = purge_transactional_data(self.name, **self.params)
+        if ok:
+            print_success(f"Transactional data purged — {msg}")
+        else:
+            print_warning(f"Purge skipped — {msg}")
+
+    def _anonymize_users_step(self) -> None:
+        if not self.opts.anon_users:
+            return
+        print_info("Anonymizing res_users (logins + dev password)...")
+        if anonymize_users(self.name, dev_password=self.opts.user_password, **self.params):
+            print_success(f"User logins anonymized (login: user<id>, password: {self.opts.user_password})")
+        else:
+            print_warning("User anonymization failed (table issue) — non-fatal")
+
+    def _recompute_step(self) -> None:
+        if not (self.opts.recompute and self.opts.anonymize):
+            return
+        inv = self._resolve_inv()
+        if inv is None:
+            print_warning(
+                "Recompute skipped — venv/odoo-bin/odoo_*.conf not ready; stored computed fields "
+                f"(e.g. complete_name) may be stale (run 'odoodev db recompute {self.version} "
+                f"-n {self.name}' after setup)"
+            )
+        else:
+            print_info("Recomputing stored computed fields (odoo-bin shell)...")
+            ok, msg = run_recompute(self.name, **inv)
+            if ok:
+                print_success("Stored computed fields recomputed")
+            else:
+                print_warning(f"Recompute failed (non-fatal): {msg.strip()}")
+
+    def _print_untouched_hint(self) -> None:
+        if not self.opts.any_step:
+            print_info(
+                "Database left untouched — no post-restore processing selected "
+                "(use --sanitize, --purge-transactions, or --deactivate-cron/--neutralize/--anonymize/--wipe)"
+            )
+
+
 @db.command("restore")
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="New database name (prompted if omitted)")
@@ -609,113 +802,20 @@ def db_restore(
         else:
             print_warning("Filestore transfer failed — attachments may be missing")
 
-    # Uninstall conflicting modules BEFORE any sanitize step runs.
-    if uninstall_modules:
-        from odoodev.commands.start import resolve_odoo_invocation
-
-        inv = resolve_odoo_invocation(version_cfg, env_vars)
-        if inv is None:
-            print_warning(
-                "Module uninstall skipped — venv/odoo-bin/odoo_*.conf not ready "
-                f"(run 'odoodev db uninstall {version} -n {name} -m {','.join(uninstall_modules)}' after setup)"
-            )
-        else:
-            print_info(f"Uninstalling module(s): {', '.join(uninstall_modules)}...")
-            ok, msg = run_uninstall_modules(name, uninstall_modules, **inv)
-            if ok:
-                _print_uninstall_markers(msg)
-                print_success("Module uninstall complete")
-            else:
-                print_warning(f"Module uninstall failed (non-fatal): {msg.strip()}")
-                if not yes_flag and any((deactivate_cron, neutralize, anonymize, wipe)):
-                    # These modules may break the sanitize steps — give the
-                    # operator a chance to bail before touching the DB further.
-                    if not confirm("Continue with the sanitize pipeline despite the uninstall failure?", default=False):
-                        print_info("Aborted.")
-                        raise SystemExit(1)
-
-    # Post-restore operations
-    if deactivate_cron:
-        print_info("Deactivating cron jobs and mail servers...")
-        if not deactivate_cronjobs(name, **params):
-            print_warning("Cron/mail deactivation failed — some tables may be missing (non-fatal)")
-
-    if neutralize:
-        from odoodev.commands.start import resolve_odoo_invocation
-
-        inv = resolve_odoo_invocation(version_cfg, env_vars)
-        if inv is None:
-            print_warning(
-                "Neutralize skipped — venv/odoo-bin/odoo_*.conf not ready "
-                f"(run 'odoodev db neutralize {version} -n {name}' after setup)"
-            )
-        else:
-            print_info("Neutralizing database (odoo-bin neutralize)...")
-            ok, msg = run_neutralize(name, **inv)
-            if ok:
-                print_success("Database neutralized")
-            else:
-                print_warning(f"Neutralize failed (non-fatal): {msg.strip()}")
-
-        # Disable bank synchronisation (not covered by odoo-bin neutralize). Pure
-        # psql, so it runs even when native neutralize was skipped above.
-        print_info("Disabling bank synchronisation...")
-        if not neutralize_bank_sync(name, **params):
-            print_warning("Bank-sync neutralization partially failed — some tables may be missing (non-fatal)")
-
-    if anonymize:
-        print_info("Anonymizing personal data (GDPR)...")
-        if anonymize_database(name, **params):
-            print_success("Personal data anonymized")
-        else:
-            print_warning("Anonymization partially failed — some tables may be missing (non-fatal)")
-
-    if wipe:
-        print_info("Wiping message/attachment content...")
-        if wipe_database(name, **params):
-            print_success("Message and attachment content wiped")
-        else:
-            print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
-
-    if purge_transactions:
-        print_info("Purging transactional data (keeping products, pricelists, partners)...")
-        ok, msg = purge_transactional_data(name, **params)
-        if ok:
-            print_success(f"Transactional data purged — {msg}")
-        else:
-            print_warning(f"Purge skipped — {msg}")
-
-    if anon_users:
-        print_info("Anonymizing res_users (logins + dev password)...")
-        if anonymize_users(name, dev_password=user_password, **params):
-            print_success(f"User logins anonymized (login: user<id>, password: {user_password})")
-        else:
-            print_warning("User anonymization failed (table issue) — non-fatal")
-
-    # Recompute stored computed fields after in-place SQL edits (anonymize), so
-    # overviews (kanban/list) show the anonymized data instead of stale display names.
-    if recompute and anonymize:
-        from odoodev.commands.start import resolve_odoo_invocation
-
-        inv = resolve_odoo_invocation(version_cfg, env_vars)
-        if inv is None:
-            print_warning(
-                "Recompute skipped — venv/odoo-bin/odoo_*.conf not ready; stored computed fields "
-                f"(e.g. complete_name) may be stale (run 'odoodev db recompute {version} -n {name}' after setup)"
-            )
-        else:
-            print_info("Recomputing stored computed fields (odoo-bin shell)...")
-            ok, msg = run_recompute(name, **inv)
-            if ok:
-                print_success("Stored computed fields recomputed")
-            else:
-                print_warning(f"Recompute failed (non-fatal): {msg.strip()}")
-
-    if not any((deactivate_cron, neutralize, anonymize, wipe, purge_transactions, anon_users)):
-        print_info(
-            "Database left untouched — no post-restore processing selected "
-            "(use --sanitize, --purge-transactions, or --deactivate-cron/--neutralize/--anonymize/--wipe)"
-        )
+    # Post-restore processing pipeline (uninstall → sanitize → recompute).
+    opts = RestoreOptions(
+        deactivate_cron=deactivate_cron,
+        neutralize=neutralize,
+        anonymize=anonymize,
+        wipe=wipe,
+        purge_transactions=purge_transactions,
+        recompute=recompute,
+        anon_users=anon_users,
+        user_password=user_password,
+        uninstall_modules=uninstall_modules,
+        yes_flag=yes_flag,
+    )
+    RestorePipeline(opts, version, name, version_cfg, env_vars, params).run()
 
     # Cleanup
     if not keep_temp:

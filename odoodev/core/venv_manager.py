@@ -224,6 +224,7 @@ def ensure_setuptools(venv_dir: str) -> bool:
     result = subprocess.run(
         ["uv", "pip", "install", "--reinstall", "setuptools<82"],
         env=env,
+        text=True,
     )
     if result.returncode != 0:
         return False

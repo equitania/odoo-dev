@@ -23,6 +23,7 @@ import subprocess
 from dataclasses import dataclass
 
 from odoodev.core.environment import command_exists, detect_os, detect_user, is_macos
+from odoodev.core.version_registry import VersionConfigProtocol
 
 # Runtime identifiers used across config, CLI flags and the factory.
 RUNTIME_DOCKER = "docker"
@@ -138,19 +139,19 @@ class ContainerBackend:
     # version_cfg + env (loaded from the version's .env) fully describe the dev
     # service; each backend derives what it needs (compose dir vs run spec).
 
-    def service_up(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_up(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         """Start the dev PostgreSQL service. Returns a process-style return code."""
         raise NotImplementedError
 
-    def service_down(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_down(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         """Stop the dev PostgreSQL service (persistent data is kept)."""
         raise NotImplementedError
 
-    def service_status(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_status(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         """Show the dev service status."""
         raise NotImplementedError
 
-    def service_logs(self, version_cfg: object, env: dict[str, str], follow: bool, tail: int) -> int:
+    def service_logs(self, version_cfg: VersionConfigProtocol, env: dict[str, str], follow: bool, tail: int) -> int:
         """Show the dev service logs."""
         raise NotImplementedError
 
@@ -217,25 +218,25 @@ class DockerBackend(ContainerBackend):
         return None
 
     # Docker keeps using docker-compose for the dev service — unchanged behaviour.
-    def service_up(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_up(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         from odoodev.core.docker_compose import compose_up
 
-        return compose_up(version_cfg.paths.native_dir)  # type: ignore[attr-defined]
+        return compose_up(version_cfg.paths.native_dir)
 
-    def service_down(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_down(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         from odoodev.core.docker_compose import compose_down
 
-        return compose_down(version_cfg.paths.native_dir)  # type: ignore[attr-defined]
+        return compose_down(version_cfg.paths.native_dir)
 
-    def service_status(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_status(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         from odoodev.core.docker_compose import compose_ps
 
-        return compose_ps(version_cfg.paths.native_dir)  # type: ignore[attr-defined]
+        return compose_ps(version_cfg.paths.native_dir)
 
-    def service_logs(self, version_cfg: object, env: dict[str, str], follow: bool, tail: int) -> int:
+    def service_logs(self, version_cfg: VersionConfigProtocol, env: dict[str, str], follow: bool, tail: int) -> int:
         from odoodev.core.docker_compose import compose_logs
 
-        return compose_logs(version_cfg.paths.native_dir, follow=follow, tail=tail)  # type: ignore[attr-defined]
+        return compose_logs(version_cfg.paths.native_dir, follow=follow, tail=tail)
 
 
 class AppleContainerBackend(ContainerBackend):
@@ -291,7 +292,7 @@ class AppleContainerBackend(ContainerBackend):
     # Apple Container has no compose — provision the dev postgres as a single
     # `container run`, mirroring the compose service (name/volume/port/conf), with
     # the persistent named volume kept across down/up (compose-like semantics).
-    def service_up(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_up(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         spec = build_dev_spec(version_cfg, env)
         # A stopped container with the same name would block 'run'; remove it
         # first (the named volume — i.e. the data — persists independently).
@@ -299,16 +300,16 @@ class AppleContainerBackend(ContainerBackend):
         result = self.run_postgres(spec)
         return result.returncode
 
-    def service_down(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_down(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         spec = build_dev_spec(version_cfg, env)
         # Stop + remove the container but KEEP the named volume (dev data).
         self.stop_postgres(spec.container_name, remove=True)
         return 0
 
-    def service_status(self, version_cfg: object, env: dict[str, str]) -> int:
+    def service_status(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         return self._run(["ls", "-a"]).returncode
 
-    def service_logs(self, version_cfg: object, env: dict[str, str], follow: bool, tail: int) -> int:
+    def service_logs(self, version_cfg: VersionConfigProtocol, env: dict[str, str], follow: bool, tail: int) -> int:
         spec = build_dev_spec(version_cfg, env)
         args = ["logs"]
         if follow:
@@ -407,7 +408,7 @@ def read_env_file(native_dir: str) -> dict[str, str]:
     return values
 
 
-def build_dev_spec(version_cfg: object, env: dict[str, str]) -> PostgresSpec:
+def build_dev_spec(version_cfg: VersionConfigProtocol, env: dict[str, str]) -> PostgresSpec:
     """Build the dev PostgreSQL spec, mirroring the docker-compose service.
 
     Values come from the version's ``.env`` (when present) with config/registry
@@ -417,11 +418,11 @@ def build_dev_spec(version_cfg: object, env: dict[str, str]) -> PostgresSpec:
     from odoodev.core.global_config import load_global_config
 
     cfg = load_global_config()
-    version = version_cfg.version  # type: ignore[attr-defined]
+    version = version_cfg.version
     user = env.get("DEV_USER") or detect_user()
-    pg_version = env.get("POSTGRES_VERSION") or version_cfg.postgres  # type: ignore[attr-defined]
-    host_port = int(env.get("DB_PORT") or version_cfg.ports.db)  # type: ignore[attr-defined]
-    native_dir = version_cfg.paths.native_dir  # type: ignore[attr-defined]
+    pg_version = env.get("POSTGRES_VERSION") or version_cfg.postgres
+    host_port = int(env.get("DB_PORT") or version_cfg.ports.db)
+    native_dir = version_cfg.paths.native_dir
 
     conf = os.path.join(native_dir, "postgresql.conf")
     conf_path = conf if os.path.isfile(conf) else None

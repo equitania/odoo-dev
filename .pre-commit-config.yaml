@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(odoodev|tests)/.*\.py$
+      - id: ruff-format
+        files: ^(odoodev|tests)/.*\.py$
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.2
+    hooks:
+      - id: mypy
+        args: [--config-file=pyproject.toml]
+        files: ^odoodev/.*\.py$
+        additional_dependencies:
+          - types-PyYAML>=6.0.0
+          - types-click>=7.1.0

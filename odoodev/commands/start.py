@@ -21,7 +21,7 @@ from odoodev.core.venv_manager import (
     get_venv_python_version,
     install_requirements,
 )
-from odoodev.core.version_registry import get_version, load_versions
+from odoodev.core.version_registry import VersionConfigProtocol, get_version, load_versions
 from odoodev.output import confirm, print_error, print_header, print_info, print_success, print_table, print_warning
 
 
@@ -278,7 +278,7 @@ def _start_odoo(
     env: dict[str, str],
     venv_dir: str,
     version: str = "",
-    version_cfg: object = None,
+    version_cfg: VersionConfigProtocol | None = None,
     load_language: str | None = None,
     i18n_overwrite: bool = False,
 ) -> None:
@@ -290,8 +290,8 @@ def _start_odoo(
 
     # Always show the URL panel so users get visual confirmation of the port
     # they should open in the browser — also in --dev/--shell/--test.
-    default_odoo_port = str(version_cfg.ports.odoo) if version_cfg is not None else ""  # type: ignore[attr-defined]
-    default_mailpit_port = str(version_cfg.ports.mailpit) if version_cfg is not None else ""  # type: ignore[attr-defined]
+    default_odoo_port = str(version_cfg.ports.odoo) if version_cfg is not None else ""
+    default_mailpit_port = str(version_cfg.ports.mailpit) if version_cfg is not None else ""
     odoo_port = env.get("ODOO_PORT") or default_odoo_port
     mailpit_port = env.get("MAILPIT_PORT") or default_mailpit_port
     mode_suffix = {"dev": " (--dev)", "shell": " (--shell)", "test": " (--test)"}.get(mode, "")
@@ -485,7 +485,7 @@ def _check_placeholder_password(
 def _check_venv(
     ctx: click.Context,
     version: str,
-    version_cfg: object,
+    version_cfg: VersionConfigProtocol,
     venv_dir: str,
 ) -> None:
     """Validate virtual environment: exists, interpreter intact, Python version matches.
@@ -516,7 +516,7 @@ def _check_venv(
         raise SystemExit(1)
 
     # Check venv Python version matches configuration
-    python_version = version_cfg.python  # type: ignore[attr-defined]
+    python_version = version_cfg.python
     if not check_venv_python_matches(venv_dir, python_version):
         actual = get_venv_python_version(venv_dir) or "unknown"
         print_error(f"Venv Python version mismatch: found {actual}, expected {python_version}")
@@ -674,7 +674,7 @@ def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | Non
 
 def _check_services(
     env_vars: dict[str, str],
-    version_cfg: object,
+    version_cfg: VersionConfigProtocol,
     version: str,
     native_dir: str,
     venv_dir: str,
@@ -686,7 +686,7 @@ def _check_services(
     Raises:
         SystemExit: If a blocking issue cannot be resolved.
     """
-    ports = version_cfg.ports  # type: ignore[attr-defined]
+    ports = version_cfg.ports
 
     # Check PostgreSQL — migration-aware: the shared port wins over stale .env DB_PORT
     from odoodev.core.migration_config import resolve_db_port
@@ -717,7 +717,7 @@ def _check_services(
             from odoodev.core.container_backend import get_backend, read_env_file
 
             backend = get_backend(runtime_name)
-            svc_env = read_env_file(effective_cfg.paths.native_dir)  # type: ignore[attr-defined]
+            svc_env = read_env_file(effective_cfg.paths.native_dir)
             print_info(f"Starting PostgreSQL via {backend.name}...")
             if backend.service_up(effective_cfg, svc_env) != 0:
                 print_error(f"Failed to start PostgreSQL via {backend.name}")
@@ -796,7 +796,7 @@ def _launch_tui(
     mode: str,
     env: dict[str, str],
     env_vars: dict[str, str],
-    version_cfg: object,
+    version_cfg: VersionConfigProtocol,
     odoo_dir: str,
     venv_dir: str,
     config_path: str,
@@ -822,7 +822,7 @@ def _launch_tui(
 
     from odoodev.core.migration_config import resolve_db_port
 
-    ports = version_cfg.ports  # type: ignore[attr-defined]
+    ports = version_cfg.ports
     odoo_port = int(env_vars.get("ODOO_PORT", str(ports.odoo)))
     db_port = resolve_db_port(version, ports.db, env_vars)
     tui_db_name = _resolve_tui_db_name(database, extra_args, config_path, version)

@@ -25,6 +25,7 @@ from odoodev.core.database import (
     _build_static_update,
     _existing_columns,
     _fetch_ids,
+    _null_repair_targets,
     _sql_literal,
     anonymize_database,
     anonymize_users,
@@ -713,6 +714,27 @@ class TestPurgeTransactionalData:
         )
         tables = resolve_purge_tables("mydb")
         assert set(tables) == present
+
+    def test_null_repair_targets_rejects_bad_identifier(self, monkeypatch):
+        """F1: closure names (DB-sourced regclass::text) must be identifier-checked."""
+        # A maliciously double-quoted table name smuggles a single quote past naive
+        # f-string interpolation into the IN (...) clause.
+        bad_closure = {"x'); DROP TABLE res_users; --"}
+        with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+            _null_repair_targets(bad_closure, "mydb")
+
+    def test_null_repair_targets_accepts_valid_identifiers(self, monkeypatch):
+        """Well-formed closure names build the IN clause and run the query."""
+        captured: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (captured.append(query), (True, "res_company|account_opening_move_id"))[1],
+        )
+        targets = _null_repair_targets({"account_move", "stock_move"}, "mydb")
+        assert targets == [("res_company", "account_opening_move_id")]
+        assert "'account_move'" in captured[0] and "'stock_move'" in captured[0]
+        # No smuggled quote survived the guard.
+        assert "DROP TABLE" not in captured[0]
 
 
 class TestRunRecompute:

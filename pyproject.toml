@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.45.0"
+version = "0.46.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -78,6 +78,49 @@ known-first-party = ["odoodev"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+files = ["odoodev"]
+
+[[tool.mypy.overrides]]
+module = "odoodev.cli"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "odoodev.tui.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "odoodev.output"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "odoodev.core.container_backend"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "odoodev.core.git_ops"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "odoodev.core.automation"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "odoodev.commands.repos"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "odoodev.commands.setup_cmd"
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "odoodev.core.venv_manager"
+warn_return_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

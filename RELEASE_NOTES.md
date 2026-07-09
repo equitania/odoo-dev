@@ -1,5 +1,49 @@
 # Release Notes
 
+## Version 0.46.0 (09.07.2026)
+
+### Fixed
+- **Second-order SQL injection in `_null_repair_targets`.** The purge introspection
+  helper interpolated DB-sourced `regclass::text` table names into a SQL `IN (...)`
+  clause without the `_check_identifier` guard that every other DB-content-driven
+  builder in the same module applies. A maliciously double-quoted table name in a
+  restored backup could smuggle SQL through the introspection SELECT. The guard now
+  validates every `closure` element before interpolation, matching the protection
+  already present in the downstream `DELETE`/`UPDATE` statements.
+
+### Changed
+- **`VersionConfigProtocol` replaces 13 `# type: ignore[attr-defined]`.** A new
+  structural `Protocol` in `version_registry.py` declares the `VersionConfig`
+  attributes used by `container_backend.py` and `start.py`. All `version_cfg: object`
+  parameter types are now `VersionConfigProtocol` (or `VersionConfigProtocol | None`),
+  eliminating 8+5 `type: ignore[attr-defined]` comments and enabling `warn_unused_ignores`
+  in the new mypy config to catch future regressions.
+- **`db restore` refactored into `RestorePipeline` class.** The 283-line `db_restore`
+  command body is now a ~85-line orchestrator that delegates post-restore processing
+  (uninstall → deactivate-cron → neutralize → anonymize → wipe → purge → anon-users →
+  recompute) to a new `RestorePipeline` class with one method per step. `RestoreOptions`
+  dataclass encapsulates the tri-state flag reconciliation. No behavioral change — all
+  flags, messages, exit codes and step ordering are identical.
+- **Narrowed `except Exception` in `migrate.py` `_check_container_running`.** The broad
+  catch is now `(FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError)`,
+  matching the actual failure modes (Docker not installed, timeout, subprocess error)
+  instead of silently swallowing all exceptions.
+
+### Added
+- **mypy configuration.** `[tool.mypy]` section in `pyproject.toml` with
+  `warn_unused_ignores`, `warn_redundant_casts`, `no_implicit_optional`. Per-module
+  overrides for Click decorator (`cli.py`), Textual framework overrides (`tui/*`),
+  and Rich `Any`-returning APIs (`output.py`, `container_backend.py`, etc.). `mypy odoodev`
+  now passes clean (54 source files, 0 errors).
+- **`SECURITY.md`.** Responsible-disclosure policy (security@equitania.de, 90-day
+  window) covering the `odoodev` CLI tool itself — relevant because the tool handles
+  database credentials, SSH keys, and `.pgpass` files.
+- **`.pre-commit-config.yaml`.** Local pre-commit hooks for ruff (check + format) and
+  mypy, scoped to `odoodev/` and `tests/`. Optional for contributors; no CI dependency.
+- **Pre-existing mypy issues fixed.** `git_ops.py` lambda replaced with a typed helper
+  function; `venv_manager.py` `subprocess.run` missing `text=True` added — both
+  surfaced by the new mypy config.
+
 ## Version 0.45.0 (08.07.2026)
 
 ### Added
