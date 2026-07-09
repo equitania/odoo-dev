@@ -2,7 +2,7 @@
 
 > **Language / Sprache**: [DE](#deutsche-dokumentation) | [EN](#english-documentation)
 
-[![Version](https://img.shields.io/badge/version-0.46.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.46.2-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-≥3.12-yellow.svg)]()
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)]()
 
@@ -173,6 +173,10 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.46.2:**
+- **Behoben:** `db users` zeigte immer „No users found" — die Benutzerliste baute eine tab-verkettete Textspalte, aber psqls Standard-Ausgabeformat rendert eingebettete Tabs als Leerzeichen, sodass keine Zeile geparst wurde. Zeilen-Abfragen laufen jetzt über `psql -t -A -F <tab>` (unaligned, Booleans nativ `t`/`f`).
+- **Behoben:** `db restore --uninstall-modules` stürzte bei mehreren Modulen mit `Expected singleton` ab, weil Drittmodule `button_immediate_uninstall` mit Singleton-Annahme überschreiben. Module werden jetzt einzeln in der angegebenen Reihenfolge deinstalliert (frisches Environment je Iteration); ein fehlschlagendes Modul blockiert die übrigen nicht mehr.
 
 **Version 0.46.1:**
 - **Neu:** `odoodev start -c <pfad>` / `--config` — explizite Konfigurationsdatei statt glob-basierter "neueste gewinnt"-Auswahl in `myconfs/`. Bei mehreren `odoo_*.conf` für verschiedene Systeme kann jetzt eine konkrete ausgewählt werden. Ohne `-c` bleibt die bisherige Logik. Playbook-Argument `config` für den `start`-Schritt entsprechend.
@@ -445,6 +449,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.46.2:**
+- **Fixed:** `db users` always showed "No users found" — the user list built a tab-joined text column, but psql's default aligned format renders embedded tabs as spaces, so no row ever parsed. Row queries now run via `psql -t -A -F <tab>` (unaligned, booleans natively `t`/`f`).
+- **Fixed:** `db restore --uninstall-modules` crashed with `Expected singleton` on multiple modules, because third-party modules override `button_immediate_uninstall` with singleton assumptions. Modules are now uninstalled one at a time in the given order (fresh environment per iteration); a failing module no longer blocks the rest.
 
 **Version 0.46.1:**
 - **Added:** `odoodev start -c <path>` / `--config` — explicit config file instead of glob-based latest-wins selection in `myconfs/`. When multiple `odoo_*.conf` exist for different systems, a specific one can be selected. Without `-c` the existing logic is unchanged. Playbook arg `config` for the `start` step accordingly.

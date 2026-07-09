@@ -1,5 +1,32 @@
 # Release Notes
 
+## Version 0.46.2 (09.07.2026)
+
+### Fixed
+- **`db restore --uninstall-modules`: singleton crash on multi-module uninstall.**
+  The `odoo-bin shell` script called `button_immediate_uninstall()` on the whole
+  recordset. Third-party modules commonly override that method with singleton
+  assumptions (e.g. `simplify_access_management` reads `self.name`), so uninstalling
+  two or more modules failed with `Expected singleton: ir.module.module(...)` —
+  exactly on the invasive modules this feature exists to remove. Modules are now
+  uninstalled one at a time, in the given order, with a fresh environment per
+  iteration (each uninstall rebuilds the registry). A module cascade-uninstalled by
+  a previous iteration is reported as `not-installed`; a failing module no longer
+  blocks the remaining ones (`odoodev-uninstall: failed <name>` marker, traceback on
+  stderr, non-zero exit at the end so the existing continue/abort prompt still fires).
+- **Uninstall failure output keeps the stdout markers.** `run_uninstall_modules()`
+  now returns stdout + stderr on failure instead of stderr only, so the
+  `odoodev-uninstall:` markers show which modules still succeeded before the error.
+- **`db users` TUI always showed "No users found".** `list_users()` built one
+  tab-joined text column (`|| E'\t' ||`) and split the psql output on tabs — but
+  psql's default aligned format renders embedded tabs as spaces, so no line ever
+  parsed into the expected 6 fields and every database appeared empty. On top,
+  the `::text` boolean casts produce `true`/`false` while the parser compared
+  against `t`. Row queries now run through a new `_run_psql_tuples()` helper
+  (`psql -t -A -F <tab>`: one line per row, literal tab bytes, booleans natively
+  `t`/`f`) and select six plain columns. Verified against a live v18 database
+  (admin user listed with correct active/2FA flags).
+
 ## Version 0.46.1 (09.07.2026)
 
 ### Added

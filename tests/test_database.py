@@ -820,11 +820,39 @@ class TestBuildUninstallModulesScript:
         assert "['eq_a', 'eq_b']" in script
         assert "button_immediate_uninstall" in script
         assert "env.cr.commit()" in script
-        assert 'state == "installed"' in script
+        assert 'state != "installed"' in script
         # stdout markers for CLI feedback
         assert "odoodev-uninstall: not-found" in script
         assert "odoodev-uninstall: not-installed" in script
         assert "odoodev-uninstall: uninstalled" in script
+        assert "odoodev-uninstall: failed" in script
+
+    def test_script_uninstalls_one_module_per_call(self):
+        """Third-party overrides of button_immediate_uninstall assume a singleton
+        (e.g. simplify_access_management reads self.name), so the script must
+        never call the method on a multi-record set."""
+        from odoodev.core.database import _build_uninstall_modules_script
+
+        script = _build_uninstall_modules_script(["eq_b", "eq_a"])
+        # singleton search per module inside the loop, no bulk uninstall call
+        assert '("name", "=", _name)' in script
+        assert "_rec.button_immediate_uninstall()" in script
+        assert "_installed.button_immediate_uninstall" not in script
+        # each uninstall rebuilds the registry → fresh env per iteration
+        assert "odoo.api.Environment(_cr, _uid, _ctx)" in script
+        # user-given order is preserved (dependency order is the caller's contract)
+        assert "[m for m in MODULES if m in _found_names]" in script
+        assert "['eq_b', 'eq_a']" in script
+        # a failing module doesn't block the rest, but the script exits non-zero
+        assert "traceback.print_exc" in script
+        assert "raise SystemExit(1)" in script
+
+    def test_script_is_valid_python(self):
+        import ast
+
+        from odoodev.core.database import _build_uninstall_modules_script
+
+        ast.parse(_build_uninstall_modules_script(["eq_a", "eq_b"]))
 
 
 class TestRunUninstallModules:
@@ -867,11 +895,19 @@ class TestRunUninstallModules:
         from odoodev.core.database import run_uninstall_modules
 
         def fake_run(cmd, **kwargs):
-            raise sp.CalledProcessError(1, cmd, stderr="uninstall boom")
+            raise sp.CalledProcessError(
+                1,
+                cmd,
+                output="odoodev-uninstall: uninstalled eq_a\nodoodev-uninstall: failed eq_b\n",
+                stderr="uninstall boom",
+            )
 
         monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
-        ok, out = run_uninstall_modules("mydb", ["eq_a"], "/venv/py", "/srv/odoo-bin", "/c.conf", {}, "/cwd")
+        ok, out = run_uninstall_modules("mydb", ["eq_a", "eq_b"], "/venv/py", "/srv/odoo-bin", "/c.conf", {}, "/cwd")
         assert ok is False
+        # stdout markers are kept on failure — they tell which modules still succeeded
+        assert "odoodev-uninstall: uninstalled eq_a" in out
+        assert "odoodev-uninstall: failed eq_b" in out
         assert "uninstall boom" in out
 
 
@@ -1585,17 +1621,60 @@ class TestAnonymizeUsers:
         assert h != _pbkdf2_sha512_hash("ownerp")
 
 
+class TestRunPsqlTuples:
+    """Tuples-only unaligned psql execution (-t -A -F tab)."""
+
+    def test_uses_unaligned_tab_separated_flags(self, monkeypatch):
+        """Regression: psql's default aligned format renders embedded tabs as
+        SPACES and booleans cast via ::text as 'true'/'false' — tab-splitting
+        aligned output silently yields zero rows. Row queries must run
+        tuples-only + unaligned with an explicit tab field separator."""
+        from odoodev.core.database import PG_EXEC_HOST, PgExecMode, _run_psql_tuples
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+
+            class _R:
+                stdout = "1\tadmin\tt\n2\tjweber\tf\n"
+
+            return _R()
+
+        monkeypatch.setattr("odoodev.core.database.resolve_pg_exec_mode", lambda port: PgExecMode(kind=PG_EXEC_HOST))
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, rows = _run_psql_tuples("SELECT id, login, active FROM res_users;", db="db")
+        assert ok is True
+        assert rows == [["1", "admin", "t"], ["2", "jweber", "f"]]
+        cmd = captured["cmd"]
+        assert "-t" in cmd and "-A" in cmd
+        assert cmd[cmd.index("-F") + 1] == "\t"
+
+    def test_returns_false_on_error(self, monkeypatch):
+        import subprocess as sp
+
+        from odoodev.core.database import PG_EXEC_HOST, PgExecMode, _run_psql_tuples
+
+        def fake_run(cmd, **kwargs):
+            raise sp.CalledProcessError(1, cmd, stderr="boom")
+
+        monkeypatch.setattr("odoodev.core.database.resolve_pg_exec_mode", lambda port: PgExecMode(kind=PG_EXEC_HOST))
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        ok, rows = _run_psql_tuples("SELECT 1;", db="db")
+        assert ok is False
+        assert rows == []
+
+
 class TestListUsers:
     """User listing for the db users TUI."""
 
-    _PSQL_OUT = (
-        "                ?column?                \n"
-        "----------------------------------------\n"
-        " 1\tadmin\tAdministrator\tt\tt\tf\n"
-        " 5\tjweber\tJörg Weber\tf\tt\tf\n"
-        " 7\tmmueller\tMax Müller\tt\tf\tf\n"
-        "(3 rows)\n"
-    )
+    # Real `psql -t -A -F $'\t'` output: one line per row, literal tab bytes,
+    # booleans as t/f (verified against a live v18 database).
+    _PSQL_ROWS = [
+        ["1", "admin", "Administrator", "t", "t", "f"],
+        ["5", "jweber", "Jörg Weber", "f", "t", "f"],
+        ["7", "mmueller", "Max Müller", "t", "f", "f"],
+    ]
 
     def test_parses_users_from_psql_output(self, monkeypatch):
         from odoodev.core.database import list_users
@@ -1606,8 +1685,8 @@ class TestListUsers:
             lambda table, *a, **k: {"id", "login", "active", "totp_secret", "share", "partner_id"},
         )
         monkeypatch.setattr(
-            "odoodev.core.database._run_psql",
-            lambda q, **k: (queries.append(q), (True, self._PSQL_OUT))[1],
+            "odoodev.core.database._run_psql_tuples",
+            lambda q, **k: (queries.append(q), (True, self._PSQL_ROWS))[1],
         )
         users = list_users("db")
         assert [u.login for u in users] == ["admin", "jweber", "mmueller"]
@@ -1619,6 +1698,35 @@ class TestListUsers:
         assert "share, false) = false" in queries[0]
         assert "'__system__'" in queries[0]
         assert "'admin'" not in queries[0]
+        # no ::text boolean casts — unaligned psql prints booleans as t/f natively
+        assert "active::text" not in queries[0]
+
+    def test_end_to_end_against_real_psql_output_format(self, monkeypatch):
+        """Full pipeline against verbatim subprocess output as psql -t -A -F
+        emits it — guards the tab/boolean format contract end-to-end."""
+        from odoodev.core.database import PG_EXEC_HOST, PgExecMode, list_users
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+
+            class _R:
+                stdout = "2\tadmin\tAdministrator\tt\tf\tf\n"
+
+            return _R()
+
+        monkeypatch.setattr(
+            "odoodev.core.database._existing_columns",
+            lambda table, *a, **k: {"id", "login", "active", "totp_secret", "share", "partner_id"},
+        )
+        monkeypatch.setattr("odoodev.core.database.resolve_pg_exec_mode", lambda port: PgExecMode(kind=PG_EXEC_HOST))
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        users = list_users("db")
+        assert len(users) == 1
+        assert users[0].login == "admin" and users[0].active and not users[0].totp_enabled
+        # the row query must run unaligned — aligned mode swallows the tabs
+        assert "-A" in captured["cmd"] and "-t" in captured["cmd"]
 
     def test_include_portal_drops_share_filter(self, monkeypatch):
         from odoodev.core.database import list_users
@@ -1629,8 +1737,8 @@ class TestListUsers:
             lambda table, *a, **k: {"totp_secret", "share"},
         )
         monkeypatch.setattr(
-            "odoodev.core.database._run_psql",
-            lambda q, **k: (queries.append(q), (True, ""))[1],
+            "odoodev.core.database._run_psql_tuples",
+            lambda q, **k: (queries.append(q), (True, []))[1],
         )
         list_users("db", include_portal=True)
         assert "= false" not in queries[0].split("WHERE", 1)[1].split("ORDER")[0].replace("share, false)", "")
@@ -1644,8 +1752,8 @@ class TestListUsers:
             lambda table, *a, **k: {"id", "login", "share"},  # no totp_secret
         )
         monkeypatch.setattr(
-            "odoodev.core.database._run_psql",
-            lambda q, **k: (queries.append(q), (True, " 1\tadmin\tAdministrator\tt\tf\tf\n"))[1],
+            "odoodev.core.database._run_psql_tuples",
+            lambda q, **k: (queries.append(q), (True, [["1", "admin", "Administrator", "t", "f", "f"]]))[1],
         )
         users = list_users("db")
         assert "totp_secret" not in queries[0]

@@ -228,6 +228,45 @@ def _run_psql(
         return False, str(e)
 
 
+def _run_psql_tuples(
+    query: str,
+    db: str | None = None,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, list[list[str]]]:
+    """Execute a query with tuples-only, unaligned, tab-separated output.
+
+    psql's default aligned format is unusable for machine parsing: embedded
+    tab characters are rendered as spaces and every value is padded for
+    display. ``-t -A -F <tab>`` emits exactly one line per row with literal
+    tab bytes between columns; booleans print natively as ``t``/``f``.
+    Column values must not contain tabs or newlines (true for the identifier
+    and name columns this is used for).
+
+    Returns:
+        Tuple of (success, rows) where each row is the list of column strings.
+    """
+    try:
+        mode = resolve_pg_exec_mode(port)
+        cmd = _pg_base_cmd("psql", mode, user, host, port)
+        if db:
+            cmd.extend(["-d", db])
+        cmd.extend(["-t", "-A", "-F", "\t", "-c", query])
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=_pg_exec_env(mode, host, port),
+        )
+        return True, [line.split("\t") for line in result.stdout.splitlines() if line]
+    except subprocess.CalledProcessError:
+        return False, []
+    except (FileNotFoundError, PgToolsUnavailableError):
+        return False, []
+
+
 def database_exists(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
@@ -1022,25 +1061,49 @@ def _build_uninstall_modules_script(modules: list[str]) -> str:
     Only modules actually in state 'installed' are targeted; names that don't
     exist or aren't installed are reported via stdout markers, not treated as
     failures — a stale/optional module name is a common, harmless input.
+
+    Modules are uninstalled one at a time, in the given order. Third-party
+    modules commonly override ``button_immediate_uninstall`` with singleton
+    assumptions (``self.name``), so a multi-record call blows up exactly on
+    the invasive modules this feature exists to remove. Each uninstall also
+    rebuilds the registry, so every iteration re-creates the environment and
+    re-searches its record; a module cascade-uninstalled by a previous
+    iteration is reported as not-installed instead of failing. A failing
+    module does not block the remaining ones — failures are marked on stdout,
+    the traceback goes to stderr, and the script exits non-zero at the end.
     ``button_immediate_uninstall`` commits internally, but ``odoo-bin shell``
     rolls back on exit, so commit explicitly for consistency.
     """
     return textwrap.dedent(
         f"""\
+        import sys
+        import traceback
+
         MODULES = {modules!r}
-        _Module = env["ir.module.module"].with_context(active_test=False)
-        _found = _Module.search([("name", "in", MODULES)])
-        _installed = _found.filtered(lambda m: m.state == "installed")
-        _installed_names = sorted(_installed.mapped("name"))
-        for _name in sorted(set(MODULES) - set(_found.mapped("name"))):
+        _cr, _uid, _ctx = env.cr, env.uid, env.context
+        _found_names = set(
+            env["ir.module.module"].with_context(active_test=False).search([("name", "in", MODULES)]).mapped("name")
+        )
+        for _name in sorted(set(MODULES) - _found_names):
             print(f"odoodev-uninstall: not-found {{_name}}")
-        for _name in sorted(set(_found.mapped("name")) - set(_installed_names)):
-            print(f"odoodev-uninstall: not-installed {{_name}}")
-        if _installed:
-            _installed.button_immediate_uninstall()
-            env.cr.commit()
-        for _name in _installed_names:
-            print(f"odoodev-uninstall: uninstalled {{_name}}")
+        _failed = False
+        for _name in [m for m in MODULES if m in _found_names]:
+            env = odoo.api.Environment(_cr, _uid, _ctx)
+            _rec = env["ir.module.module"].with_context(active_test=False).search([("name", "=", _name)])
+            if _rec.state != "installed":
+                print(f"odoodev-uninstall: not-installed {{_name}}")
+                continue
+            try:
+                _rec.button_immediate_uninstall()
+                env.cr.commit()
+                print(f"odoodev-uninstall: uninstalled {{_name}}")
+            except Exception:
+                print(f"odoodev-uninstall: failed {{_name}}")
+                traceback.print_exc(file=sys.stderr)
+                env.cr.rollback()
+                _failed = True
+        if _failed:
+            raise SystemExit(1)
         """
     )
 
@@ -1064,7 +1127,8 @@ def run_uninstall_modules(
     Returns:
         Tuple of (success, output_or_error). The output contains
         ``odoodev-uninstall: ...`` marker lines for not-found / not-installed /
-        uninstalled modules.
+        uninstalled / failed modules. On failure the stdout markers are kept
+        (they tell which modules still succeeded) followed by stderr.
     """
     cmd = [venv_python, odoo_bin, "shell", "-c", config_path, "-d", db_name, "--no-http"]
     script = _build_uninstall_modules_script(modules)
@@ -1072,7 +1136,7 @@ def run_uninstall_modules(
         result = subprocess.run(cmd, env=env, cwd=cwd, input=script, check=True, capture_output=True, text=True)
         return True, result.stdout
     except subprocess.CalledProcessError as e:
-        return False, e.stderr
+        return False, (e.stdout or "") + (e.stderr or "")
 
 
 # --------------------------------------------------------------------------- #
@@ -1694,25 +1758,23 @@ def list_users(
     user_cols = _existing_columns("res_users", db_name, host=host, port=port, user=user)
     if not user_cols:
         return []
-    totp_expr = "(u.totp_secret IS NOT NULL)::text" if "totp_secret" in user_cols else "'f'"
-    share_expr = "COALESCE(u.share, false)::text" if "share" in user_cols else "'f'"
+    totp_expr = "(u.totp_secret IS NOT NULL)" if "totp_secret" in user_cols else "false"
+    share_expr = "COALESCE(u.share, false)" if "share" in user_cols else "false"
     portal_filter = "" if include_portal or "share" not in user_cols else " AND COALESCE(u.share, false) = false"
-    # One tab-joined text column per row — survives psql's aligned output
-    # without a custom field separator (logins/names never contain tabs).
+    # Runs via _run_psql_tuples (unaligned, tab-separated): psql's default
+    # aligned format renders tabs as spaces, which silently broke row parsing.
+    # Booleans print natively as t/f in unaligned mode — no ::text casts.
     query = (
-        "SELECT u.id::text || E'\\t' || u.login || E'\\t' || COALESCE(p.name, u.login) || E'\\t' || "
-        f"u.active::text || E'\\t' || {totp_expr} || E'\\t' || {share_expr} "
+        f"SELECT u.id, u.login, COALESCE(p.name, u.login), u.active, {totp_expr}, {share_expr} "
         "FROM res_users u LEFT JOIN res_partner p ON p.id = u.partner_id "
         f"WHERE u.id > 0 AND u.login NOT IN {_USER_LIST_EXCLUDED_LOGINS}{portal_filter} "
         "ORDER BY u.login;"
     )
-    ok, out = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    ok, rows = _run_psql_tuples(query, db=db_name, host=host, port=port, user=user)
     if not ok:
         return []
     users: list[UserInfo] = []
-    for line in out.splitlines():
-        parts = line.strip().split("\t")
-        # Header/separator/footer lines have no tab-joined 6-tuple with a numeric id.
+    for parts in rows:
         if len(parts) != 6 or not parts[0].isdigit():
             continue
         users.append(
