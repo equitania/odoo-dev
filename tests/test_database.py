@@ -1304,18 +1304,29 @@ class TestRestoreCliFlags:
         assert "master_purge" not in calls  # explicit --no- wins
         assert calls.get("wipe") == ["testdb"]  # the anonymize-only sanitize still runs
 
-    def test_master_purge_strong_confirmation_wrong_number_aborts(self, monkeypatch, tmp_path):
+    def test_master_purge_confirmation_declined_aborts(self, monkeypatch, tmp_path):
+        calls: dict[str, list[str]] = {}
+        backup = tmp_path / "b.zip"
+        backup.write_text("x")
+        # _patch_flow patches confirm -> False, declining the purge y/N gate.
+        self._patch_flow(monkeypatch, tmp_path, calls, inv={})
+        result = self._restore(backup, "--purge-master-data")
+        assert result.exit_code == 0, result.output
+        assert "master_purge" not in calls
+        assert "Aborted master-data purge" in result.output
+
+    def test_master_purge_confirmation_accepted_proceeds(self, monkeypatch, tmp_path):
         from odoodev.commands import db as db_cmd
 
         calls: dict[str, list[str]] = {}
         backup = tmp_path / "b.zip"
         backup.write_text("x")
         self._patch_flow(monkeypatch, tmp_path, calls, inv={})
-        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "1")  # count patched to 3
+        # Approve only the purge gate; leave every other confirm (delete-backup, …) declined.
+        monkeypatch.setattr(db_cmd, "confirm", lambda msg, **k: "partner(s)" in msg)
         result = self._restore(backup, "--purge-master-data")
         assert result.exit_code == 0, result.output
-        assert "master_purge" not in calls
-        assert "Aborted master-data purge" in result.output
+        assert calls.get("master_purge") == ["testdb"]
 
     def test_explicit_no_flag_wins_over_sanitize(self, monkeypatch, tmp_path):
         calls: dict[str, list[str]] = {}
@@ -2422,19 +2433,19 @@ class TestDbDropMulti:
         assert result.exit_code == 1
         assert dropped == []
 
-    def test_bulk_confirmation_wrong_count_aborts(self, monkeypatch, tmp_path):
+    def test_bulk_confirmation_declined_aborts(self, monkeypatch, tmp_path):
         dropped: list[str] = []
         db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped)
-        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "1")  # expected "2"
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
         result = CliRunner().invoke(cli, ["db", "drop", "18", "--all"])
         assert result.exit_code == 0, result.output
         assert dropped == []
         assert "Aborted" in result.output
 
-    def test_bulk_confirmation_correct_count_proceeds(self, monkeypatch, tmp_path):
+    def test_bulk_confirmation_accepted_proceeds(self, monkeypatch, tmp_path):
         dropped: list[str] = []
         db_cmd = self._patch(monkeypatch, tmp_path, ["v18_a", "v18_b"], dropped)
-        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "2")
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: True)
         result = CliRunner().invoke(cli, ["db", "drop", "18", "--all"])
         assert result.exit_code == 0, result.output
         assert sorted(dropped) == ["v18_a", "v18_b"]
@@ -2653,16 +2664,26 @@ class TestDbPurgeMasterDataCommand:
         assert result.exit_code == 0, result.output
         assert spy == [("db", False)]
 
-    def test_wrong_confirmation_aborts(self, monkeypatch):
+    def test_confirmation_declined_aborts(self, monkeypatch):
         from odoodev.commands import db as db_cmd
 
         spy: list = []
         self._patch(monkeypatch, spy)
-        monkeypatch.setattr(db_cmd, "text_input", lambda *a, **k: "0")  # count is 4
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: False)
         result = CliRunner().invoke(cli, ["db", "purge-master-data", "18", "-n", "db"])
         assert result.exit_code == 0, result.output
         assert spy == []
         assert "Aborted" in result.output
+
+    def test_confirmation_accepted_proceeds(self, monkeypatch):
+        from odoodev.commands import db as db_cmd
+
+        spy: list = []
+        self._patch(monkeypatch, spy)
+        monkeypatch.setattr(db_cmd, "confirm", lambda *a, **k: True)
+        result = CliRunner().invoke(cli, ["db", "purge-master-data", "18", "-n", "db"])
+        assert result.exit_code == 0, result.output
+        assert spy == [("db", False)]
 
     def test_help(self):
         result = CliRunner().invoke(cli, ["db", "purge-master-data", "--help"])

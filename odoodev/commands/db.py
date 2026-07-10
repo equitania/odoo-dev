@@ -316,8 +316,8 @@ def db_drop(
 
     Single interactive select by default; `-m/--multi` opens a checkbox for bulk
     selection, `--all` targets every (non-system) database, `-n` is repeatable,
-    and `--filter TEXT` narrows the candidates. Bulk deletions require typing the
-    count to confirm.
+    and `--filter TEXT` narrows the candidates. Deletions require a y/N
+    confirmation (skipped with `-y/--yes`).
     """
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
@@ -345,15 +345,14 @@ def db_drop(
             suffix = f"  (+ filestore {filestore_path})" if os.path.isdir(filestore_path) else ""
             print_warning(f"  {n}{suffix}")
         console.print()
-        if len(targets) == 1:
-            if not confirm("Proceed with deletion? This cannot be undone.", default=False):
-                print_info("Aborted.")
-                return
-        else:
-            answer = text_input(f"Type {len(targets)} to confirm deletion of {len(targets)} databases:")
-            if answer.strip() != str(len(targets)):
-                print_info("Aborted.")
-                return
+        prompt = (
+            "Proceed with deletion? This cannot be undone."
+            if len(targets) == 1
+            else f"Delete these {len(targets)} databases? This cannot be undone."
+        )
+        if not confirm(prompt, default=False):
+            print_info("Aborted.")
+            return
 
     dropped: list[str] = []
     failed: list[str] = []
@@ -666,8 +665,7 @@ class RestorePipeline:
             print_warning(f"  {n} customer/vendor/contact partner(s) and their attachments")
             print_warning("  KEPT: products, pricelists, users, companies, config")
             console.print()
-            answer = text_input(f"Type {n} to confirm deletion of {n} partner(s):")
-            if answer.strip() != str(n):
+            if not confirm(f"Delete {n} partner(s) and all movement data? This is irreversible.", default=False):
                 print_info("Aborted master-data purge.")
                 return
         print_info("Purging master data (movement + content + customer partners)...")
@@ -1286,8 +1284,7 @@ def db_purge_master_data(
         )
         print_warning("  KEPT: products, pricelists, users, companies, config.")
         console.print()
-        answer = text_input(f"Type {n} to confirm deletion of {n} partner(s):")
-        if answer.strip() != str(n):
+        if not confirm(f"Delete {n} partner(s) and all movement data? This is irreversible.", default=False):
             print_info("Aborted.")
             return
 

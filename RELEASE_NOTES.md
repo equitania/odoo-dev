@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.49.0 (10.07.2026)
+
+### Fixed
+- **Destructive confirmation prompts unified to a plain `y/N`.** The bulk `db drop`,
+  `db purge-master-data` and the `db restore` master-data-purge step previously
+  demanded typing the exact record count (`Type 3334 to confirm …`) and aborted
+  silently on anything else — so an operator answering `yes` (as every other prompt
+  expects) cancelled the operation without any hint that the input was invalid. All
+  three now use the standard `confirm()` (`y/N`, default No); the loud multi-line
+  WARN block is retained and `-y/--yes` still skips the prompt entirely.
+- **Garbled post-restore output under the docker-exec psql fallback.** When host
+  psql/pg_dump are absent, database commands run via `docker exec -i <container>`.
+  With the controlling TTY as stdin, the docker client switched the terminal to raw
+  mode (ONLCR off) and left it there, so every log line from the sanitize pipeline
+  onward ran together without line breaks. The psql/pg_dump and `odoo-bin neutralize`
+  subprocesses now run with `stdin=subprocess.DEVNULL`, keeping the terminal
+  untouched (calls that pipe a dump/script via stdin are unaffected).
+
 ## Version 0.48.0 (09.07.2026)
 
 ### Changed

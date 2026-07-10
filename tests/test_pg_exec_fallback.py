@@ -214,6 +214,51 @@ def test_restore_database_host_mode_also_pipes_stdin(monkeypatch, tmp_path):
     assert captured["stdin"] is not None
 
 
+# --- regression: exec'd subprocesses must not touch the controlling TTY ---
+# `docker exec -i` puts a TTY stdin into raw mode (ONLCR off) and does not always
+# restore it, which garbles all subsequent Rich output during a restore. Passing
+# stdin=DEVNULL keeps the terminal untouched.
+
+
+def _capture_stdin(monkeypatch):
+    captured: dict[str, list] = {"stdin": []}
+
+    def fake_run(cmd, **kwargs):
+        captured["stdin"].append(kwargs.get("stdin"))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+    return captured
+
+
+def test_run_psql_uses_devnull_stdin(monkeypatch):
+    _container_mode(monkeypatch)
+    captured = _capture_stdin(monkeypatch)
+    db_mod._run_psql("SELECT 1;", db="postgres", host="localhost", port=16432, user="ownerp")
+    assert captured["stdin"] == [subprocess.DEVNULL]
+
+
+def test_run_psql_tuples_uses_devnull_stdin(monkeypatch):
+    _container_mode(monkeypatch)
+    captured = _capture_stdin(monkeypatch)
+    db_mod._run_psql_tuples("SELECT 1;", db="postgres", host="localhost", port=16432, user="ownerp")
+    assert captured["stdin"] == [subprocess.DEVNULL]
+
+
+def test_run_neutralize_uses_devnull_stdin(monkeypatch):
+    captured = _capture_stdin(monkeypatch)
+    ok, _ = db_mod.run_neutralize(
+        "v16_exam",
+        venv_python="python",
+        odoo_bin="odoo-bin",
+        config_path="/x/odoo.conf",
+        env={},
+        cwd="/x",
+    )
+    assert ok is True
+    assert captured["stdin"] == [subprocess.DEVNULL]
+
+
 # --- regression: missing binary must not crash ---
 
 

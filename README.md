@@ -174,6 +174,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.49.0:**
+- **Behoben:** Destruktive Bestätigungen vereinheitlicht auf ein einfaches `y/N`. Der Bulk-`db drop`, `db purge-master-data` und der Master-Data-Purge-Schritt von `db restore` verlangten zuvor die Eingabe der exakten Anzahl und brachen bei allem anderen still ab — wer `yes` eintippte, brach ungewollt ab. Alle drei nutzen jetzt das übliche `y/N` (Default Nein); der laute WARN-Block bleibt, `-y/--yes` überspringt weiterhin.
+- **Behoben:** Verklebte Ausgabe nach dem Restore unter der docker-exec-psql-Fallback. `docker exec -i` schaltete mit dem TTY als stdin das Terminal in den Raw-Modus (ONLCR aus), sodass ab der Sanitize-Pipeline alle Zeilen ohne Umbruch aneinanderklebten. Die psql-/pg_dump-/`odoo-bin neutralize`-Subprozesse laufen jetzt mit `stdin=DEVNULL` und lassen das Terminal unangetastet.
+
 **Version 0.48.0:**
 - **Geändert (BREAKING):** `db restore --sanitize` ist jetzt ein vollständiger „Template-DB-aus-Produktion"-Reset. Zusätzlich zum Anonymisieren LÖSCHT es nun alle Bewegungsdaten, CRM-Leads, HR-Mitarbeiter, Helpdesk-Tickets, Nachrichten/Aktivitäten, die Kunden-/Lieferanten-/Kontakt-Partner und deren Anhänge. **Behalten:** Produkte, Preislisten, Benutzer (+ deren Partner), eigene Firmen (+ deren Partner), Konfiguration. Ausstieg mit `--no-purge-master-data`; die Löschung erfordert die Eingabe der Partner-Anzahl (mit `-y` übersprungen — Automatisierung prüfen!).
 - **Neu:** Flag `--purge-master-data/--no-purge-master-data` und eigenständiger Befehl `odoodev db purge-master-data` (`--dry-run`, `-y`). Läuft in einer `session_replication_role=replica`-Transaktion (Superuser nötig): folgt dem FK-Graph (Multi-Hop-Kaskaden, SET-NULL-Rückreferenzen, Ahnen-Keep-Set), bricht ohne Löschung ab, falls eine geschützte Stammtabelle oder eine unbehandelte RESTRICT-Referenz betroffen wäre. Produktbilder und System-Assets bleiben unangetastet.
@@ -458,6 +462,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.49.0:**
+- **Fixed:** Destructive confirmations unified to a plain `y/N`. The bulk `db drop`, `db purge-master-data` and the `db restore` master-data-purge step previously demanded typing the exact record count and aborted silently on anything else — answering `yes` cancelled the operation. All three now use the standard `y/N` (default No); the loud WARN block stays and `-y/--yes` still skips the prompt.
+- **Fixed:** Garbled post-restore output under the docker-exec psql fallback. With the controlling TTY as stdin, `docker exec -i` switched the terminal to raw mode (ONLCR off) and left it there, so every line from the sanitize pipeline onward ran together. The psql/pg_dump/`odoo-bin neutralize` subprocesses now run with `stdin=DEVNULL`, leaving the terminal untouched.
 
 **Version 0.48.0:**
 - **Changed (BREAKING):** `db restore --sanitize` is now a full "template DB from production" reset. On top of anonymizing, it now DELETES all movement data, CRM leads, HR employees, helpdesk tickets, messages/activities, the customer/vendor/contact partners and their attachments. **Kept:** products, pricelists, users (+ their partner), companies (+ their partner), config. Opt out with `--no-purge-master-data`; the deletion requires typing the partner count (skipped with `-y` — review your automation!).

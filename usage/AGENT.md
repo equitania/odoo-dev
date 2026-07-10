@@ -128,7 +128,7 @@ odoodev db purge-master-data 18 -n v18_restored --dry-run        # preview the f
 odoodev db uninstall 18 -n v18_restored -m mod1,mod2 -y          # uninstall modules on an existing DB
 odoodev db users 18 -n v18_restored                              # TUI: reset passwords / disable 2FA
 odoodev db drop 18 -m                                            # checkbox multi-select of databases to drop
-odoodev db drop 18 --all --filter test_                          # bulk-drop all test_* databases (type the count to confirm)
+odoodev db drop 18 --all --filter test_                          # bulk-drop all test_* databases (y/N confirmation)
 ```
 Restore post-processing is **OFF by default** (v0.43.0) — the restored database is left
 completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize`,
@@ -138,8 +138,8 @@ linkage tables), `--purge-master-data`, or `--sanitize` for all of them at once 
 "template DB from production" reset that DELETES movement data, CRM/HR/helpdesk/mail content,
 the customer/vendor/contact partners and their attachments (keeps products, pricelists,
 users+their partner, companies+their partner, config). It runs one superuser
-`session_replication_role=replica` transaction, requires typing the partner count to confirm
-(skipped with `-y`), and aborts cleanly (rollback) if a protected table or an unhandled
+`session_replication_role=replica` transaction, asks a `y/N` confirmation (with the deletable
+partner count shown; skipped with `-y`), and aborts cleanly (rollback) if a protected table or an unhandled
 RESTRICT FK would be hit. Escape with `--no-purge-master-data`. Standalone: `db purge-master-data`.
 `--anonymize-users` is a separate opt-in (works standalone, NOT included in `--sanitize`);
 its default dev login password is `ownerp` (override with `--user-password`).

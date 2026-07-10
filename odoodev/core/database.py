@@ -217,6 +217,7 @@ def _run_psql(
         result = subprocess.run(
             cmd,
             check=True,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             env=_pg_exec_env(mode, host, port),
@@ -256,6 +257,7 @@ def _run_psql_tuples(
         result = subprocess.run(
             cmd,
             check=True,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             env=_pg_exec_env(mode, host, port),
@@ -277,7 +279,9 @@ def database_exists(
     try:
         mode = resolve_pg_exec_mode(port)
         cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-lqt"]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
+        result = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=_pg_exec_env(mode, host, port)
+        )
         for line in result.stdout.split("\n"):
             parts = line.split("|")
             if parts and parts[0].strip() == db_name:
@@ -300,7 +304,14 @@ def list_databases(
     try:
         mode = resolve_pg_exec_mode(port)
         cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-lqt"]
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
+        result = subprocess.run(
+            cmd,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            env=_pg_exec_env(mode, host, port),
+        )
         databases = []
         for line in result.stdout.strip().split("\n"):
             parts = line.split("|")
@@ -327,7 +338,14 @@ def drop_database(
     try:
         mode = resolve_pg_exec_mode(port)
         cmd = _pg_base_cmd("dropdb", mode, user, host, port) + [db_name]
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
+        subprocess.run(
+            cmd,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            env=_pg_exec_env(mode, host, port),
+        )
         logger.info("Database %s dropped.", db_name)
         return True
     except subprocess.CalledProcessError as e:
@@ -348,7 +366,14 @@ def create_database(
     try:
         mode = resolve_pg_exec_mode(port)
         cmd = _pg_base_cmd("createdb", mode, user, host, port) + ["-T", "template1", db_name]
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
+        subprocess.run(
+            cmd,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            env=_pg_exec_env(mode, host, port),
+        )
         logger.info("Database %s created.", db_name)
         return True
     except subprocess.CalledProcessError as e:
@@ -439,7 +464,14 @@ def copy_database(
     try:
         mode = resolve_pg_exec_mode(port)
         cmd = _pg_base_cmd("createdb", mode, user, host, port) + ["-T", src, dst]
-        subprocess.run(cmd, check=True, capture_output=True, text=True, env=_pg_exec_env(mode, host, port))
+        subprocess.run(
+            cmd,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            env=_pg_exec_env(mode, host, port),
+        )
         logger.info("Database %s copied to %s.", src, dst)
         return True
     except subprocess.CalledProcessError as e:
@@ -800,7 +832,13 @@ def backup_database_sql(
         # exec'd pg_dump's stdout is forwarded to the host process.
         with open(output_path, "w", encoding="utf-8") as outfile:
             subprocess.run(
-                cmd, check=True, stdout=outfile, stderr=subprocess.PIPE, text=True, env=_pg_exec_env(mode, host, port)
+                cmd,
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=outfile,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=_pg_exec_env(mode, host, port),
             )
         logger.info("Database %s dumped to %s", db_name, output_path)
         return True
@@ -958,7 +996,9 @@ def run_neutralize(
     if extra:
         cmd.extend(extra)
     try:
-        result = subprocess.run(cmd, env=env, cwd=cwd, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, env=env, cwd=cwd, check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True
+        )
         return True, result.stdout
     except subprocess.CalledProcessError as e:
         return False, e.stderr
