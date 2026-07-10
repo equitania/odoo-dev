@@ -2551,7 +2551,9 @@ class TestPurgeMasterData:
         plan = d._partner_cascade_delete_plan("db")
         assert plan[-1].startswith("DELETE FROM res_partner")
 
-    def _patch_intro(self, monkeypatch, *, movement, content, closure, edges, superuser=True, count=(10, 7)):
+    def _patch_intro(
+        self, monkeypatch, *, movement, content, closure, edges, superuser=True, count=(10, 7), transient=()
+    ):
         """Patch all introspection helpers purge_master_data depends on."""
         from odoodev.core import database as d
 
@@ -2559,6 +2561,7 @@ class TestPurgeMasterData:
         monkeypatch.setattr(d, "_resolve_content_purge_tables", lambda *a, **k: list(content))
         monkeypatch.setattr(d, "_cascade_closure", lambda tables, *a, **k: set(closure))
         monkeypatch.setattr(d, "_fk_edges_into", lambda t, *a, **k: list(edges))
+        monkeypatch.setattr(d, "_transient_tables", lambda *a, **k: set(transient))
         monkeypatch.setattr(d, "_null_repair_targets", lambda *a, **k: [])
         monkeypatch.setattr(
             d,
@@ -2629,6 +2632,59 @@ class TestPurgeMasterData:
         )
         ok, msg = d.purge_master_data("db")
         assert ok is False and "Aborted (no data deleted)" in msg
+
+    def test_transient_wizard_table_auto_cleared(self, monkeypatch):
+        # A transient wizard table (account_payment_register) with an unhandled NO-ACTION FK
+        # is cleared wholesale before the partner delete — no drift-guard abort.
+        d = self._patch_intro(
+            monkeypatch,
+            movement=["sale_order"],
+            content=[],
+            closure={"sale_order"},
+            edges=[("account_payment_register", "partner_id", "a")],
+            transient={"account_payment_register"},
+        )
+        captured = {}
+        monkeypatch.setattr(d, "_run_psql_file", lambda sql, **k: (captured.__setitem__("sql", sql), (True, ""))[1])
+        ok, _ = d.purge_master_data("db")
+        assert ok is True
+        sql = captured["sql"]
+        assert 'DELETE FROM "account_payment_register";' in sql
+        # no drift-guard block for the transient table
+        assert "unhandled FK account_payment_register" not in sql
+
+    def test_non_transient_unhandled_still_aborts(self, monkeypatch):
+        # Same edge, but NOT flagged transient → the drift guard still fires (protects real
+        # master data in custom/OCA modules).
+        d = self._patch_intro(
+            monkeypatch,
+            movement=["sale_order"],
+            content=[],
+            closure={"sale_order"},
+            edges=[("account_payment_register", "partner_id", "a")],
+            transient=set(),
+        )
+        captured = {}
+        monkeypatch.setattr(d, "_run_psql_file", lambda sql, **k: (captured.__setitem__("sql", sql), (True, ""))[1])
+        ok, _ = d.purge_master_data("db")
+        assert ok is True
+        sql = captured["sql"]
+        assert 'DELETE FROM "account_payment_register";' not in sql
+        assert "odoodev-purge-abort: unhandled FK account_payment_register.partner_id" in sql
+
+    def test_transient_tables_maps_model_to_table(self, monkeypatch):
+        from odoodev.core import database as d
+
+        monkeypatch.setattr(
+            d, "_run_psql_tuples", lambda q, **k: (True, [["account.payment.register"], ["base.language.install"]])
+        )
+        assert d._transient_tables("db") == {"account_payment_register", "base_language_install"}
+
+    def test_transient_tables_empty_on_error(self, monkeypatch):
+        from odoodev.core import database as d
+
+        monkeypatch.setattr(d, "_run_psql_tuples", lambda q, **k: (False, []))
+        assert d._transient_tables("db") == set()
 
 
 class TestDbPurgeMasterDataCommand:

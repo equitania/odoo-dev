@@ -1,5 +1,20 @@
 # Release Notes
 
+## Version 0.49.1 (10.07.2026)
+
+### Fixed
+- **Master-data purge no longer aborts on transient wizard tables.** On a real Odoo 16
+  DB, `db restore --sanitize` (and standalone `db purge-master-data`) rolled back with
+  `odoodev-purge-abort: unhandled FK account_payment_register.partner_id still references
+  a partner to delete`. `account_payment_register` is an Odoo TransientModel (the "Register
+  Payment" wizard) whose `partner_id` FK is `NO ACTION`, so it fell into the drift guard's
+  "unhandled" bucket and blocked the whole purge. odoodev now introspects
+  `ir_model.transient` and clears such throwaway wizard tables wholesale before deleting the
+  partners — generically, so every current and future wizard table is handled, not just a
+  hand-maintained list. Non-transient unknown FKs still trigger the guard abort (protecting
+  real master data added by custom/OCA modules); if the `ir_model` lookup fails, the code
+  falls back to the conservative guard.
+
 ## Version 0.49.0 (10.07.2026)
 
 ### Fixed

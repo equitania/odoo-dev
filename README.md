@@ -174,6 +174,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.49.1:**
+- **Behoben:** Master-Data-Purge brach an transienten Wizard-Tabellen ab. Auf einer echten Odoo-16-DB rollte `db restore --sanitize` (und `db purge-master-data`) mit `unhandled FK account_payment_register.partner_id` zurück — `account_payment_register` ist ein Odoo-TransientModel (Wizard „Zahlung erfassen") mit einer `NO ACTION`-FK, die den Drift-Guard auslöste. odoodev fragt jetzt `ir_model.transient` ab und leert solche Wegwerf-Wizard-Tabellen automatisch, bevor die Partner gelöscht werden — generisch für alle aktuellen und künftigen Wizards. Nicht-transiente unbekannte FKs lösen weiterhin den Guard-Abbruch aus (Schutz echter Stammdaten aus Custom-/OCA-Modulen).
+
 **Version 0.49.0:**
 - **Behoben:** Destruktive Bestätigungen vereinheitlicht auf ein einfaches `y/N`. Der Bulk-`db drop`, `db purge-master-data` und der Master-Data-Purge-Schritt von `db restore` verlangten zuvor die Eingabe der exakten Anzahl und brachen bei allem anderen still ab — wer `yes` eintippte, brach ungewollt ab. Alle drei nutzen jetzt das übliche `y/N` (Default Nein); der laute WARN-Block bleibt, `-y/--yes` überspringt weiterhin.
 - **Behoben:** Verklebte Ausgabe nach dem Restore unter der docker-exec-psql-Fallback. `docker exec -i` schaltete mit dem TTY als stdin das Terminal in den Raw-Modus (ONLCR aus), sodass ab der Sanitize-Pipeline alle Zeilen ohne Umbruch aneinanderklebten. Die psql-/pg_dump-/`odoo-bin neutralize`-Subprozesse laufen jetzt mit `stdin=DEVNULL` und lassen das Terminal unangetastet.
@@ -462,6 +465,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.49.1:**
+- **Fixed:** Master-data purge aborted on transient wizard tables. On a real Odoo 16 DB, `db restore --sanitize` (and `db purge-master-data`) rolled back with `unhandled FK account_payment_register.partner_id` — `account_payment_register` is an Odoo TransientModel (the "Register Payment" wizard) with a `NO ACTION` FK that tripped the drift guard. odoodev now introspects `ir_model.transient` and clears such throwaway wizard tables automatically before deleting partners — generically, for every current and future wizard. Non-transient unknown FKs still trigger the guard abort (protecting real master data from custom/OCA modules).
 
 **Version 0.49.0:**
 - **Fixed:** Destructive confirmations unified to a plain `y/N`. The bulk `db drop`, `db purge-master-data` and the `db restore` master-data-purge step previously demanded typing the exact record count and aborted silently on anything else — answering `yes` cancelled the operation. All three now use the standard `y/N` (default No); the loud WARN block stays and `-y/--yes` still skips the prompt.

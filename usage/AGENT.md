@@ -139,8 +139,10 @@ linkage tables), `--purge-master-data`, or `--sanitize` for all of them at once 
 the customer/vendor/contact partners and their attachments (keeps products, pricelists,
 users+their partner, companies+their partner, config). It runs one superuser
 `session_replication_role=replica` transaction, asks a `y/N` confirmation (with the deletable
-partner count shown; skipped with `-y`), and aborts cleanly (rollback) if a protected table or an unhandled
-RESTRICT FK would be hit. Escape with `--no-purge-master-data`. Standalone: `db purge-master-data`.
+partner count shown; skipped with `-y`). Transient Odoo wizard tables (`ir_model.transient`,
+e.g. `account_payment_register`) that reference a to-be-deleted partner are cleared
+automatically; it only aborts cleanly (rollback) if a protected table or a **non-transient**
+unhandled RESTRICT/NO-ACTION FK would be hit. Escape with `--no-purge-master-data`. Standalone: `db purge-master-data`.
 `--anonymize-users` is a separate opt-in (works standalone, NOT included in `--sanitize`);
 its default dev login password is `ownerp` (override with `--user-password`).
 `--purge-transactions` (v0.44.0) is a separate movement-only opt-in, NOT included in `--sanitize`:

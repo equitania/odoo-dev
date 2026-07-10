@@ -311,10 +311,13 @@ unangetastet.
 > Kontakt-Partner und deren Anhaenge. Behalten bleiben nur Produkte, Preislisten,
 > Benutzer (+ Partner), eigene Firmen (+ Partner) und Konfiguration. Ausstieg mit
 > `--no-purge-master-data`. Die Loeschung laeuft in EINER
-> `session_replication_role=replica`-Transaktion (Superuser noetig), verlangt die
-> Eingabe der Partner-Anzahl zur Bestaetigung (mit `-y` uebersprungen — Automatisierung
-> pruefen!) und bricht ohne Loeschung ab, falls eine geschuetzte Stammtabelle oder eine
-> unbehandelte RESTRICT-Referenz betroffen waere. Produktbilder und System-Assets
+> `session_replication_role=replica`-Transaktion (Superuser noetig), verlangt eine
+> `y/N`-Bestaetigung (mit angezeigter Partner-Anzahl; mit `-y` uebersprungen —
+> Automatisierung pruefen!). Transiente Odoo-Wizard-Tabellen (`ir_model.transient`, z.B.
+> `account_payment_register`), die auf einen zu loeschenden Partner zeigen, werden
+> automatisch geleert; ein Abbruch ohne Loeschung erfolgt nur noch, falls eine geschuetzte
+> Stammtabelle oder eine **nicht-transiente** unbehandelte RESTRICT/NO-ACTION-Referenz
+> betroffen waere. Produktbilder und System-Assets
 > (`ir_attachment` mit `res_model` product/view/module/company/user) bleiben erhalten.
 > Eigenstaendig als `odoodev db purge-master-data` (mit `--dry-run`).
 

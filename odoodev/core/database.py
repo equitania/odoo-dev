@@ -2311,6 +2311,31 @@ def _fk_edges_into(
     return edges
 
 
+def _transient_tables(
+    db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
+) -> set[str]:
+    """Return the Postgres table names backing Odoo TransientModels (wizards).
+
+    Odoo flags transient models in ``ir_model.transient``; their rows are throwaway
+    wizard state (e.g. ``account.payment.register``), safe to clear during a purge.
+    The table name follows Odoo's convention of the model with ``.`` replaced by ``_``.
+    Returns an empty set on any error (schema/version drift) so the caller falls back
+    to the conservative drift guard.
+    """
+    ok, rows = _run_psql_tuples(
+        "SELECT model FROM ir_model WHERE transient = true;", db=db_name, host=host, port=port, user=user
+    )
+    if not ok:
+        return set()
+    tables: set[str] = set()
+    for r in rows:
+        if r and r[0]:
+            table = r[0].replace(".", "_")
+            if _SQL_IDENTIFIER_RE.match(table):
+                tables.add(table)
+    return tables
+
+
 def _cascade_child_edges(
     parents: list[str], db_name: str, host: str = DEFAULT_DB_HOST, port: int = 18432, user: str = DEFAULT_DB_USER
 ) -> list[tuple[str, str, str]]:
@@ -2448,7 +2473,12 @@ def purge_master_data(
 
     edges = _fk_edges_into("res_partner", db_name, host=host, port=port, user=user)
     setnull_edges = [(c, col) for c, col, t in edges if t == "n" and c != "res_partner"]
-    unhandled_edges = [(c, col) for c, col, t in edges if t not in ("c", "n") and c not in ("res_users", "res_company")]
+    raw_unhandled = [(c, col) for c, col, t in edges if t not in ("c", "n") and c not in ("res_users", "res_company")]
+    # Transient (wizard) tables carry throwaway rows — clear them wholesale instead of
+    # aborting on their unhandled FK. Non-transient unknowns still hit the drift guard.
+    transient = _transient_tables(db_name, host=host, port=port, user=user)
+    transient_edges = [(c, col) for c, col in raw_unhandled if c in transient]
+    unhandled_edges = [(c, col) for c, col in raw_unhandled if c not in transient]
 
     if dry_run:
         to_delete = count_deletable_partners(db_name, host=host, port=port, user=user)
@@ -2480,6 +2510,12 @@ def purge_master_data(
         stmts.append(f'UPDATE "{table}" SET "{column}" = NULL WHERE "{column}" IS NOT NULL;')
     # 3. partner keep set.
     stmts.append(_keep_partner_temp_table_sql())
+    # 3-pre. Clear transient (wizard) tables that carry an unhandled FK into res_partner —
+    # throwaway wizard state (e.g. account_payment_register). Emptying them here keeps the
+    # drift guard from aborting, without touching any real master data.
+    for child in sorted({c for c, _ in transient_edges}):
+        _check_identifier(child)
+        stmts.append(f'DELETE FROM "{child}";')
     # 3a. drift guard: an unhandled FK still pointing at a to-be-deleted partner aborts (rollback).
     for child, col in unhandled_edges:
         _check_identifier(child)
