@@ -42,6 +42,7 @@
 - Datenbank kopieren/umbenennen (`db copy`, `db rename`) inkl. Filestore
 - Maschinenlesbare Ausgabe (`--json`) für `db list`, `config versions`, `venv check`
 - Playbook-Variablen (`vars:`-Block, `{{ vars.x }}`, `{{ env.X }}`, `{{ date }}`, `--var`-Overrides) und Playbook-Discovery (`run --list`)
+- Server-Modus-Playbooks: automatisiertes Live→Test-Spiegeln auf Kundenservern (Docker-Container ohne Dev-Layout) — `targets:`/`env_file:`/`rpc:`-Sektionen, Steps `server.backup`, `server.restore`, `server.neutralize`, `server.update-all`, `container.stop/start`, `sql.execute`, `rpc.execute` (Beispiel: `data/examples/playbooks/server-mirror.yaml`)
 
 ### Schnellstart
 
@@ -173,6 +174,10 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.50.0:**
+- **Neu:** Server-Modus-Playbooks — der manuelle Live→Test-Restore-Prozess auf Kundenservern läuft jetzt vollautomatisch über `odoodev run`. Playbooks definieren `targets:` (Container-Paare wie `live-odoo`/`live-db`, `test-odoo`/`test-db`), eine `env_file:` für Secrets (Werte der Datei gewinnen über die Prozess-Umgebung, nie im YAML) und eine `rpc:`-Sektion für API-Zugriff. Der komplette Ablauf: frisches Live-Backup (`server.backup`, container2backup-kompatibles `.tar.zst`) oder neuestes vorhandenes Backup per Glob-Pattern (`newest_in_dir`), `container.stop`, `server.restore` (Drop + `TEMPLATE template0`, Dump via `docker exec psql`, Filestore-Tausch über `docker inspect`-Mount-Auflösung inkl. `chown`, Sessions-Bereinigung, opt-in Sanitize-Schritte der bestehenden `db restore`-Maschinerie), kundenspezifisches SQL (`sql.execute`, Jinja-Templates in Statement-Listen), `container.start`, `server.neutralize`/`server.update-all` (odoo-bin im laufenden Container, Update mit anschließendem Neustart) und deklarative RPC-Konfiguration (`rpc.execute` via `odoorpc-toolbox`, neues Extra `odoodev-equitania[rpc]`). Beispiel-Playbook: `data/examples/playbooks/server-mirror.yaml`.
+- **Neu:** `pg_exec_container()` — alle psql/pg_dump-Aufrufe gezielt per Container-Name durch `docker exec` routen (DB-Container ohne publizierte Ports); Jinja-Rendering der Step-Argumente jetzt rekursiv (verschachtelte Mappings und Listen).
 
 **Version 0.49.1:**
 - **Behoben:** Master-Data-Purge brach an transienten Wizard-Tabellen ab. Auf einer echten Odoo-16-DB rollte `db restore --sanitize` (und `db purge-master-data`) mit `unhandled FK account_payment_register.partner_id` zurück — `account_payment_register` ist ein Odoo-TransientModel (Wizard „Zahlung erfassen") mit einer `NO ACTION`-FK, die den Drift-Guard auslöste. odoodev fragt jetzt `ir_model.transient` ab und leert solche Wegwerf-Wizard-Tabellen automatisch, bevor die Partner gelöscht werden — generisch für alle aktuellen und künftigen Wizards. Nicht-transiente unbekannte FKs lösen weiterhin den Guard-Abbruch aus (Schutz echter Stammdaten aus Custom-/OCA-Modulen).
@@ -334,6 +339,7 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - Database copy/rename (`db copy`, `db rename`) incl. filestore
 - Machine-readable output (`--json`) for `db list`, `config versions`, `venv check`
 - Playbook variables (`vars:` block, `{{ vars.x }}`, `{{ env.X }}`, `{{ date }}`, `--var` overrides) and playbook discovery (`run --list`)
+- Server-mode playbooks: automated live→test mirroring on customer servers (Docker containers without a dev layout) — `targets:`/`env_file:`/`rpc:` sections, steps `server.backup`, `server.restore`, `server.neutralize`, `server.update-all`, `container.stop/start`, `sql.execute`, `rpc.execute` (example: `data/examples/playbooks/server-mirror.yaml`)
 
 ### Quick Start
 
@@ -465,6 +471,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.50.0:**
+- **Added:** Server-mode playbooks — the manual live→test restore process on customer servers now runs fully automated via `odoodev run`. Playbooks define `targets:` (container pairs like `live-odoo`/`live-db`, `test-odoo`/`test-db`), an `env_file:` for secrets (file values win over the process environment, never stored in YAML) and an `rpc:` section for API access. The complete flow: fresh live backup (`server.backup`, container2backup-compatible `.tar.zst`) or the newest existing backup by glob pattern (`newest_in_dir`), `container.stop`, `server.restore` (drop + `TEMPLATE template0`, dump via `docker exec psql`, filestore swap through `docker inspect` mount resolution incl. `chown`, sessions cleanup, opt-in sanitize steps reusing the existing `db restore` machinery), customer-specific SQL (`sql.execute`, Jinja templates inside statement lists), `container.start`, `server.neutralize`/`server.update-all` (odoo-bin inside the running container, update with subsequent restart) and declarative RPC configuration (`rpc.execute` via `odoorpc-toolbox`, new extra `odoodev-equitania[rpc]`). Example playbook: `data/examples/playbooks/server-mirror.yaml`.
+- **Added:** `pg_exec_container()` — route all psql/pg_dump calls through `docker exec` by explicit container name (DB containers without published ports); Jinja rendering of step args is now recursive (nested mappings and lists).
 
 **Version 0.49.1:**
 - **Fixed:** Master-data purge aborted on transient wizard tables. On a real Odoo 16 DB, `db restore --sanitize` (and `db purge-master-data`) rolled back with `unhandled FK account_payment_register.partner_id` — `account_payment_register` is an Odoo TransientModel (the "Register Payment" wizard) with a `NO ACTION` FK that tripped the drift guard. odoodev now introspects `ir_model.transient` and clears such throwaway wizard tables automatically before deleting partners — generically, for every current and future wizard. Non-transient unknown FKs still trigger the guard abort (protecting real master data from custom/OCA modules).

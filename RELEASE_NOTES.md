@@ -1,5 +1,51 @@
 # Release Notes
 
+## Version 0.50.0 (12.07.2026)
+
+### Added
+- **Server-mode playbooks: automated live -> test database mirroring on customer servers.**
+  odoodev playbooks can now run on production servers where Odoo + PostgreSQL exist only
+  as Docker containers (`live-odoo`/`live-db`, `test-odoo`/`test-db`) — no dev layout, no
+  host psql, no published DB ports. New top-level playbook sections: `targets:` (named
+  Odoo/DB container pairs with db name, owner and data dir), `env_file:` (secrets loaded
+  into `{{ env.X }}`, file values win over process env; never stored in YAML) and `rpc:`
+  (connection for RPC steps, falling back to `ODOO_URL`/`ODOO_USER`/`ODOO_PASSWORD`/
+  `ODOO_DATABASE`/`ODOO_PORT` from the env_file). Example: `data/examples/playbooks/server-mirror.yaml`.
+- **New playbook steps:**
+  - `container.stop` / `container.start` — idempotent Docker lifecycle for a target's
+    odoo/db container.
+  - `server.backup` — fresh dump + filestore archive from the live pair, written as
+    container2backup-compatible `{db}_{container}_dockerbackup_{YYYY-MM-DD_HH-MM-SS}.tar.zst`.
+  - `server.restore` — restore into the test pair: drop + `CREATE DATABASE ... TEMPLATE
+    template0`, dump via `docker exec psql`, filestore swap on the host data dir (resolved
+    via `docker inspect` mounts — works for bind mounts and legacy named volumes), sessions
+    cleanup, `chown -R 1000:1000`; plus opt-in psql sanitize steps reusing the existing
+    `db restore` machinery (`deactivate_cron`, `neutralize` bank-sync, `anonymize`, `wipe`,
+    `purge_transactions`, `purge_master_data`). Backup source is either an explicit file or
+    the newest file matching a glob pattern (`newest_in_dir`, by mtime or filename timestamp).
+    Refuses to run while the target Odoo container is up, and hard-errors on backups without
+    a filestore (no silent half-mirrored state).
+  - `server.neutralize` / `server.update-all` — `odoo-bin neutralize` / `-u all
+    --stop-after-init` via `docker exec` inside the *running* Odoo container (place after
+    `container.start`); update-all restarts the container afterwards by default.
+  - `sql.execute` — arbitrary playbook-defined SQL statements (list, with Jinja templating)
+    or a SQL file against a server target — or, without a target, against the dev
+    environment's PostgreSQL.
+  - `rpc.execute` — declarative Odoo RPC via `odoorpc-toolbox` (new optional extra:
+    `uv pip install 'odoodev-equitania[rpc]'`): `model` + `method` + `args`/`kwargs`, or
+    `domain` + `values` for search-then-write.
+- **`pg_exec_container()` context manager** (`core/database.py`) — routes every psql/
+  pg_dump/createdb/dropdb call through `docker exec -i <container>` by explicit container
+  name (context-local, never cached), so the whole existing backup/restore/sanitize
+  machinery works unchanged against containers that publish no ports.
+
+### Changed
+- **Jinja rendering of step args is now recursive** — `{{ vars.x }}`/`{{ env.X }}` work
+  inside nested mappings (`backup_source:`) and lists (`statements:`), not only in
+  top-level string values. Existing playbooks are unaffected.
+- `create_database()` accepts a `template` parameter (dev default `template1` unchanged;
+  server restores use `template0`) and sets the connecting user as explicit owner.
+
 ## Version 0.49.1 (10.07.2026)
 
 ### Fixed

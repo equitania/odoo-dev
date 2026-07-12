@@ -119,6 +119,39 @@ Sucht nach `*.yaml`/`*.yml` in `./playbooks/` und
 | `env.check` | .env-Status pruefen |
 | `venv.check` | Venv-Status pruefen |
 | `venv.setup` | Venv erstellen/aktualisieren |
+| `container.stop` / `container.start` | Docker-Container eines Targets stoppen/starten (idempotent) |
+| `server.backup` | Frisches Backup vom Live-Paar (container2backup-kompatibles `.tar.zst`) |
+| `server.restore` | Backup ins Test-Paar einspielen (Drop, Restore, Filestore-Tausch, Sanitize) |
+| `server.neutralize` | `odoo-bin neutralize` im laufenden Odoo-Container |
+| `server.update-all` | `odoo-bin -u all --stop-after-init` im laufenden Odoo-Container (+ Neustart) |
+| `sql.execute` | SQL-Statements/-Datei gegen Target- oder Dev-Datenbank |
+| `rpc.execute` | Deklarativer Odoo-RPC-Aufruf via odoorpc-toolbox (`odoodev-equitania[rpc]`) |
+
+### Server-Modus (Live→Test-Spiegelung auf Kundenservern)
+
+Playbooks laufen auch auf Produktivservern, auf denen Odoo/PostgreSQL nur als
+Docker-Container existieren (`live-odoo`/`live-db`, `test-odoo`/`test-db`) — ohne
+Dev-Layout, ohne Host-psql, ohne publizierte DB-Ports (Zugriff via `docker exec`).
+Drei neue Top-Level-Sektionen:
+
+```yaml
+env_file: /root/.config/odoodev/mirror.env   # Secrets, chmod 600 — {{ env.X }} liest sie
+targets:
+  test:
+    db_container: test-db
+    odoo_container: test-odoo
+    db_name: production
+    data_dir: /opt/odoo/test                 # leer = Auflösung via docker inspect
+rpc:                                          # Fallbacks: ODOO_URL/PORT/USER/PASSWORD/DATABASE
+  host: "{{ env.ODOO_URL }}"
+```
+
+Steps referenzieren ein Target per `target: test`. Wichtig für die Reihenfolge:
+`server.restore` verlangt einen **gestoppten** Odoo-Container; `server.neutralize`
+und `server.update-all` brauchen den **laufenden** Container (`docker exec`) und
+gehören daher hinter `container.start`. Kundenspezifisches SQL (Enterprise-Code,
+Website-Domain, Connector-Resets) vor dem Start ausführen. Vollständiges Beispiel:
+`server-mirror.yaml`.
 
 ### Beispiel-Playbooks
 
@@ -130,6 +163,7 @@ Mitgelieferte Playbooks unter `odoodev/data/examples/playbooks/`:
 | `start-dev.yaml` | Entwicklungsumgebung starten |
 | `full-refresh.yaml` | Komplette Umgebung neu aufsetzen |
 | `restore-db.yaml` | Datenbank aus Backup wiederherstellen |
+| `server-mirror.yaml` | Live→Test-Spiegelung auf einem Kundenserver |
 
 ### NDJSON-Output
 
@@ -259,6 +293,38 @@ Discovers `*.yaml`/`*.yml` files in `./playbooks/` and
 | `env.check` | Check .env status |
 | `venv.check` | Check venv status |
 | `venv.setup` | Create/update venv |
+| `container.stop` / `container.start` | Stop/start a target's Docker container (idempotent) |
+| `server.backup` | Fresh backup from the live pair (container2backup-compatible `.tar.zst`) |
+| `server.restore` | Restore a backup into the test pair (drop, restore, filestore swap, sanitize) |
+| `server.neutralize` | `odoo-bin neutralize` inside the running Odoo container |
+| `server.update-all` | `odoo-bin -u all --stop-after-init` inside the running Odoo container (+ restart) |
+| `sql.execute` | SQL statements/file against a target or dev database |
+| `rpc.execute` | Declarative Odoo RPC call via odoorpc-toolbox (`odoodev-equitania[rpc]`) |
+
+### Server Mode (live→test mirroring on customer servers)
+
+Playbooks also run on production servers where Odoo/PostgreSQL exist only as
+Docker containers (`live-odoo`/`live-db`, `test-odoo`/`test-db`) — no dev layout,
+no host psql, no published DB ports (access via `docker exec`). Three new
+top-level sections:
+
+```yaml
+env_file: /root/.config/odoodev/mirror.env   # secrets, chmod 600 — read via {{ env.X }}
+targets:
+  test:
+    db_container: test-db
+    odoo_container: test-odoo
+    db_name: production
+    data_dir: /opt/odoo/test                 # empty = resolved via docker inspect
+rpc:                                          # fallbacks: ODOO_URL/PORT/USER/PASSWORD/DATABASE
+  host: "{{ env.ODOO_URL }}"
+```
+
+Steps reference a target via `target: test`. Ordering matters: `server.restore`
+requires a **stopped** Odoo container; `server.neutralize` and `server.update-all`
+need the **running** container (`docker exec`) and therefore belong after
+`container.start`. Run customer-specific SQL (enterprise code, website domain,
+connector resets) before the start. Full example: `server-mirror.yaml`.
 
 ### Example Playbooks
 
@@ -270,6 +336,7 @@ Bundled playbooks in `odoodev/data/examples/playbooks/`:
 | `start-dev.yaml` | Start development environment |
 | `full-refresh.yaml` | Full environment refresh |
 | `restore-db.yaml` | Restore database from backup |
+| `server-mirror.yaml` | Live→test mirroring on a customer server |
 
 ### NDJSON Output
 

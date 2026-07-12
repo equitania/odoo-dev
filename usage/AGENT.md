@@ -34,6 +34,10 @@ you must pass it explicitly.
 - Stand up a whole version environment from scratch (`init`) or via an interactive wizard (`setup`).
 - Define and run cross-version migration groups.
 - **Unattended automation for agents:** run YAML playbooks or inline steps with NDJSON output.
+- **Server-mode playbooks (v0.50.0):** mirror a live DB to the test system on customer servers where
+  Odoo/PostgreSQL exist only as Docker containers (no dev layout, no published DB ports) — backup,
+  restore incl. filestore swap + sanitize, custom SQL, `odoo-bin neutralize`/`-u all` via docker exec,
+  declarative Odoo RPC.
 
 ## Command reference
 Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choice · `--flag` boolean.
@@ -170,11 +174,33 @@ odoodev run --list                                   # list discoverable playboo
 ```
 **Playbook resolution:** a bare name is looked up ONLY in `./playbooks/` or
 `<native_dir>/scripts/playbooks/`. Bundled examples live at
-`odoodev/data/examples/playbooks/` (`daily-update`, `full-refresh`, `restore-db`, `start-dev`) and
+`odoodev/data/examples/playbooks/` (`daily-update`, `full-refresh`, `restore-db`, `start-dev`,
+`server-mirror`) and
 are **not** name-resolvable — run them via an explicit path or copy them into a discovered dir.
 A playbook step's `command` uses dotted names mirroring the CLI groups (`docker.up`, `db.backup`,
 `repos`); step `args` use the long option names (e.g. `config-only: true`). Pass variables with
 `--var KEY=VALUE`.
+
+### Server-mode playbooks (live→test mirror on customer servers, v0.50.0)
+Top-level sections: `targets:` (named container pairs: `db_container`, `odoo_container`, `db_name`,
+optional `owner`/`data_dir` — empty `data_dir` is resolved via `docker inspect` mounts), `env_file:`
+(secrets loaded into `{{ env.X }}`, file wins over process env, skipped in `--dry-run`), `rpc:`
+(connection for `rpc.execute`; missing fields fall back to `ODOO_URL`/`ODOO_PORT`/`ODOO_USER`/
+`ODOO_PASSWORD`/`ODOO_DATABASE` from the env_file). Steps reference targets via `target: <name>`.
+
+Steps: `container.stop`/`container.start` (idempotent; `component: odoo|db`), `server.backup`
+(`backup_dir`, container2backup-compatible `.tar.zst`), `server.restore` (`backup_source:` either
+`{mode: file, path: …}` or `{mode: newest_in_dir, dir, pattern, select_by: mtime|filename_timestamp}`;
+`template: template0`; sanitize flags `deactivate_cron`/`neutralize`/`anonymize`/`wipe`/
+`purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute` (`statements:` list or
+`file:`, Jinja-templated; works against a `target` or the dev DB), `server.neutralize`,
+`server.update-all` (`restart: true` default), `rpc.execute` (`model`, `method`, `args`/`kwargs`, or
+`domain` + `values` → search-then-write; needs extra `odoodev-equitania[rpc]`).
+
+**Ordering guardrails:** `server.restore` refuses to run while the target Odoo container is up
+(stop it first); `server.neutralize`/`server.update-all` exec into the RUNNING container — place
+them after `container.start`. Run customer SQL (enterprise code, website domain) before the start.
+Bundled example: `server-mirror.yaml`. Requires root on the server (chown, data-dir access).
 
 ### Use Apple Container instead of Docker (macOS)
 ```bash

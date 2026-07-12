@@ -10,7 +10,9 @@ import subprocess
 import tempfile
 import textwrap
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -124,6 +126,39 @@ _pg_exec_cache: dict[int, PgExecMode] = {}
 _pg_exec_info_printed: set[int] = set()
 
 
+@dataclass(frozen=True)
+class PgExecTarget:
+    """Explicit container-exec target for psql/pg_dump/createdb/dropdb.
+
+    Bypasses host-tool detection and port-based container discovery entirely.
+    Used by server-mode playbooks where the PostgreSQL container publishes no
+    host port and is only reachable via ``docker exec``.
+    """
+
+    container: str
+    cli: str = "docker"
+
+
+_pg_exec_target: ContextVar[PgExecTarget | None] = ContextVar("_pg_exec_target", default=None)
+
+
+@contextmanager
+def pg_exec_container(container: str, cli: str = "docker") -> Iterator[None]:
+    """Force all pg client calls inside this block through ``<cli> exec -i <container>``.
+
+    The ``host``/``port`` arguments of the wrapped database functions become inert
+    placeholders (container exec connects via the Unix socket); only ``user`` still
+    matters (passed as ``-U``). The override is context-local and never cached, so
+    two different containers can be targeted sequentially in one process without
+    cross-contamination.
+    """
+    token = _pg_exec_target.set(PgExecTarget(container=container, cli=cli))
+    try:
+        yield
+    finally:
+        _pg_exec_target.reset(token)
+
+
 def clear_pg_exec_cache() -> None:
     """Clear the module-level PgExecMode cache and info flags. Test helper."""
     _pg_exec_cache.clear()
@@ -137,11 +172,16 @@ def _host_pg_tools_available() -> bool:
 def resolve_pg_exec_mode(port: int) -> PgExecMode:
     """Decide how to run psql/pg_dump/createdb/dropdb for a given port.
 
-    Priority: ``ODOODEV_PG_EXEC`` override ("host"/"container") > host CLI tools
+    Priority: an active ``pg_exec_container()`` block (explicit target, never
+    cached) > ``ODOODEV_PG_EXEC`` override ("host"/"container") > host CLI tools
     present > a running container publishing ``port`` (via the configured container
     runtime). Cached per port for the process lifetime — tests that vary
     shutil.which/backend behaviour must call ``clear_pg_exec_cache()`` in between.
     """
+    forced = _pg_exec_target.get()
+    if forced is not None:
+        return PgExecMode(kind=PG_EXEC_CONTAINER, container_name=forced.container, cli=forced.cli)
+
     override = os.environ.get("ODOODEV_PG_EXEC", "auto").lower()
     if override == "host":
         return PgExecMode(kind=PG_EXEC_HOST)
@@ -361,11 +401,17 @@ def create_database(
     host: str = DEFAULT_DB_HOST,
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
+    template: str = "template1",
 ) -> bool:
-    """Create a new database."""
+    """Create a new database.
+
+    ``template`` defaults to ``template1`` (dev behaviour); server-mode restores
+    pass ``template0`` per the production runbook. The connecting ``user`` is set
+    as the explicit owner.
+    """
     try:
         mode = resolve_pg_exec_mode(port)
-        cmd = _pg_base_cmd("createdb", mode, user, host, port) + ["-T", "template1", db_name]
+        cmd = _pg_base_cmd("createdb", mode, user, host, port) + ["-T", template, "-O", user, db_name]
         subprocess.run(
             cmd,
             check=True,
@@ -1002,6 +1048,87 @@ def run_neutralize(
         return True, result.stdout
     except subprocess.CalledProcessError as e:
         return False, e.stderr
+
+
+# Server-mode defaults: paths inside the myodoo Odoo containers (Dockerfiles/*/bin/boot).
+SERVER_ODOO_BIN_PATH = "/opt/odoo/odoo-server/odoo-bin"
+SERVER_ODOO_CONF_PATH = "/opt/odoo/etc/odoo.conf"
+
+
+def _run_odoo_bin_container(
+    db_name: str,
+    odoo_container: str,
+    odoo_args: list[str],
+    cli: str = "docker",
+) -> tuple[bool, str]:
+    """Run an odoo-bin invocation inside a *running* Odoo container via docker exec.
+
+    ``docker exec`` cannot enter a stopped container — callers must ensure the
+    container is up (playbooks: place these steps after ``container.start``).
+
+    Returns:
+        Tuple of (success, output_or_error).
+    """
+    from odoodev.core.docker_exec import docker_container_running, docker_exec
+
+    if not docker_container_running(odoo_container, cli):
+        return False, (
+            f"Container '{odoo_container}' is not running — docker exec needs a running "
+            f"container (run this step after container.start)"
+        )
+    ok, stdout, stderr = docker_exec(odoo_container, odoo_args, cli=cli)
+    if not ok:
+        return False, stderr or stdout or f"odoo-bin failed in container '{odoo_container}'"
+    return True, stdout
+
+
+def run_neutralize_container(
+    db_name: str,
+    odoo_container: str,
+    odoo_bin_path: str = SERVER_ODOO_BIN_PATH,
+    config_path: str = SERVER_ODOO_CONF_PATH,
+    cli: str = "docker",
+    extra: list[str] | None = None,
+) -> tuple[bool, str]:
+    """Server-mode sibling of :func:`run_neutralize` — runs inside the Odoo container.
+
+    ``odoo-bin neutralize`` connects directly to PostgreSQL (no server boot), so it
+    is safe to run while the container's Odoo server process is serving.
+    """
+    cmd = ["python3", odoo_bin_path, "neutralize", "-c", config_path, "-d", db_name]
+    if extra:
+        cmd.extend(extra)
+    return _run_odoo_bin_container(db_name, odoo_container, cmd, cli=cli)
+
+
+def run_update_all_container(
+    db_name: str,
+    odoo_container: str,
+    odoo_bin_path: str = SERVER_ODOO_BIN_PATH,
+    config_path: str = SERVER_ODOO_CONF_PATH,
+    cli: str = "docker",
+    extra_args: list[str] | None = None,
+) -> tuple[bool, str]:
+    """Update all modules (``odoo-bin -u all --stop-after-init``) inside the Odoo container.
+
+    Mirrors the myodoo boot entrypoint's ``update`` mode. The running server keeps
+    its old registry in memory — callers should restart the container afterwards.
+    """
+    cmd = [
+        "python3",
+        odoo_bin_path,
+        "-c",
+        config_path,
+        "-d",
+        db_name,
+        "-u",
+        "all",
+        "--stop-after-init",
+        "--workers=0",
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+    return _run_odoo_bin_container(db_name, odoo_container, cmd, cli=cli)
 
 
 # Per anonymized model, the changed source columns whose stored computed

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.49.1"
+version = "0.50.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -37,6 +37,9 @@ dependencies = [
 odoodev = "odoodev.cli:cli"
 
 [project.optional-dependencies]
+rpc = [
+    "odoorpc-toolbox>=0.8.2",
+]
 dev = [
     "ruff>=0.8.0",
     "pytest>=8.0",
@@ -89,6 +92,10 @@ files = ["odoodev"]
 [[tool.mypy.overrides]]
 module = "odoodev.cli"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "odoorpc_toolbox"
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "odoodev.tui.*"

@@ -28,8 +28,29 @@ VALID_COMMANDS = frozenset(
         "env.check",
         "venv.check",
         "venv.setup",
+        # Server-mode steps (customer servers: Docker containers only, no dev layout)
+        "container.stop",
+        "container.start",
+        "server.backup",
+        "server.restore",
+        "server.neutralize",
+        "server.update-all",
+        "sql.execute",
+        "rpc.execute",
     }
 )
+
+# Convention (odoo-rollout compatible): connection fields for rpc.execute that are
+# not set in the playbook's ``rpc:`` section fall back to these environment
+# variables (process env merged with the playbook's ``env_file``).
+_RPC_ENV_FALLBACKS = {
+    "host": "ODOO_URL",
+    "port": "ODOO_PORT",
+    "user": "ODOO_USER",
+    "password": "ODOO_PASSWORD",
+    "db": "ODOO_DATABASE",
+    "protocol": "ODOO_PROTOCOL",
+}
 
 
 # --- Dataclasses ---
@@ -46,6 +67,17 @@ class StepConfig:
 
 
 @dataclass(frozen=True)
+class TargetConfig:
+    """A named server target: one Odoo/PostgreSQL container pair on a customer server."""
+
+    db_container: str
+    db_name: str
+    odoo_container: str = ""
+    owner: str = "ownerp"
+    data_dir: str = ""  # host path of the Odoo data mount; empty = resolve via docker inspect
+
+
+@dataclass(frozen=True)
 class PlaybookConfig:
     """Configuration for a complete playbook."""
 
@@ -54,6 +86,9 @@ class PlaybookConfig:
     steps: tuple[StepConfig, ...]
     vars: dict[str, str] = field(default_factory=dict)
     description: str = ""
+    targets: dict[str, TargetConfig] = field(default_factory=dict)
+    env_file: str = ""
+    rpc: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -164,7 +199,51 @@ def _validate_playbook(data: dict[str, Any]) -> PlaybookConfig:
 
     description = str(data.get("description", ""))
 
-    return PlaybookConfig(version=version, on_error=on_error, steps=steps, vars=playbook_vars, description=description)
+    targets = _validate_targets(data.get("targets", {}))
+
+    env_file = str(data.get("env_file", "") or "")
+
+    rpc_data = data.get("rpc", {})
+    if not isinstance(rpc_data, dict):
+        raise PlaybookValidationError(f"Playbook: 'rpc' must be a mapping, got {type(rpc_data).__name__}")
+
+    return PlaybookConfig(
+        version=version,
+        on_error=on_error,
+        steps=steps,
+        vars=playbook_vars,
+        description=description,
+        targets=targets,
+        env_file=env_file,
+        rpc=rpc_data,
+    )
+
+
+def _validate_targets(targets_data: Any) -> dict[str, TargetConfig]:
+    """Validate and parse the optional top-level ``targets:`` section."""
+    if not targets_data:
+        return {}
+    if not isinstance(targets_data, dict):
+        raise PlaybookValidationError(f"Playbook: 'targets' must be a mapping, got {type(targets_data).__name__}")
+
+    targets: dict[str, TargetConfig] = {}
+    for name, raw in targets_data.items():
+        if not isinstance(raw, dict):
+            raise PlaybookValidationError(f"Target '{name}': must be a mapping, got {type(raw).__name__}")
+        db_container = str(raw.get("db_container", "") or "")
+        db_name = str(raw.get("db_name", "") or "")
+        if not db_container:
+            raise PlaybookValidationError(f"Target '{name}': missing required field 'db_container'")
+        if not db_name:
+            raise PlaybookValidationError(f"Target '{name}': missing required field 'db_name'")
+        targets[str(name)] = TargetConfig(
+            db_container=db_container,
+            db_name=db_name,
+            odoo_container=str(raw.get("odoo_container", "") or ""),
+            owner=str(raw.get("owner", "") or "ownerp"),
+            data_dir=str(raw.get("data_dir", "") or ""),
+        )
+    return targets
 
 
 # --- Loading ---
@@ -232,39 +311,118 @@ def build_playbook_from_steps(steps: list[str], version: str, on_error: str = "s
 # --- Variable templating ---
 
 
-def build_template_context(playbook_vars: dict[str, str], cli_vars: dict[str, str] | None = None) -> dict[str, Any]:
+def build_template_context(
+    playbook_vars: dict[str, str],
+    cli_vars: dict[str, str] | None = None,
+    env_file_vars: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Build the Jinja2 context for step-arg rendering.
 
     Available in templates: ``{{ vars.x }}`` (playbook ``vars:`` block, CLI
-    ``--var`` overrides win), ``{{ env.X }}`` (process environment) and
-    ``{{ date }}`` (today, ISO 8601).
+    ``--var`` overrides win), ``{{ env.X }}`` (process environment, overlaid
+    with the playbook's ``env_file`` values — the file wins) and ``{{ date }}``
+    (today, ISO 8601).
     """
     import os
     from datetime import date
 
     merged = {**playbook_vars, **(cli_vars or {})}
-    return {"vars": merged, "env": dict(os.environ), "date": date.today().isoformat()}
+    env = {**os.environ, **(env_file_vars or {})}
+    return {"vars": merged, "env": env, "date": date.today().isoformat()}
+
+
+def load_env_file(path: str) -> dict[str, str]:
+    """Load a ``.env`` file for the playbook Jinja context (secrets stay out of YAML).
+
+    Raises:
+        PlaybookValidationError: If the file does not exist (a declared secrets
+        file that is silently missing would produce empty credentials downstream).
+    """
+    import os
+
+    expanded = os.path.expanduser(path)
+    if not os.path.isfile(expanded):
+        raise PlaybookValidationError(f"env_file not found: {path}")
+
+    from dotenv import dotenv_values
+
+    return {k: v for k, v in dotenv_values(expanded).items() if v is not None}
+
+
+def _render_value(value: Any, jenv: Any, context: dict[str, Any], key: str) -> Any:
+    """Recursively render Jinja2 templates in strings inside nested dicts/lists."""
+    from jinja2 import TemplateError
+
+    if isinstance(value, str):
+        try:
+            return jenv.from_string(value).render(context)
+        except TemplateError as exc:
+            raise PlaybookValidationError(f"Template error in arg '{key}': {exc}") from exc
+    if isinstance(value, dict):
+        return {k: _render_value(v, jenv, context, f"{key}.{k}") for k, v in value.items()}
+    if isinstance(value, list):
+        return [_render_value(v, jenv, context, f"{key}[{i}]") for i, v in enumerate(value)]
+    return value
 
 
 def render_step_args(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
-    """Render Jinja2 templates in string step-arg values (sandboxed).
+    """Render Jinja2 templates in step-arg values (sandboxed), recursively.
 
-    Non-string values (bools, ints) pass through unchanged. Raises
-    PlaybookValidationError on template syntax errors.
+    Strings are rendered wherever they appear — including inside nested mappings
+    (``backup_source:``) and lists (``statements:``). Other value types (bools,
+    ints) pass through unchanged. Raises PlaybookValidationError on template
+    syntax errors.
     """
-    from jinja2 import TemplateError
     from jinja2.sandbox import SandboxedEnvironment
 
     jenv = SandboxedEnvironment()
-    rendered: dict[str, Any] = {}
-    for key, value in args.items():
-        if isinstance(value, str):
-            try:
-                rendered[key] = jenv.from_string(value).render(context)
-            except TemplateError as exc:
-                raise PlaybookValidationError(f"Template error in arg '{key}': {exc}") from exc
-        else:
-            rendered[key] = value
+    return {key: _render_value(value, jenv, context, key) for key, value in args.items()}
+
+
+def _inject_target_context(step_args: dict[str, Any], targets: dict[str, TargetConfig]) -> dict[str, Any]:
+    """Resolve a step's ``target`` reference into flat args before dispatch.
+
+    No-op when the step has no ``target`` key. Explicit step args always win
+    over target-derived values.
+
+    Raises:
+        PlaybookValidationError: If the referenced target is not defined.
+    """
+    target_name = step_args.get("target")
+    if not isinstance(target_name, str) or not target_name:
+        return step_args
+
+    target = targets.get(target_name)
+    if target is None:
+        known = ", ".join(sorted(targets)) or "none defined"
+        raise PlaybookValidationError(f"Unknown target '{target_name}'. Defined targets: {known}")
+
+    derived = {
+        "db_container": target.db_container,
+        "db_name": target.db_name,
+        "odoo_container": target.odoo_container,
+        "owner": target.owner,
+        "data_dir": target.data_dir,
+    }
+    return {**derived, **step_args}
+
+
+def _resolve_rpc_config(rpc: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    """Render the playbook ``rpc:`` section and fill gaps from environment conventions.
+
+    Fields absent from the section fall back to the odoo-rollout style variables
+    (``ODOO_URL``/``ODOO_PORT``/``ODOO_USER``/``ODOO_PASSWORD``/``ODOO_DATABASE``/
+    ``ODOO_PROTOCOL``) in the merged environment (process env + ``env_file``).
+    """
+    from jinja2.sandbox import SandboxedEnvironment
+
+    jenv = SandboxedEnvironment()
+    rendered = {key: _render_value(value, jenv, context, f"rpc.{key}") for key, value in rpc.items()}
+
+    env = context.get("env", {})
+    for field_name, env_var in _RPC_ENV_FALLBACKS.items():
+        if not rendered.get(field_name) and env.get(env_var):
+            rendered[field_name] = env[env_var]
     return rendered
 
 
@@ -277,8 +435,9 @@ class PlaybookRunner:
     def __init__(self) -> None:
         # Lazy import to avoid circular dependencies
         from odoodev.core.automation import COMMAND_HANDLERS
+        from odoodev.core.server_automation import SERVER_COMMAND_HANDLERS
 
-        self._handlers = COMMAND_HANDLERS
+        self._handlers = {**COMMAND_HANDLERS, **SERVER_COMMAND_HANDLERS}
 
     def execute(
         self,
@@ -304,7 +463,11 @@ class PlaybookRunner:
 
         version = version_override or playbook.version
         version_cfg = get_version(version)
-        context = build_template_context(playbook.vars, cli_vars)
+        # Dry-run stays previewable on machines without the server's secrets file;
+        # unresolved {{ env.X }} references simply render empty there.
+        env_file_vars = load_env_file(playbook.env_file) if playbook.env_file and not dry_run else {}
+        context = build_template_context(playbook.vars, cli_vars, env_file_vars)
+        rpc_config = _resolve_rpc_config(playbook.rpc, context)
 
         results: list[StepResult] = []
         start_time = time.monotonic()
@@ -326,6 +489,9 @@ class PlaybookRunner:
 
             try:
                 step_args = render_step_args(step.args, context)
+                step_args = _inject_target_context(step_args, playbook.targets)
+                if step.command == "rpc.execute" and "_rpc_config" not in step_args:
+                    step_args["_rpc_config"] = rpc_config
             except PlaybookValidationError as exc:
                 results.append(
                     StepResult(

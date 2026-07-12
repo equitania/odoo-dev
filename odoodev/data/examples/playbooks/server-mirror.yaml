@@ -1,0 +1,99 @@
+# Live -> Test database mirror on a customer server (server-mode playbook).
+#
+# Scenario: the server runs 4 Docker containers — live-odoo/live-db and
+# test-odoo/test-db. The DB containers publish no ports; odoodev reaches them
+# via `docker exec`. Run as root on the server: odoodev run server-mirror.yaml
+#
+# Secrets (RPC credentials, customer-specific values) live in the env_file
+# (chmod 600), NEVER in this YAML. Referenced as {{ env.NAME }}.
+version: "18"
+on_error: stop
+description: "Mirror the live database to the test system with sanitize + custom SQL"
+
+env_file: /root/.config/odoodev/mirror.env
+
+targets:
+  live:
+    db_container: live-db
+    odoo_container: live-odoo
+    db_name: production
+    # data_dir omitted -> resolved via `docker inspect` mounts at runtime
+  test:
+    db_container: test-db
+    odoo_container: test-odoo
+    db_name: production
+    data_dir: /opt/odoo/test
+
+# Connection for rpc.execute steps. Missing fields fall back to ODOO_URL,
+# ODOO_PORT, ODOO_USER, ODOO_PASSWORD, ODOO_DATABASE in the env_file.
+rpc:
+  host: "{{ env.ODOO_URL }}"
+  db: production
+
+vars:
+  customer: acme
+
+steps:
+  # Optional — skip this step to mirror from the newest nightly backup instead.
+  - name: "Create fresh live backup"
+    command: server.backup
+    args:
+      target: live
+      backup_dir: /opt/backups/docker
+      compression_level: 5
+
+  - name: "Stop test-odoo"
+    command: container.stop
+    args: { target: test, component: odoo }
+
+  - name: "Restore newest live backup into test"
+    command: server.restore
+    args:
+      target: test
+      backup_source:
+        mode: newest_in_dir
+        dir: /opt/backups/docker
+        pattern: "production_live-*_dockerbackup_*.tar.zst"
+        select_by: mtime          # or: filename_timestamp
+      drop: true
+      template: template0
+      # psql-based sanitize steps (same core functions as `odoodev db restore`):
+      deactivate_cron: true       # ir_cron off, mail/fetchmail servers off
+      neutralize: true            # bank-sync cleanup (odoo-bin neutralize -> own step below)
+      anonymize: false            # GDPR anonymization (Faker)
+      wipe: false                 # mail bodies / attachment index wipe
+
+  - name: "Customer-specific SQL (before the server starts)"
+    command: sql.execute
+    args:
+      target: test
+      statements:
+        - "UPDATE ir_config_parameter SET value = '{{ env.PARTNER_ENTERPRISE_CODE }}' WHERE key = 'database.enterprise_code';"
+        - "UPDATE ir_config_parameter SET value = '' WHERE key IN ('eq_cloud_base.eq_cloud_password','eq_cloud_base.eq_cloud_url','eq_cloud_base.eq_cloud_username','eq_cloud_base.eq_is_cloud_connector_enabled');"
+        - "UPDATE res_users SET eq_client_id = NULL, eq_tenant_id = NULL, eq_client_secret = NULL, eq_access_allowed = FALSE;"
+        - "UPDATE website SET domain = 'https://{{ vars.customer }}-test.ownerp.app';"
+    on_error: continue
+
+  - name: "Start test-odoo"
+    command: container.start
+    args: { target: test, component: odoo }
+
+  # odoo-bin steps need the RUNNING container (docker exec) — always after container.start.
+  - name: "Neutralize (odoo-bin neutralize in the container)"
+    command: server.neutralize
+    args: { target: test }
+
+  - name: "Update all modules"
+    command: server.update-all
+    args:
+      target: test
+      # defaults: /opt/odoo/odoo-server/odoo-bin + /opt/odoo/etc/odoo.conf
+      restart: true               # restart test-odoo afterwards (fresh registry)
+    on_error: continue
+
+  - name: "Post-restore RPC configuration"
+    command: rpc.execute
+    args:
+      model: ir.config_parameter
+      method: set_param
+      args: ["mail.catchall.domain", "{{ vars.customer }}-test.ownerp.app"]
