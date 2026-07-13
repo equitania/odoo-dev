@@ -276,6 +276,45 @@ class TestRunList:
         assert "version" in result.output
 
 
+class TestListSteps:
+    def test_steps_table(self):
+        result = CliRunner().invoke(cli, ["run", "--steps"])
+        assert result.exit_code == 0
+        assert "docker.up" in result.output
+        assert "server.backup" in result.output
+
+    def test_steps_json(self):
+        from odoodev.core.playbook import SERVER_COMMANDS, VALID_COMMANDS
+
+        result = CliRunner().invoke(cli, ["run", "--steps", "--output", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert len(data) == len(VALID_COMMANDS)
+        by_command = {entry["command"]: entry["mode"] for entry in data}
+        for cmd in SERVER_COMMANDS:
+            assert by_command[cmd] == "server"
+        for cmd in VALID_COMMANDS - SERVER_COMMANDS:
+            assert by_command[cmd] == "dev"
+
+
+class TestOnStepWiring:
+    def test_run_passes_on_step_callback(self, tmp_path, monkeypatch):
+        pb = tmp_path / "pb.yaml"
+        pb.write_text("version: '18'\nsteps:\n  - command: pull\n")
+        monkeypatch.setattr("odoodev.core.version_registry.get_version", lambda v: object())
+
+        from odoodev.core.playbook import PlaybookResult, PlaybookRunner
+
+        with patch.object(PlaybookRunner, "execute") as mock_execute:
+            mock_execute.return_value = PlaybookResult(
+                playbook=str(pb), version="18", status="ok", steps=(), total_duration_ms=0
+            )
+            result = CliRunner().invoke(cli, ["run", str(pb), "--dry-run"])
+
+        assert result.exit_code == 0
+        assert callable(mock_execute.call_args.kwargs["on_step"])
+
+
 class TestRunVarOption:
     def test_var_overrides_playbook_var(self, tmp_path, monkeypatch):
         pb = tmp_path / "pb.yaml"

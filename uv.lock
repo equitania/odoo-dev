@@ -755,7 +755,7 @@ wheels = [
 
 [[package]]
 name = "odoodev-equitania"
-version = "0.34.0"
+version = "0.51.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -781,6 +781,9 @@ dev = [
     { name = "types-click" },
     { name = "types-pyyaml" },
 ]
+rpc = [
+    { name = "odoorpc-toolbox" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -789,6 +792,7 @@ requires-dist = [
     { name = "faker", specifier = ">=20.0.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
+    { name = "odoorpc-toolbox", marker = "extra == 'rpc'", specifier = ">=0.8.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
@@ -803,7 +807,19 @@ requires-dist = [
     { name = "types-click", marker = "extra == 'dev'", specifier = ">=7.1.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["rpc", "dev"]
+
+[[package]]
+name = "odoorpc-toolbox"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/63/fa/424397e24f670ed2e63a7dd77ad736800f2c6d831e756e11fc0bb31fbb1e/odoorpc_toolbox-0.8.2.tar.gz", hash = "sha256:006a3256b44a3513e559a38b92aca4b83d6910a453325ffb727c73b09052e7af", size = 91582, upload-time = "2026-06-10T13:58:37.499Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/63/8194479bda45e404c12ae7b92ad4140c0846d5f88db451c82ea6a387c504/odoorpc_toolbox-0.8.2-py3-none-any.whl", hash = "sha256:262b7ba50d4fca5dc0e3a1d0f5cd2a95c8eae0d4ef8dadbafba7f8180ade9679", size = 71508, upload-time = "2026-06-10T13:58:38.918Z" },
+]
 
 [[package]]
 name = "packaging"

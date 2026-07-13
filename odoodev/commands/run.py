@@ -40,6 +40,8 @@ def _print_step_result_text(result: StepResult) -> None:
         console.print(f"  [red][ERROR][/red] {result.name}: {result.message} {duration}")
     elif result.status == "skipped":
         console.print(f"  [dim][SKIP][/dim] {result.name}: {result.message}")
+    # Steps stream live while the playbook runs; flush so piped output keeps up.
+    console.file.flush()
 
 
 def _print_step_result_json(result: StepResult) -> None:
@@ -157,6 +159,26 @@ def _list_playbooks(ctx: click.Context, version_override: str | None, is_json: b
     console.print(table)
 
 
+def _list_steps(is_json: bool) -> None:
+    """Print all valid step commands, annotated with dev/server mode."""
+    from odoodev.core.playbook import SERVER_COMMANDS, VALID_COMMANDS
+
+    steps = [{"command": cmd, "mode": "server" if cmd in SERVER_COMMANDS else "dev"} for cmd in sorted(VALID_COMMANDS)]
+
+    if is_json:
+        sys.stdout.write(json.dumps(steps) + "\n")
+        return
+
+    from rich.table import Table
+
+    table = Table(title="Valid Playbook Steps")
+    table.add_column("Command", style="bold")
+    table.add_column("Mode")
+    for s in steps:
+        table.add_row(s["command"], s["mode"])
+    console.print(table)
+
+
 def _parse_cli_vars(var_options: tuple[str, ...]) -> dict[str, str]:
     """Parse repeated --var KEY=VALUE options into a dict."""
     cli_vars: dict[str, str] = {}
@@ -177,6 +199,7 @@ def _parse_cli_vars(var_options: tuple[str, ...]) -> dict[str, str]:
 )
 @click.option("--dry-run", is_flag=True, help="Show steps without executing")
 @click.option("--list", "list_playbooks", is_flag=True, help="List discoverable playbooks and exit")
+@click.option("--steps", "list_steps", is_flag=True, help="List valid step commands and exit")
 @click.option("--var", "-D", "var_options", multiple=True, metavar="KEY=VALUE", help="Set/override a playbook variable")
 @click.pass_context
 def run(
@@ -187,6 +210,7 @@ def run(
     output_format: str,
     dry_run: bool,
     list_playbooks: bool,
+    list_steps: bool,
     var_options: tuple[str, ...],
 ) -> None:
     """Execute a playbook or inline steps for automated Odoo development.
@@ -203,9 +227,14 @@ def run(
     with: odoodev run playbook.yaml -D name=other_db
 
     Use --list to discover playbooks in ./playbooks/ and <native_dir>/scripts/playbooks/.
+    Use --steps to list all valid step commands (annotated dev/server mode).
     Use --output json for machine-readable NDJSON output (one JSON line per event).
     Use --dry-run to preview steps without executing them.
     """
+    if list_steps:
+        _list_steps(output_format == "json")
+        return
+
     if list_playbooks:
         _list_playbooks(ctx, version_override, output_format == "json")
         return
@@ -264,20 +293,17 @@ def run(
         if is_json:
             _emit_json("playbook_start", playbook=playbook_name, version=version_final, dry_run=dry_run)
 
+        # Emit each step result live as it completes (NDJSON line / Rich line)
+        on_step = _print_step_result_json if is_json else _print_step_result_text
+
         result = runner.execute(
             pb_config,
             version_override=version_override,
             dry_run=dry_run,
             playbook_name=playbook_name,
             cli_vars=_parse_cli_vars(var_options),
+            on_step=on_step,
         )
-
-        # Output results
-        for step_result in result.steps:
-            if is_json:
-                _print_step_result_json(step_result)
-            else:
-                _print_step_result_text(step_result)
 
         if is_json:
             _print_playbook_result_json(result)

@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.51.0 (13.07.2026)
+
+### Fixed
+- **Live per-step playbook output.** `odoodev run` previously executed the entire
+  playbook before printing any step result — GUIs and pipes consuming
+  `--output json` saw all `step_done` NDJSON lines only after the run finished.
+  `PlaybookRunner.execute()` now accepts an `on_step` callback and the CLI emits
+  each step result (NDJSON line or Rich text line) immediately when the step
+  completes, so long-running server playbooks (`server.backup`/`server.restore`)
+  show real-time progress. Output content and ordering are unchanged.
+
+### Added
+- **`odoodev run --steps [--output json]`** — machine-readable capability listing
+  of all valid playbook step commands, annotated with `mode: dev|server`. Lets
+  GUIs and agents discover the step surface instead of hardcoding it. New
+  `SERVER_COMMANDS` export in `odoodev.core.playbook` classifies the 8
+  server-mode steps.
+
 ## Version 0.50.0 (12.07.2026)
 
 ### Added

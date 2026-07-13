@@ -108,6 +108,12 @@ class TestValidCommands:
         assert "venv.check" in VALID_COMMANDS
         assert "venv.setup" in VALID_COMMANDS
 
+    def test_server_commands_subset_of_valid(self):
+        from odoodev.core.playbook import SERVER_COMMANDS
+
+        assert SERVER_COMMANDS <= VALID_COMMANDS
+        assert len(SERVER_COMMANDS) == 8
+
 
 # =============================================================================
 # load_playbook tests
@@ -453,6 +459,93 @@ class TestPlaybookRunner:
 
         mock_gv.assert_called_with("19")
         assert result.version == "19"
+
+
+class TestExecuteOnStep:
+    """The on_step callback streams each StepResult as soon as it is final."""
+
+    @patch("odoodev.core.playbook.PlaybookRunner.__init__", return_value=None)
+    def _make_runner(self, mock_init, handlers=None):
+        runner = PlaybookRunner.__new__(PlaybookRunner)
+        runner._handlers = handlers or {}
+        return runner
+
+    def _ok_handler(self, name):
+        return MagicMock(
+            return_value=StepResult(name=name, command=name, status="ok", message="done", exit_code=0, duration_ms=10)
+        )
+
+    def test_on_step_called_per_step_in_order(self):
+        runner = self._make_runner(handlers={"pull": self._ok_handler("pull"), "repos": self._ok_handler("repos")})
+        pb = PlaybookConfig(
+            version="18",
+            on_error="stop",
+            steps=(
+                StepConfig(name="pull", command="pull"),
+                StepConfig(name="repos", command="repos"),
+            ),
+        )
+        collected: list[StepResult] = []
+
+        with patch("odoodev.core.version_registry.get_version") as mock_gv:
+            mock_gv.return_value = MagicMock()
+            result = runner.execute(pb, playbook_name="test", on_step=collected.append)
+
+        assert collected == list(result.steps)
+        assert [s.name for s in collected] == ["pull", "repos"]
+
+    def test_on_step_called_for_dry_run_steps(self):
+        runner = self._make_runner()
+        pb = PlaybookConfig(
+            version="18",
+            on_error="stop",
+            steps=(StepConfig(name="s1", command="docker.up"),),
+        )
+        collected: list[StepResult] = []
+
+        with patch("odoodev.core.version_registry.get_version") as mock_gv:
+            mock_gv.return_value = MagicMock()
+            runner.execute(pb, dry_run=True, playbook_name="test", on_step=collected.append)
+
+        assert len(collected) == 1
+        assert "[dry-run]" in collected[0].message
+
+    def test_on_step_called_for_skipped_steps(self):
+        error_handler = MagicMock(
+            return_value=StepResult(
+                name="pull", command="pull", status="error", message="fail", exit_code=1, duration_ms=5
+            )
+        )
+        runner = self._make_runner(handlers={"pull": error_handler})
+        pb = PlaybookConfig(
+            version="18",
+            on_error="stop",
+            steps=(
+                StepConfig(name="pull", command="pull"),
+                StepConfig(name="repos", command="repos"),
+            ),
+        )
+        collected: list[StepResult] = []
+
+        with patch("odoodev.core.version_registry.get_version") as mock_gv:
+            mock_gv.return_value = MagicMock()
+            runner.execute(pb, playbook_name="test", on_step=collected.append)
+
+        assert [s.status for s in collected] == ["error", "skipped"]
+
+    def test_on_step_none_is_safe(self):
+        runner = self._make_runner(handlers={"pull": self._ok_handler("pull")})
+        pb = PlaybookConfig(
+            version="18",
+            on_error="stop",
+            steps=(StepConfig(name="pull", command="pull"),),
+        )
+
+        with patch("odoodev.core.version_registry.get_version") as mock_gv:
+            mock_gv.return_value = MagicMock()
+            result = runner.execute(pb, playbook_name="test")
+
+        assert result.status == "ok"
 
 
 class TestPlaybookVars:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,21 @@ VALID_COMMANDS = frozenset(
         "venv.check",
         "venv.setup",
         # Server-mode steps (customer servers: Docker containers only, no dev layout)
+        "container.stop",
+        "container.start",
+        "server.backup",
+        "server.restore",
+        "server.neutralize",
+        "server.update-all",
+        "sql.execute",
+        "rpc.execute",
+    }
+)
+
+# Subset of VALID_COMMANDS that only makes sense on customer servers (requires a
+# ``targets:`` block); used for capability listing, never for validation.
+SERVER_COMMANDS = frozenset(
+    {
         "container.stop",
         "container.start",
         "server.backup",
@@ -446,6 +462,7 @@ class PlaybookRunner:
         dry_run: bool = False,
         playbook_name: str = "<inline>",
         cli_vars: dict[str, str] | None = None,
+        on_step: Callable[[StepResult], None] | None = None,
     ) -> PlaybookResult:
         """Execute all steps in a playbook.
 
@@ -455,6 +472,8 @@ class PlaybookRunner:
             dry_run: If True, show steps without executing.
             playbook_name: Name for result reporting.
             cli_vars: ``--var`` overrides for the playbook ``vars:`` block.
+            on_step: Called with each StepResult as soon as the step finishes,
+                enabling live progress output while the playbook is running.
 
         Returns:
             PlaybookResult with all step results.
@@ -473,9 +492,14 @@ class PlaybookRunner:
         start_time = time.monotonic()
         aborted = False
 
+        def record(result: StepResult) -> None:
+            results.append(result)
+            if on_step is not None:
+                on_step(result)
+
         for step in playbook.steps:
             if aborted:
-                results.append(
+                record(
                     StepResult(
                         name=step.name,
                         command=step.command,
@@ -493,7 +517,7 @@ class PlaybookRunner:
                 if step.command == "rpc.execute" and "_rpc_config" not in step_args:
                     step_args["_rpc_config"] = rpc_config
             except PlaybookValidationError as exc:
-                results.append(
+                record(
                     StepResult(
                         name=step.name,
                         command=step.command,
@@ -509,7 +533,7 @@ class PlaybookRunner:
 
             if dry_run:
                 args_str = f" ({step_args})" if step_args else ""
-                results.append(
+                record(
                     StepResult(
                         name=step.name,
                         command=step.command,
@@ -546,7 +570,7 @@ class PlaybookRunner:
                         duration_ms=duration_ms,
                     )
 
-            results.append(result)
+            record(result)
 
             # Check on_error policy
             if result.status == "error":
