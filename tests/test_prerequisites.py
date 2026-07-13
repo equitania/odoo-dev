@@ -308,6 +308,27 @@ class TestRunAllChecks:
         assert "docker" not in results
         assert "docker_compose" not in results
 
+    @patch("odoodev.core.prerequisites.check_zstd", return_value="/usr/bin/zstd")
+    @patch("odoodev.core.prerequisites.check_7zip", return_value="/usr/bin/7zz")
+    @patch("odoodev.core.prerequisites.check_system_libs", return_value=[])
+    @patch("odoodev.core.prerequisites.check_node_packages", return_value=[])
+    @patch("odoodev.core.prerequisites.check_node", return_value="/usr/bin/node")
+    @patch("odoodev.core.prerequisites.check_postgres_port", return_value=True)
+    @patch("odoodev.core.prerequisites.check_pg_tools", return_value="/usr/bin/pg_dump")
+    @patch("odoodev.core.prerequisites.check_wkhtmltopdf", return_value="/usr/bin/wkhtmltopdf")
+    @patch("odoodev.core.prerequisites.check_docker_compose", return_value=True)
+    @patch("odoodev.core.prerequisites.check_docker", return_value=True)
+    @patch("odoodev.core.prerequisites.check_uv", return_value=True)
+    @patch(
+        "odoodev.core.global_config.load_global_config",
+        return_value=SimpleNamespace(container_runtime="docker"),
+    )
+    def test_port_zero_skips_postgres_check(self, _cfg, _uv, _docker, _compose, _wk, _pg, mock_port, *_mocks):
+        """General doctor run (no version → port 0) must not probe PostgreSQL."""
+        results = run_all_checks(db_port=0)
+        assert "postgres" not in results
+        mock_port.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # check_wkhtmltopdf

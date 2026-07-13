@@ -129,8 +129,9 @@ def doctor(ctx: click.Context, version: str | None) -> None:
         venv_dir = os.path.join(version_cfg.paths.native_dir, ".venv")
         results = run_all_checks(version_cfg.ports.db, venv_dir)
     else:
+        # db_port=0 skips the postgres check inside run_all_checks entirely
+        # (no bogus "not accessible on localhost:0" detail line either).
         results = run_all_checks(db_port=0)
-        results.pop("postgres", None)
 
     pypi_row = _pypi_status_row(*_check_pypi_freshness())
 

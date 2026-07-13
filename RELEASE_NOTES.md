@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.51.1 (13.07.2026)
+
+### Fixed
+- **`odoodev doctor` (version-less run) no longer prints a bogus
+  "PostgreSQL not accessible on localhost:0" warning.** Without a version
+  there is no PostgreSQL port to probe; the check was already excluded from
+  the summary table but its detail line still leaked — `run_all_checks`
+  now skips the probe entirely when no port is given.
+
 ## Version 0.51.0 (13.07.2026)
 
 ### Fixed

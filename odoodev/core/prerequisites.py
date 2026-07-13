@@ -661,7 +661,10 @@ def run_all_checks(db_port: int, venv_dir: str | None = None) -> dict[str, bool]
         results["docker_compose"] = check_docker_compose()
     results["wkhtmltopdf"] = check_wkhtmltopdf() is not None
     results["pg_tools"] = check_pg_tools() is not None
-    results["postgres"] = check_postgres_port(db_port)
+    # Port 0 means "no version context" (general doctor run) — checking a
+    # meaningless port would print a bogus "not accessible on localhost:0".
+    if db_port > 0:
+        results["postgres"] = check_postgres_port(db_port)
 
     results["node"] = check_node() is not None
     results["node_packages"] = len(check_node_packages()) == 0
