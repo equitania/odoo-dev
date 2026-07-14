@@ -135,7 +135,7 @@ class TestSchemaCommand:
         result = runner.invoke(cli, ["playbook", "schema", "--json"])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output.strip())
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert "sections" in payload and "step_args" in payload
 
     def test_json_resolves_version_choices(self, runner):

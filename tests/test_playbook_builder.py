@@ -291,8 +291,34 @@ class TestValidateAnswers:
 
     def test_schema_version_mismatch(self):
         answers = server_answers()
-        answers["schema_version"] = 2
+        answers["schema_version"] = 99
         assert any("schema_version" in p for p in validate_answers(answers))
+
+    def test_schema_version_1_still_accepted(self):
+        # v1 answers files (0.54.0) stay valid — the answers format is unchanged.
+        answers = server_answers()
+        answers["schema_version"] = 1
+        assert validate_answers(answers) == []
+
+    def test_self_mirror_is_rejected(self):
+        # v0.54.0 failure mode: backup source == restore destination.
+        answers = server_answers()
+        answers["recipe"]["backup"]["target"] = "test"
+        assert any("same target" in p for p in validate_answers(answers))
+
+    def test_self_mirror_via_destination_key(self):
+        answers = server_answers()
+        answers["recipe"]["destination"] = "live"
+        answers["recipe"]["restore"].pop("target", None)
+        assert any("same target" in p for p in validate_answers(answers))
+
+    def test_backup_without_restore_is_fine(self):
+        # Pure backup playbook (no restore) may keep any target.
+        answers = server_answers()
+        answers["recipe"]["restore"]["enabled"] = False
+        answers["recipe"]["backup"]["target"] = "test"
+        answers["recipe"]["destination"] = "test"
+        assert validate_answers(answers) == []
 
     def test_server_requires_targets(self):
         answers = server_answers()

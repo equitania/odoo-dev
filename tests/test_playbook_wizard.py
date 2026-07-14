@@ -69,50 +69,45 @@ def _run_create(tmp_path, monkeypatch) -> object:
 
 
 def _server_script(tmp_path) -> PromptScript:
+    """Happy path: source = fresh backup from live pair, destination = test pair."""
     return PromptScript(
         select=[
             "server",  # playbook type
             "18",  # version
             "stop",  # on_error
-            "test",  # mirror destination
-            "live",  # backup source target
+            "fresh_backup",  # SOURCE question
             "test",  # rebuild target
-            "test",  # restore target
-            "newest_in_dir",  # backup source mode
-            "mtime",  # select_by
             "continue",  # update-all on_error
         ],
         text=[
             "live test mirror",  # name
             DEFAULT,  # description
-            DEFAULT,  # target 1 name -> live
+            DEFAULT,  # source target name -> live
             DEFAULT,  # live db_container -> live-db
             "production",  # live db_name
             DEFAULT,  # live odoo_container -> live-odoo
             DEFAULT,  # live owner -> ownerp
             DEFAULT,  # live data_dir -> ""
-            DEFAULT,  # target 2 name -> test
+            DEFAULT,  # backup_dir -> /opt/backups/docker
+            DEFAULT,  # compression level -> 5
+            DEFAULT,  # destination target name -> test
             DEFAULT,  # test db_container -> test-db
             "production",  # test db_name
             DEFAULT,  # test odoo_container -> test-odoo
             DEFAULT,  # test owner
             "/opt/odoo/test",  # test data_dir
-            DEFAULT,  # compression level -> 5
+            DEFAULT,  # rebuild script_path -> ~/update_docker_odoo.py
+            DEFAULT,  # rebuild config -> ~/docker2update.yaml
             DEFAULT,  # rebuild timeout -> 7200
-            DEFAULT,  # restore pattern
             DEFAULT,  # restore template -> template0
         ],
         path=[
-            DEFAULT,  # backup_dir -> /opt/backups/docker
-            DEFAULT,  # rebuild script_path
-            DEFAULT,  # rebuild config
-            DEFAULT,  # restore source dir
             str(tmp_path / "playbooks" / "mirror.yaml"),  # output path
         ],
         confirm=[
-            True,  # add another target? (after live)
-            False,  # add another target? (after test)
             False,  # only_sql
+            False,  # adjust derived pattern?
+            False,  # add another target?
             True,  # drop
             False,  # purge_master_data
             True,  # update-all restart
@@ -123,15 +118,7 @@ def _server_script(tmp_path) -> PromptScript:
             True,  # write playbook (summary confirm)
         ],
         checkbox=[
-            [
-                "backup",
-                "rebuild",
-                "stop_before_restore",
-                "restore",
-                "start_after_restore",
-                "neutralize",
-                "update_all",
-            ],  # recipe
+            ["rebuild", "stop_before_restore", "start_after_restore", "neutralize", "update_all"],  # recipe
             ["deactivate_cron", "neutralize"],  # sanitize flags
         ],
     )
@@ -161,6 +148,154 @@ class TestServerWizard:
             "server.neutralize",
             "server.update-all",
         ]
+
+    def test_fresh_backup_derives_restore_pattern(self, tmp_path, monkeypatch, install_script):
+        install_script(_server_script(tmp_path))
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+
+        data = yaml.safe_load((tmp_path / "playbooks" / "mirror.yaml").read_text().split("\n", 1)[1])
+        backup = next(s for s in data["steps"] if s["command"] == "server.backup")
+        assert backup["args"]["target"] == "live"
+        restore = next(s for s in data["steps"] if s["command"] == "server.restore")
+        assert restore["args"]["target"] == "test"
+        assert restore["args"]["backup_source"] == {
+            "mode": "newest_in_dir",
+            "dir": "/opt/backups/docker",
+            "pattern": "production_live-odoo_dockerbackup_*.tar.zst",
+            "select_by": "mtime",
+        }
+
+    def test_rebuild_server_paths_stay_unexpanded(self, tmp_path, monkeypatch, install_script):
+        # Defaults (answered via DEFAULT) must be omitted; a custom ~ path must stay literal.
+        prompts = _server_script(tmp_path)
+        prompts.queues["text"][16] = "~/custom/update.py"  # rebuild script_path
+        install_script(prompts)
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+
+        raw = (tmp_path / "playbooks" / "mirror.yaml").read_text()
+        assert "~/custom/update.py" in raw  # literal, NOT locally expanded
+        data = yaml.safe_load(raw.split("\n", 1)[1])
+        rebuild = next(s for s in data["steps"] if s["command"] == "server.rebuild")
+        assert rebuild["args"] == {"target": "test", "script_path": "~/custom/update.py"}  # config default omitted
+
+    def test_source_existing_file_skips_backup_step(self, tmp_path, monkeypatch, install_script):
+        script = install_script(
+            PromptScript(
+                select=[
+                    "server",  # playbook type
+                    "18",  # version
+                    "stop",  # on_error
+                    "existing_file",  # SOURCE question
+                    "continue",  # update-all on_error
+                ],
+                text=[
+                    "restore from file",  # name
+                    DEFAULT,  # description
+                    "~/backups/fixed.tar.zst",  # source backup file (server path, stays literal)
+                    DEFAULT,  # destination name -> test
+                    DEFAULT,  # test db_container
+                    "production",  # test db_name
+                    DEFAULT,  # test odoo_container
+                    DEFAULT,  # owner
+                    DEFAULT,  # data_dir
+                    DEFAULT,  # restore template
+                ],
+                path=[str(tmp_path / "playbooks" / "from-file.yaml")],
+                confirm=[
+                    False,  # add another target?
+                    True,  # drop
+                    False,  # purge_master_data
+                    True,  # update-all restart
+                    False,  # add custom step
+                    False,  # configure rpc block
+                    False,  # add custom var
+                    False,  # generate secrets file
+                    True,  # write playbook
+                ],
+                checkbox=[
+                    ["stop_before_restore", "start_after_restore", "neutralize", "update_all"],
+                    ["deactivate_cron", "neutralize"],
+                ],
+            )
+        )
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        script.assert_drained()
+
+        raw = (tmp_path / "playbooks" / "from-file.yaml").read_text()
+        assert "~/backups/fixed.tar.zst" in raw  # not locally expanded
+        data = yaml.safe_load(raw.split("\n", 1)[1])
+        commands = [s["command"] for s in data["steps"]]
+        assert "server.backup" not in commands
+        restore = next(s for s in data["steps"] if s["command"] == "server.restore")
+        assert restore["args"]["backup_source"] == {"mode": "file", "path": "~/backups/fixed.tar.zst"}
+
+    def test_self_mirror_guard_reasks_destination(self, tmp_path, monkeypatch, install_script):
+        script = install_script(
+            PromptScript(
+                select=[
+                    "server",
+                    "18",
+                    "stop",
+                    "fresh_backup",
+                    "continue",  # update-all on_error
+                ],
+                text=[
+                    "guarded mirror",  # name
+                    DEFAULT,  # description
+                    DEFAULT,  # source name -> live
+                    DEFAULT,  # live db_container -> live-db
+                    "production",  # live db_name
+                    DEFAULT,  # live odoo_container
+                    DEFAULT,  # owner
+                    DEFAULT,  # data_dir
+                    DEFAULT,  # backup_dir
+                    DEFAULT,  # compression
+                    "oops",  # 1st destination attempt: name
+                    "live-db",  # SAME db_container as the source -> guard fires
+                    "production",  # db_name
+                    DEFAULT,  # odoo_container
+                    DEFAULT,  # owner
+                    DEFAULT,  # data_dir
+                    DEFAULT,  # 2nd destination attempt: name -> test
+                    DEFAULT,  # test db_container -> test-db
+                    "production",  # db_name
+                    DEFAULT,  # odoo_container
+                    DEFAULT,  # owner
+                    DEFAULT,  # data_dir
+                    DEFAULT,  # restore template
+                ],
+                path=[str(tmp_path / "playbooks" / "guarded.yaml")],
+                confirm=[
+                    False,  # only_sql
+                    False,  # adjust pattern
+                    False,  # self-mirror confirm -> NO, re-ask destination
+                    False,  # add another target?
+                    True,  # drop
+                    False,  # purge_master_data
+                    True,  # restart
+                    False,  # custom step
+                    False,  # rpc block
+                    False,  # vars
+                    False,  # secrets
+                    True,  # write
+                ],
+                checkbox=[
+                    ["stop_before_restore", "start_after_restore", "neutralize", "update_all"],
+                    ["deactivate_cron", "neutralize"],
+                ],
+            )
+        )
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        script.assert_drained()
+
+        config = load_playbook(str(tmp_path / "playbooks" / "guarded.yaml"))
+        assert set(config.targets) == {"live", "test"}  # rejected 'oops' target was discarded
+        restore = next(s for s in config.steps if s.command == "server.restore")
+        assert restore.args["target"] == "test"
 
     def test_sanitize_selection_lands_in_restore_args(self, tmp_path, monkeypatch, install_script):
         prompts = _server_script(tmp_path)
@@ -351,6 +486,25 @@ class TestSecretsStep:
         _wizard_secrets(answers)
         script.assert_drained()
         assert answers["env_file"]["generate"] is False
+
+    def test_no_values_entered_writes_no_file(self, tmp_path, install_script):
+        from odoodev.commands.playbook_cmd import _wizard_secrets
+
+        env_path = tmp_path / "mirror.env"
+        script = install_script(
+            PromptScript(
+                confirm=[True, False],  # generate yes, add-more no
+                path=[str(env_path)],
+                password=["", ""],  # user skips both detected keys
+            )
+        )
+        answers = self._answers()
+        _wizard_secrets(answers)
+        script.assert_drained()
+        # env_file stays referenced (pending keys exist) but nothing is written.
+        assert answers["env_file"]["generate"] is False
+        assert "secrets" not in answers["env_file"]
+        assert not env_path.exists()
 
     def test_declined_generation_keeps_path_reference(self, tmp_path, install_script):
         from odoodev.commands.playbook_cmd import _wizard_secrets

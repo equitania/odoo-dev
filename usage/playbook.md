@@ -31,30 +31,43 @@ odoodev playbook validate playbooks/mirror.yaml
 odoodev playbook validate playbooks/mirror.yaml --json
 ```
 
-#### Server-Branch: geführtes Live→Test-Mirror-Rezept
+#### Server-Branch: Quelle → Ziel → Optionen (seit v0.55.0)
 
-Der Server-Zweig ist ein Rezept mit fester, sicherer Schritt-Reihenfolge — die Checkbox
-steuert nur, welche Schritte enthalten sind:
+Der Server-Zweig fragt zuerst die **Quelle**, dann das **Ziel**, dann die Optionen —
+`server.restore` ist immer Teil des Mirrors:
 
-1. `server.backup` — frisches Backup vom Live-Target
-2. `server.rebuild` (optional) — Ziel-Container komplett neu aufbauen via
+1. **„Was ist die QUELLE des Mirrors?"** (Auswahl):
+   - **Frisches Backup von einem laufenden Container-Paar** — fragt das Quell-Target
+     (z. B. `live` / `live-db` / `live-odoo`) und das Backup-Verzeichnis; die
+     Restore-Quelle wird automatisch aus der Backup-Namenskonvention abgeleitet
+     (`{db}_{container}_dockerbackup_*.tar.zst`, neueste Datei) und kann auf Wunsch
+     angepasst werden. Erzeugt den `server.backup`-Step.
+   - **Bestehende Backup-Datei** — fragt nur den Pfad; kein Backup-Step.
+   - **Neuestes Backup nach Muster** — fragt Verzeichnis + Pattern; kein Backup-Step.
+2. **„Was ist das ZIEL?"** — das Ziel-Target (z. B. `test` / `test-db` / `test-odoo`).
+   **Self-Mirror-Guard:** Nutzt das Ziel denselben DB-Container wie die Quelle,
+   warnt der Assistent und fragt explizit nach (Default: Nein → Ziel neu eingeben) —
+   sonst würde der Restore das gerade gesicherte System überschreiben.
+3. **Options-Checkbox** (Restore ist immer dabei):
+   `server.rebuild` (optional) — Ziel-Container komplett neu aufbauen via
    `update_docker_odoo.py` (Release-Abruf per Access-Code aus `release.txt`,
-   `docker build`, Container-Neuerstellung). Steht **vor** stop/restore, weil das
-   Skript den Container am Ende selbst startet.
-3. `container.stop` — Ziel-Odoo stoppen
-4. `server.restore` — Restore inkl. Filestore-Swap; Sanitize-Checkbox
-   (`deactivate_cron`, `neutralize`, `anonymize`, `wipe`, `purge_transactions`)
-   plus separater Confirm für `purge_master_data`
-5. `sql.execute` (optional) — Statement-Builder mit Presets:
-   **Enterprise-Code setzen** (`{{ env.PARTNER_ENTERPRISE_CODE }}`),
-   **eq_cloud-Connector-Parameter leeren**, **Website-Domain tauschen**, freies SQL
-6. `container.start` — Ziel-Odoo starten
-7. `server.neutralize` — `odoo-bin neutralize` im laufenden Container
-8. `server.update-all` — `-u all` mit anschließendem Neustart
-9. `rpc.execute` (optional) — deklarativer RPC-Aufruf via odoorpc-toolbox
+   `docker build`, Container-Neuerstellung; steht **vor** stop/restore, weil das
+   Skript den Container am Ende selbst startet) · `container.stop` ·
+   `sql.execute` (Statement-Builder mit Presets: **Enterprise-Code setzen**
+   (`{{ env.PARTNER_ENTERPRISE_CODE }}`), **eq_cloud-Connector-Parameter leeren**,
+   **Website-Domain tauschen**, freies SQL) · `container.start` ·
+   `server.neutralize` · `server.update-all` · `rpc.execute`
+4. **Restore-Details** — `template`, `drop`, Sanitize-Checkbox (`deactivate_cron`,
+   `neutralize`, `anonymize`, `wipe`, `purge_transactions`) plus separater Confirm
+   für `purge_master_data`
 
 Danach: freie Zusatz-Schritte (Escape-Hatch), RPC-Verbindungsblock, Variablen,
-Secrets-Datei, Ausgabepfad, Zusammenfassung mit Bestätigung.
+Secrets-Datei, Ausgabepfad, Zusammenfassung (zeigt Quelle → Ziel) mit Bestätigung.
+
+**Wichtig — Server-Pfade:** Alle Pfade, die im Playbook landen und auf dem Server
+ausgewertet werden (`backup_dir`, `script_path`, Backup-Datei etc.), werden vom
+Assistenten NICHT lokal expandiert — `~/update_docker_odoo.py` bleibt wörtlich in
+der YAML und wird erst auf dem Server aufgelöst.
 
 #### Secrets
 
@@ -140,7 +153,8 @@ core (`odoodev/core/playbook_builder.py`), so the two frontends can never drift.
 
 Notes:
 
-- `schema_version` must match the CLI's schema version (currently `1`).
+- `schema_version`: currently `2` (v0.55.0, source-first wizard flow); `1` (v0.54.0)
+  is still accepted — the answers format itself is unchanged between the two.
 - `playbook_type`: `"server"` or `"dev"`. Dev playbooks use `dev_steps` instead of
   `targets`/`recipe`: a list of `{"command": "pull", "args": {...}}` entries (plain
   strings allowed); the builder orders them canonically (docker.up → pull → repos →

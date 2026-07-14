@@ -144,11 +144,11 @@ def _wizard_common(answers: dict[str, Any]) -> None:
 # Interview: server branch (guided mirror recipe)
 # =============================================================================
 
+# Optional recipe items — server.restore itself is ALWAYS part of the mirror
+# (its source comes from the dedicated source question, never from this checkbox).
 _RECIPE_ITEMS = (
-    ("backup", "playbook.server.recipe.backup", True),
     ("rebuild", "playbook.server.recipe.rebuild", False),
     ("stop_before_restore", "playbook.server.recipe.stop_before", True),
-    ("restore", "playbook.server.recipe.restore", True),
     ("sql_after_restore", "playbook.server.recipe.sql", False),
     ("start_after_restore", "playbook.server.recipe.start_after", True),
     ("neutralize", "playbook.server.recipe.neutralize", True),
@@ -156,35 +156,31 @@ _RECIPE_ITEMS = (
     ("rpc_call", "playbook.server.recipe.rpc_call", False),
 )
 
+_SOURCE_FRESH = "fresh_backup"
+_SOURCE_FILE = "existing_file"
+_SOURCE_NEWEST = "newest_in_dir"
 
-def _wizard_targets(answers: dict[str, Any]) -> None:
-    print_header(i18n.t("playbook.server.target.header"))
-    targets: dict[str, dict[str, str]] = {}
-    suggestions = ["live", "test"]
+
+def _wizard_one_target(answers: dict[str, Any], name_default: str) -> str:
+    """Ask one target block (container pair); returns its unique name."""
+    targets: dict[str, dict[str, str]] = answers.setdefault("targets", {})
     while True:
-        default_name = next((s for s in suggestions if s not in targets), "")
-        name = text_input(i18n.t("playbook.server.target.name"), default=default_name).strip()
+        name = text_input(i18n.t("playbook.server.target.name"), default=name_default).strip()
         if not name:
-            if targets:
-                break
             print_warning(i18n.t("playbook.server.target.need_one"))
             continue
         if name in targets:
             print_warning(i18n.t("playbook.server.target.duplicate", name=name))
             continue
-        target = {
-            "db_container": _required_text(i18n.t("playbook.server.target.db_container"), default=f"{name}-db"),
-            "db_name": _required_text(i18n.t("playbook.server.target.db_name")),
-            "odoo_container": text_input(
-                i18n.t("playbook.server.target.odoo_container"), default=f"{name}-odoo"
-            ).strip(),
-            "owner": text_input(i18n.t("playbook.server.target.owner"), default="ownerp").strip() or "ownerp",
-            "data_dir": text_input(i18n.t("playbook.server.target.data_dir")).strip(),
-        }
-        targets[name] = target
-        if not confirm(i18n.t("playbook.server.target.add_more"), default=len(targets) < 2):
-            break
-    answers["targets"] = targets
+        break
+    targets[name] = {
+        "db_container": _required_text(i18n.t("playbook.server.target.db_container"), default=f"{name}-db"),
+        "db_name": _required_text(i18n.t("playbook.server.target.db_name")),
+        "odoo_container": text_input(i18n.t("playbook.server.target.odoo_container"), default=f"{name}-odoo").strip(),
+        "owner": text_input(i18n.t("playbook.server.target.owner"), default="ownerp").strip() or "ownerp",
+        "data_dir": text_input(i18n.t("playbook.server.target.data_dir")).strip(),
+    }
+    return name
 
 
 def _select_target(answers: dict[str, Any], label_key: str, default: str = "") -> str:
@@ -195,53 +191,129 @@ def _select_target(answers: dict[str, Any], label_key: str, default: str = "") -
     return select(i18n.t(label_key), choices=names, default=effective_default)
 
 
+def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
+    """Ask what the mirror restores FROM.
+
+    Three modes: create a fresh backup from a container pair (adds the source
+    target + recipe.backup and derives the restore pattern from the backup
+    filename convention), an explicit backup file, or the newest file matching
+    a pattern. Server-side paths are asked via text_input — never expanded on
+    the machine running the wizard (the handlers expand on the server).
+    """
+    import questionary
+
+    recipe = answers["recipe"]
+    mode_choices = [
+        questionary.Choice(i18n.t("playbook.server.source.fresh"), value=_SOURCE_FRESH),
+        questionary.Choice(i18n.t("playbook.server.source.file"), value=_SOURCE_FILE),
+        questionary.Choice(i18n.t("playbook.server.source.newest"), value=_SOURCE_NEWEST),
+    ]
+    mode = select(i18n.t("playbook.server.source.question"), choices=mode_choices, default=_SOURCE_FRESH)
+    source: dict[str, Any] = {"mode": mode}
+
+    if mode == _SOURCE_FRESH:
+        print_header(i18n.t("playbook.server.source.header"))
+        name = _wizard_one_target(answers, "live")
+        backup_dir = _required_text(i18n.t("playbook.server.recipe.backup_dir"), default="/opt/backups/docker")
+        recipe["backup"] = {
+            "enabled": True,
+            "target": name,
+            "backup_dir": backup_dir,
+            "compression_level": _int_input(i18n.t("playbook.server.recipe.compression_level"), 5),
+            "only_sql": confirm(i18n.t("playbook.server.recipe.only_sql"), default=False),
+        }
+        src = answers["targets"][name]
+        # Mirror handle_server_backup's output naming: {db}_{data_container}_dockerbackup_{ts}.tar.zst
+        data_container = src["odoo_container"] or src["db_container"]
+        backup_source: dict[str, Any] = {
+            "mode": "newest_in_dir",
+            "dir": backup_dir,
+            "pattern": f"{src['db_name']}_{data_container}_dockerbackup_*.tar.zst",
+            "select_by": "mtime",
+        }
+        print_info(i18n.t("playbook.server.source.derived_pattern", pattern=backup_source["pattern"], dir=backup_dir))
+        if confirm(i18n.t("playbook.server.source.adjust_pattern"), default=False):
+            backup_source["dir"] = _required_text(i18n.t("playbook.server.restore.source_dir"), default=backup_dir)
+            backup_source["pattern"] = _required_text(
+                i18n.t("playbook.server.restore.source_pattern"), default=backup_source["pattern"]
+            )
+            backup_source["select_by"] = select(
+                i18n.t("playbook.server.restore.select_by"), choices=["mtime", "filename_timestamp"], default="mtime"
+            )
+        source["target"] = name
+        source["backup_source"] = backup_source
+    elif mode == _SOURCE_FILE:
+        source["backup_source"] = {
+            "mode": "file",
+            "path": _required_text(i18n.t("playbook.server.restore.source_path")),
+        }
+    else:
+        source["backup_source"] = {
+            "mode": "newest_in_dir",
+            "dir": _required_text(i18n.t("playbook.server.restore.source_dir"), default="/opt/backups/docker"),
+            "pattern": _required_text(
+                i18n.t("playbook.server.restore.source_pattern"), default="*_dockerbackup_*.tar.zst"
+            ),
+            "select_by": select(
+                i18n.t("playbook.server.restore.select_by"), choices=["mtime", "filename_timestamp"], default="mtime"
+            ),
+        }
+    return source
+
+
+def _wizard_destination(answers: dict[str, Any], source: dict[str, Any]) -> str:
+    """Ask the destination target; guard against restoring back onto the source."""
+    print_header(i18n.t("playbook.server.dest.header"))
+    source_target = answers["targets"].get(str(source.get("target", "")), {})
+    while True:
+        name = _wizard_one_target(answers, "test")
+        db_container = answers["targets"][name]["db_container"]
+        if source.get("mode") == _SOURCE_FRESH and db_container == source_target.get("db_container"):
+            print_warning(i18n.t("playbook.server.dest.self_mirror_warning", name=db_container))
+            if not confirm(i18n.t("playbook.server.dest.self_mirror_confirm"), default=False):
+                del answers["targets"][name]
+                continue
+        return name
+
+
 def _wizard_server(answers: dict[str, Any]) -> None:
     import questionary
 
-    _wizard_targets(answers)
+    answers["targets"] = {}
     recipe: dict[str, Any] = {}
     answers["recipe"] = recipe
     answers["extra_steps"] = []
     pending_env: set[str] = set()
+
+    source = _wizard_source(answers)
+    dest = _wizard_destination(answers, source)
+    recipe["destination"] = dest
+    while confirm(i18n.t("playbook.server.target.add_more"), default=False):
+        _wizard_one_target(answers, "")
 
     choices = [
         questionary.Choice(i18n.t(label_key), value=key, checked=checked) for key, label_key, checked in _RECIPE_ITEMS
     ]
     selected = set(checkbox_with_separators(i18n.t("playbook.server.recipe.question"), choices))
 
-    # Mirror destination: the target the restore/stop/start/neutralize steps act on.
-    dest = _select_target(answers, "playbook.server.recipe.dest_target", default="test")
-    recipe["destination"] = dest
-
-    backup_dir = ""
-    backup_target = ""
-    if "backup" in selected:
-        backup_target = _select_target(answers, "playbook.server.recipe.backup_target", default="live")
-        backup_dir = path_input(i18n.t("playbook.server.recipe.backup_dir"), default="/opt/backups/docker")
-        recipe["backup"] = {
-            "enabled": True,
-            "target": backup_target,
-            "backup_dir": backup_dir,
-            "compression_level": _int_input(i18n.t("playbook.server.recipe.compression_level"), 5),
-            "only_sql": confirm(i18n.t("playbook.server.recipe.only_sql"), default=False),
-        }
-
     if "rebuild" in selected:
         print_info(i18n.t("playbook.server.recipe.rebuild_hint"))
         recipe["rebuild"] = {
             "enabled": True,
             "target": _select_target(answers, "playbook.server.recipe.rebuild_target", default=dest),
-            "script_path": path_input(
+            "script_path": text_input(
                 i18n.t("playbook.server.recipe.rebuild_script"), default="~/update_docker_odoo.py"
-            ),
-            "config": path_input(i18n.t("playbook.server.recipe.rebuild_config"), default="~/docker2update.yaml"),
+            ).strip(),
+            "config": text_input(
+                i18n.t("playbook.server.recipe.rebuild_config"), default="~/docker2update.yaml"
+            ).strip(),
             "timeout": _int_input(i18n.t("playbook.server.recipe.rebuild_timeout"), 7200),
         }
 
     recipe["stop_before_restore"] = "stop_before_restore" in selected
 
-    if "restore" in selected:
-        recipe["restore"] = _wizard_restore(answers, dest, backup_target, backup_dir)
+    # server.restore is the core of the mirror — always included.
+    recipe["restore"] = _wizard_restore(dest, source["backup_source"])
 
     if "sql_after_restore" in selected:
         statements = _wizard_sql_statements(answers, pending_env)
@@ -272,37 +344,11 @@ def _wizard_server(answers: dict[str, Any]) -> None:
     answers["_pending_env_keys"] = pending_env
 
 
-def _wizard_restore(answers: dict[str, Any], dest: str, backup_target: str, backup_dir: str) -> dict[str, Any]:
+def _wizard_restore(dest: str, backup_source: dict[str, Any]) -> dict[str, Any]:
+    """Restore details for the destination; the source was decided upfront."""
     import questionary
 
-    restore: dict[str, Any] = {"enabled": True}
-    restore["target"] = _select_target(answers, "playbook.server.recipe.dest_target", default=dest)
-
-    mode_choices = [
-        questionary.Choice(i18n.t("playbook.server.restore.source_mode_newest"), value="newest_in_dir"),
-        questionary.Choice(i18n.t("playbook.server.restore.source_mode_file"), value="file"),
-    ]
-    mode = select(i18n.t("playbook.server.restore.source_mode"), choices=mode_choices, default="newest_in_dir")
-    if mode == "file":
-        restore["backup_source"] = {
-            "mode": "file",
-            "path": path_input(i18n.t("playbook.server.restore.source_path")),
-        }
-    else:
-        source_db = answers["targets"].get(backup_target, answers["targets"][restore["target"]])["db_name"]
-        restore["backup_source"] = {
-            "mode": "newest_in_dir",
-            "dir": path_input(
-                i18n.t("playbook.server.restore.source_dir"), default=backup_dir or "/opt/backups/docker"
-            ),
-            "pattern": text_input(
-                i18n.t("playbook.server.restore.source_pattern"), default=f"{source_db}_*_dockerbackup_*.tar.zst"
-            ),
-            "select_by": select(
-                i18n.t("playbook.server.restore.select_by"), choices=["mtime", "filename_timestamp"], default="mtime"
-            ),
-        }
-
+    restore: dict[str, Any] = {"enabled": True, "target": dest, "backup_source": backup_source}
     restore["template"] = text_input(i18n.t("playbook.server.restore.template"), default="template0") or "template0"
     restore["drop"] = confirm(i18n.t("playbook.server.restore.drop"), default=True)
 
@@ -545,6 +591,16 @@ def _wizard_secrets(answers: dict[str, Any]) -> None:
             break
         secrets[key] = _secret_or_text(key, i18n.t("playbook.secrets.value_for", name=key))
 
+    if not secrets:
+        # Never write a header-only secrets file. Keep the env_file reference in the
+        # YAML only when something actually needs it ({{ env.X }} references exist).
+        if pending:
+            answers["env_file"] = {"path": path, "generate": False}
+            print_warning(i18n.t("playbook.secrets.skipped", path=path))
+        else:
+            print_info(i18n.t("playbook.secrets.none"))
+        return
+
     merge = False
     write = True
     if os.path.exists(os.path.expanduser(path)):
@@ -578,6 +634,22 @@ def _run_wizard(output_default: str = "") -> dict[str, Any]:
 # =============================================================================
 
 
+def _describe_source(answers: dict[str, Any]) -> str:
+    """Human-readable mirror source for the summary, derived from the recipe."""
+    recipe = answers.get("recipe") or {}
+    backup = recipe.get("backup") or {}
+    if backup.get("enabled"):
+        return i18n.t("playbook.summary.source_fresh", target=str(backup.get("target", "")))
+    source = (recipe.get("restore") or {}).get("backup_source") or {}
+    if isinstance(source, str):
+        return i18n.t("playbook.summary.source_file", path=source)
+    if source.get("mode") == "file":
+        return i18n.t("playbook.summary.source_file", path=str(source.get("path", "")))
+    if source.get("mode") == "newest_in_dir":
+        return i18n.t("playbook.summary.source_newest", dir=str(source.get("dir", "")))
+    return "-"
+
+
 def _summarize_and_confirm(answers: dict[str, Any], playbook_dict: dict[str, Any]) -> None:
     steps = playbook_dict.get("steps", [])
     summary = {
@@ -585,10 +657,17 @@ def _summarize_and_confirm(answers: dict[str, Any], playbook_dict: dict[str, Any
         i18n.t("playbook.summary.name"): str(answers.get("name", "")),
         i18n.t("playbook.summary.version"): str(playbook_dict.get("version", "")),
         i18n.t("playbook.summary.steps"): str(len(steps)),
-        i18n.t("playbook.summary.targets"): ", ".join(playbook_dict.get("targets", {})) or "-",
-        i18n.t("playbook.summary.env_file"): str(playbook_dict.get("env_file", "") or "-"),
-        i18n.t("playbook.summary.output"): str(answers.get("output_path", "")),
     }
+    if answers.get("playbook_type") == "server":
+        summary[i18n.t("playbook.summary.source")] = _describe_source(answers)
+        summary[i18n.t("playbook.summary.destination")] = str((answers.get("recipe") or {}).get("destination", "-"))
+    summary.update(
+        {
+            i18n.t("playbook.summary.targets"): ", ".join(playbook_dict.get("targets", {})) or "-",
+            i18n.t("playbook.summary.env_file"): str(playbook_dict.get("env_file", "") or "-"),
+            i18n.t("playbook.summary.output"): str(answers.get("output_path", "")),
+        }
+    )
     print_table(i18n.t("playbook.summary.header"), summary)
     for index, step in enumerate(steps, start=1):
         console.print(f"  {index}. {step.get('name', step['command'])} [dim]\\[{step['command']}][/dim]")

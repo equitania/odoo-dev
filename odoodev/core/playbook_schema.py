@@ -19,9 +19,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = 1
+# v2 (0.55.0): source-first server flow — new server_source section (source.mode),
+# restore always part of the recipe, server-side paths as plain text fields.
+# The ANSWERS format is unchanged between v1 and v2 (targets + recipe).
+SCHEMA_VERSION = 2
 
 PLAYBOOK_TYPES = ("dev", "server")
+
+# Mirror source modes (server_source section / wizard source question).
+SOURCE_FRESH_BACKUP = "fresh_backup"
+SOURCE_EXISTING_FILE = "existing_file"
+SOURCE_NEWEST_IN_DIR = "newest_in_dir"
 
 # Sanitize flags offered for restore steps (server.restore / db.restore args).
 SANITIZE_FLAGS = ("deactivate_cron", "neutralize", "anonymize", "wipe", "purge_transactions")
@@ -198,43 +206,86 @@ SECTIONS: tuple[WizardSection, ...] = (
             _f("data_dir", "text", "playbook.server.target.data_dir", default=""),
         ),
     ),
+    # The mirror SOURCE (asked before the destination). ``source.mode`` is a
+    # wizard-guidance field: ``fresh_backup`` implies a source target block +
+    # ``recipe.backup.enabled: true`` + a derived ``newest_in_dir`` restore
+    # source; the two file-based modes only fill ``recipe.restore.backup_source``.
+    # All paths below live on the SERVER — render them as plain text inputs,
+    # never expand/validate them on the machine running the wizard/GUI.
     WizardSection(
-        key="server_recipe",
+        key="server_source",
         applies_to=("server",),
         fields=(
-            _f("recipe.backup.enabled", "confirm", "playbook.server.recipe.backup", default=True),
             _f(
-                "recipe.backup.target",
+                "source.mode",
                 "select",
-                "playbook.server.recipe.backup_target",
-                choices_source="targets",
-                depends_on="recipe.backup.enabled",
-                depends_value=True,
+                "playbook.server.source.question",
+                required=True,
+                choices=(SOURCE_FRESH_BACKUP, SOURCE_EXISTING_FILE, SOURCE_NEWEST_IN_DIR),
+                default=SOURCE_FRESH_BACKUP,
             ),
             _f(
                 "recipe.backup.backup_dir",
-                "path",
+                "text",
                 "playbook.server.recipe.backup_dir",
                 required=True,
-                depends_on="recipe.backup.enabled",
-                depends_value=True,
+                default="/opt/backups/docker",
+                depends_on="source.mode",
+                depends_value=SOURCE_FRESH_BACKUP,
             ),
             _f(
                 "recipe.backup.compression_level",
                 "int",
                 "playbook.server.recipe.compression_level",
                 default=5,
-                depends_on="recipe.backup.enabled",
-                depends_value=True,
+                depends_on="source.mode",
+                depends_value=SOURCE_FRESH_BACKUP,
             ),
             _f(
                 "recipe.backup.only_sql",
                 "confirm",
                 "playbook.server.recipe.only_sql",
                 default=False,
-                depends_on="recipe.backup.enabled",
-                depends_value=True,
+                depends_on="source.mode",
+                depends_value=SOURCE_FRESH_BACKUP,
             ),
+            _f(
+                "recipe.restore.backup_source.path",
+                "text",
+                "playbook.server.restore.source_path",
+                depends_on="source.mode",
+                depends_value=SOURCE_EXISTING_FILE,
+            ),
+            _f(
+                "recipe.restore.backup_source.dir",
+                "text",
+                "playbook.server.restore.source_dir",
+                depends_on="source.mode",
+                depends_value=SOURCE_NEWEST_IN_DIR,
+            ),
+            _f(
+                "recipe.restore.backup_source.pattern",
+                "text",
+                "playbook.server.restore.source_pattern",
+                depends_on="source.mode",
+                depends_value=SOURCE_NEWEST_IN_DIR,
+            ),
+            _f(
+                "recipe.restore.backup_source.select_by",
+                "select",
+                "playbook.server.restore.select_by",
+                choices=("mtime", "filename_timestamp"),
+                default="mtime",
+                depends_on="source.mode",
+                depends_value=SOURCE_NEWEST_IN_DIR,
+            ),
+        ),
+    ),
+    # Optional recipe items — server.restore itself is ALWAYS part of the mirror.
+    WizardSection(
+        key="server_recipe",
+        applies_to=("server",),
+        fields=(
             _f("recipe.rebuild.enabled", "confirm", "playbook.server.recipe.rebuild", default=False),
             _f(
                 "recipe.rebuild.target",
@@ -246,7 +297,7 @@ SECTIONS: tuple[WizardSection, ...] = (
             ),
             _f(
                 "recipe.rebuild.script_path",
-                "path",
+                "text",
                 "playbook.server.recipe.rebuild_script",
                 default="~/update_docker_odoo.py",
                 depends_on="recipe.rebuild.enabled",
@@ -254,7 +305,7 @@ SECTIONS: tuple[WizardSection, ...] = (
             ),
             _f(
                 "recipe.rebuild.config",
-                "path",
+                "text",
                 "playbook.server.recipe.rebuild_config",
                 default="~/docker2update.yaml",
                 depends_on="recipe.rebuild.enabled",
@@ -269,69 +320,17 @@ SECTIONS: tuple[WizardSection, ...] = (
                 depends_value=True,
             ),
             _f("recipe.stop_before_restore", "confirm", "playbook.server.recipe.stop_before", default=True),
-            _f("recipe.restore.enabled", "confirm", "playbook.server.recipe.restore", default=True),
-            _f(
-                "recipe.restore.target",
-                "select",
-                "playbook.server.recipe.restore_target",
-                choices_source="targets",
-                depends_on="recipe.restore.enabled",
-                depends_value=True,
-            ),
-            _f(
-                "recipe.restore.backup_source.mode",
-                "select",
-                "playbook.server.restore.source_mode",
-                choices=("newest_in_dir", "file"),
-                default="newest_in_dir",
-                depends_on="recipe.restore.enabled",
-                depends_value=True,
-            ),
-            _f(
-                "recipe.restore.backup_source.dir",
-                "path",
-                "playbook.server.restore.source_dir",
-                depends_on="recipe.restore.backup_source.mode",
-                depends_value="newest_in_dir",
-            ),
-            _f(
-                "recipe.restore.backup_source.pattern",
-                "text",
-                "playbook.server.restore.source_pattern",
-                depends_on="recipe.restore.backup_source.mode",
-                depends_value="newest_in_dir",
-            ),
-            _f(
-                "recipe.restore.backup_source.select_by",
-                "select",
-                "playbook.server.restore.select_by",
-                choices=("mtime", "filename_timestamp"),
-                default="mtime",
-                depends_on="recipe.restore.backup_source.mode",
-                depends_value="newest_in_dir",
-            ),
-            _f(
-                "recipe.restore.backup_source.path",
-                "path",
-                "playbook.server.restore.source_path",
-                depends_on="recipe.restore.backup_source.mode",
-                depends_value="file",
-            ),
             _f(
                 "recipe.restore.template",
                 "text",
                 "playbook.server.restore.template",
                 default="template0",
-                depends_on="recipe.restore.enabled",
-                depends_value=True,
             ),
             _f(
                 "recipe.restore.drop",
                 "confirm",
                 "playbook.server.restore.drop",
                 default=True,
-                depends_on="recipe.restore.enabled",
-                depends_value=True,
             ),
             _f(
                 "recipe.restore.sanitize_flags",
@@ -339,16 +338,12 @@ SECTIONS: tuple[WizardSection, ...] = (
                 "playbook.server.restore.sanitize",
                 choices=SANITIZE_FLAGS,
                 default=SANITIZE_FLAGS_DEFAULT,
-                depends_on="recipe.restore.enabled",
-                depends_value=True,
             ),
             _f(
                 "recipe.restore.purge_master_data",
                 "confirm",
                 "playbook.server.restore.purge_master_data",
                 default=False,
-                depends_on="recipe.restore.enabled",
-                depends_value=True,
             ),
             _f("recipe.sql_after_restore.enabled", "confirm", "playbook.server.recipe.sql", default=False),
             _f(
@@ -654,7 +649,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
             "server",
             (
                 _a("target", "text"),
-                _a("backup_dir", "path", required=True),
+                _a("backup_dir", "text", required=True),
                 _a("compression_level", "int", default=5),
                 _a("only_sql", "confirm", default=False),
             ),
@@ -665,8 +660,8 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
             (
                 _a("target", "text"),
                 _a("container", "text"),
-                _a("script_path", "path", default="~/update_docker_odoo.py"),
-                _a("config", "path", default="~/docker2update.yaml"),
+                _a("script_path", "text", default="~/update_docker_odoo.py"),
+                _a("config", "text", default="~/docker2update.yaml"),
                 _a("timeout", "int", default=7200),
                 _a("extra_args", "list[str]"),
             ),
@@ -695,8 +690,8 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
             "server",
             (
                 _a("target", "text"),
-                _a("odoo_bin_path", "path"),
-                _a("config_path", "path"),
+                _a("odoo_bin_path", "text"),
+                _a("config_path", "text"),
             ),
         ),
         StepSpec(
@@ -706,8 +701,8 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("target", "text"),
                 _a("restart", "confirm", default=True),
                 _a("extra_args", "list[str]"),
-                _a("odoo_bin_path", "path"),
-                _a("config_path", "path"),
+                _a("odoo_bin_path", "text"),
+                _a("config_path", "text"),
             ),
         ),
         StepSpec(
@@ -717,7 +712,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("target", "text"),
                 _a("db_name", "text"),
                 _a("statements", "list[sql]"),
-                _a("file", "path"),
+                _a("file", "text"),
             ),
         ),
         StepSpec(

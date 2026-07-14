@@ -1,5 +1,34 @@
 # Release Notes
 
+## Version 0.55.0 (14.07.2026)
+
+### Changed
+- **Playbook assistant: source-first server flow.** The wizard now asks
+  "What is the SOURCE of the mirror?" before anything else — (a) create a
+  fresh backup from a running container pair (asks the source target, then
+  derives the restore source automatically from the backup filename
+  convention `{db}_{container}_dockerbackup_*.tar.zst`), (b) an existing
+  backup file, or (c) the newest backup matching a pattern. The destination
+  target is asked separately afterwards, with a self-mirror guard: restoring
+  back onto the container pair that was just backed up requires an explicit
+  confirmation. `server.restore` is always part of the mirror; the recipe
+  checkbox now only covers the optional steps (rebuild, stop/start,
+  neutralize, update-all, SQL, RPC). Fixes the v0.54.0 flow where a single
+  target silently became backup source AND restore destination.
+- Wizard field schema bumped to `schema_version: 2` (new `server_source`
+  section, server-side paths as `text` fields). Answers files remain
+  unchanged and `schema_version: 1` is still accepted.
+- Builder validation rejects answers where the backup source target equals
+  the restore destination (the self-mirror failure mode).
+
+### Fixed
+- **Server-side paths are no longer expanded locally.** `~/update_docker_odoo.py`
+  etc. stay literal in the generated YAML (the handlers expand them on the
+  server); previously the wizard wrote the local machine's home directory
+  into the playbook and default values leaked into the YAML.
+- **No more empty secrets files.** When no secret values are entered, the
+  assistant skips writing the env file instead of creating a header-only one.
+
 ## Version 0.54.0 (14.07.2026)
 
 ### Added

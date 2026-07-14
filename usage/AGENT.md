@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.54.0  ·  **Framework:** Python / Click
+- **Version:** 0.55.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -221,10 +221,15 @@ odoodev playbook create --answers a.json --non-interactive # GUI/agent mode, no 
 odoodev playbook schema --json                            # field schema for form rendering
 odoodev playbook validate playbooks/mirror.yaml --json    # non-executing validation
 ```
-The wizard's server branch is a guided live→test mirror recipe (backup → rebuild → stop → restore
-+ sanitize → SQL presets incl. enterprise code + website-domain swap → start → neutralize →
-update-all → rpc). Secrets never land in the YAML: the assistant writes them into a 0600 env_file
-referenced via `{{ env.X }}`. Answers-file format and schema JSON: see `usage/playbook.md`.
+The wizard's server branch is **source-first** (v0.55.0): it asks the mirror SOURCE first (fresh
+backup from a container pair with auto-derived restore pattern / existing backup file / newest by
+pattern), then the DESTINATION target (self-mirror guard: restoring back onto the source pair
+needs explicit confirmation), then the optional steps (rebuild → stop → SQL presets incl.
+enterprise code + website-domain swap → start → neutralize → update-all → rpc) — `server.restore`
+is always included. Server-side paths stay literal (`~/...` is expanded on the server, never on
+the machine running the wizard). Secrets never land in the YAML: the assistant writes them into a
+0600 env_file referenced via `{{ env.X }}` (nothing entered → no file written). Answers-file
+format and schema JSON (`schema_version: 2`; `1` still accepted): see `usage/playbook.md`.
 Answers files may contain inline secrets — treat them like the env_file (0600, never commit,
 delete after use). In non-interactive mode an existing output/env file is refused without
 `--force`.

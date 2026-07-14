@@ -66,9 +66,32 @@ class TestSchemaStructure:
     def test_targets_source_stays_unresolved(self):
         schema = wizard_schema()
         recipe = next(s for s in schema["sections"] if s["key"] == "server_recipe")
-        target_field = next(f for f in recipe["fields"] if f["key"] == "recipe.backup.target")
+        target_field = next(f for f in recipe["fields"] if f["key"] == "recipe.rebuild.target")
         assert target_field["choices_source"] == "targets"
         assert "choices" not in target_field
+
+    def test_server_source_section(self):
+        schema = wizard_schema("server")
+        source = next(s for s in schema["sections"] if s["key"] == "server_source")
+        mode_field = next(f for f in source["fields"] if f["key"] == "source.mode")
+        assert mode_field["choices"] == ["fresh_backup", "existing_file", "newest_in_dir"]
+        assert mode_field["default"] == "fresh_backup"
+        # backup fields only apply in fresh_backup mode
+        backup_dir = next(f for f in source["fields"] if f["key"] == "recipe.backup.backup_dir")
+        assert backup_dir["depends_on"] == "source.mode"
+        assert backup_dir["depends_value"] == "fresh_backup"
+
+    def test_server_side_paths_are_text_not_path(self):
+        # Remote paths must not be rendered as local file pickers / expanded locally.
+        schema = wizard_schema("server")
+        for section in schema["sections"]:
+            for field in list(section.get("fields", [])) + list(section.get("item_fields", [])):
+                if field["key"].startswith(("recipe.", "source.")):
+                    assert field["type"] != "path", f"{field['key']} must be text (server-side path)"
+        for command, spec in STEP_ARG_SPECS.items():
+            if spec.mode == "server":
+                for arg in spec.args:
+                    assert arg.type != "path", f"{command}.{arg.name} must be text (server-side path)"
 
     def test_json_serializable(self):
         import json

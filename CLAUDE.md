@@ -62,7 +62,7 @@ uv build
 | `start` | Start Odoo server (modes: normal, --dev, --shell, --test, --prepare) |
 | `repos` | Clone/update repos from repos.yaml, generate odoo.conf |
 | `db` | list, restore, drop, uninstall, users, purge, recompute databases |
-| `playbook` | Playbook assistant (v0.54.0): `create` (interactive wizard: server branch = guided live→test mirror recipe incl. optional `server.rebuild`, dev branch = grouped step checkbox; or `--answers file.json --non-interactive` for GUI/agents, `--force` overwrite guard), `schema --json` (GUI form contract), `validate [--json]`. Secrets go into a 0600 env_file, never into the YAML |
+| `playbook` | Playbook assistant (v0.54.0, source-first flow v0.55.0): `create` (interactive wizard: server branch asks SOURCE first (fresh backup from container pair with auto-derived restore pattern | existing file | newest by pattern), then DESTINATION (self-mirror guard), then optional steps incl. `server.rebuild` — restore always included; server-side paths never locally expanded; dev branch = grouped step checkbox; or `--answers file.json --non-interactive` for GUI/agents, `--force` overwrite guard), `schema --json` (GUI form contract, schema_version 2; v1 answers still accepted), `validate [--json]`. Secrets go into a 0600 env_file, never into the YAML (empty -> no file) |
 | `run` | YAML playbook execution (`--list`, `--steps`, `--var`, `--dry-run`, `--output json` NDJSON; server-mode steps incl. `server.rebuild` — shell-out to `update_docker_odoo.py`, v0.54.0) |
 | `env` | setup, check, show, dir for .env management |
 | `venv` | setup, check, activate, path for UV venv |

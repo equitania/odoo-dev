@@ -177,6 +177,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.55.0:**
+- **Geändert:** Playbook-Assistent mit Quelle-zuerst-Führung. Der Server-Zweig fragt jetzt explizit „Was ist die QUELLE des Mirrors?" (frisches Backup von einem Container-Paar mit automatisch abgeleitetem Restore-Pattern, bestehende Backup-Datei oder neuestes Backup nach Muster) und danach getrennt das Ziel — mit Self-Mirror-Guard: Ein Restore zurück auf das gerade gesicherte System erfordert eine explizite Bestätigung, die Builder-Validierung lehnt Backup-Quelle == Restore-Ziel ab. `server.restore` ist immer Teil des Mirrors; die Options-Checkbox umfasst nur noch die Zusatzschritte. Schema-Version 2 (Answers-Dateien der Version 1 bleiben gültig). **Fixes:** Server-Pfade (`~/update_docker_odoo.py` etc.) werden nicht mehr lokal expandiert, sondern bleiben wörtlich in der YAML; ohne eingegebene Secret-Werte wird keine leere env-Datei mehr geschrieben.
+
 **Version 0.54.0:**
 - **Neu:** `odoodev playbook create` — interaktiver Playbook-Assistent. Der Server-Zweig führt geführt durch das Live→Test-Mirror-Rezept (Backup → optionaler Container-Neuaufbau via `server.rebuild`/`update_docker_odoo.py` → Stop → Restore mit Sanitize-Auswahl → SQL-Presets für Enterprise-Code, eq_cloud-Bereinigung und Website-Domain-Tausch → Start → Neutralize → Update-all → RPC), der Dev-Zweig über eine gruppierte Schritt-Checkbox. Secrets landen nie in der YAML: Der Assistent schreibt sie auf Wunsch in eine env_file mit Rechten 600 (Merge bei bestehender Datei) und erkennt alle `{{ env.X }}`-Referenzen automatisch. Für GUI und Agenten: `playbook create --answers datei.json --non-interactive` (derselbe Generator-Kern, kein Drift möglich), `playbook schema --json` (Formular-Kontrakt) und `playbook validate [--json]`. Jedes erzeugte Playbook wird vor dem Schreiben durch die Runner-Validierung geprüft.
 
@@ -481,6 +484,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.55.0:**
+- **Changed:** Playbook assistant with source-first guidance. The server branch now explicitly asks "What is the SOURCE of the mirror?" (fresh backup from a container pair with auto-derived restore pattern, an existing backup file, or the newest backup by pattern) and then the destination separately — with a self-mirror guard: restoring back onto the system that was just backed up requires explicit confirmation, and builder validation rejects backup source == restore destination. `server.restore` is always part of the mirror; the options checkbox only covers the extra steps. Schema version 2 (version-1 answers files remain valid). **Fixes:** server-side paths (`~/update_docker_odoo.py` etc.) are no longer expanded locally and stay literal in the YAML; no more empty env files when no secret values were entered.
 
 **Version 0.54.0:**
 - **Added:** `odoodev playbook create` — interactive playbook assistant. The server branch guides through the live→test mirror recipe (backup → optional container rebuild via `server.rebuild`/`update_docker_odoo.py` → stop → restore with sanitize checkbox → SQL presets for enterprise code, eq_cloud cleanup and website-domain swap → start → neutralize → update-all → RPC), the dev branch uses a grouped step checkbox. Secrets never land in the YAML: on request the assistant writes them into a 0600 env_file (merge-aware for existing files) and auto-detects every `{{ env.X }}` reference. For GUI and agents: `playbook create --answers file.json --non-interactive` (one shared generator core, no drift possible), `playbook schema --json` (form contract) and `playbook validate [--json]`. Every generated playbook is validated through the runner's own validation before it is written.

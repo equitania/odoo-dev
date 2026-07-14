@@ -28,6 +28,10 @@ from odoodev.core.playbook_schema import (
     SCHEMA_VERSION,
 )
 
+# Answers files from v1 (0.54.0) remain valid — the answers format is unchanged;
+# schema v2 only restructured the wizard/GUI question flow (source-first).
+SUPPORTED_SCHEMA_VERSIONS = (1, SCHEMA_VERSION)
+
 _ENV_REF_RE = re.compile(r"\{\{\s*env\.(\w+)\s*\}\}")
 _VAR_REF_RE = re.compile(r"\{\{\s*vars\.(\w+)\s*\}\}")
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -68,8 +72,8 @@ def validate_answers(answers: dict[str, Any]) -> list[str]:
     problems: list[str] = []
 
     schema_version = answers.get("schema_version")
-    if schema_version != SCHEMA_VERSION:
-        problems.append(f"schema_version must be {SCHEMA_VERSION}, got {schema_version!r}")
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+        problems.append(f"schema_version must be one of {list(SUPPORTED_SCHEMA_VERSIONS)}, got {schema_version!r}")
 
     playbook_type = answers.get("playbook_type")
     if playbook_type not in PLAYBOOK_TYPES:
@@ -136,6 +140,19 @@ def _validate_server_answers(answers: dict[str, Any]) -> list[str]:
     backup = recipe.get("backup") or {}
     if isinstance(backup, dict) and backup.get("enabled") and not str(backup.get("backup_dir", "") or "").strip():
         problems.append("recipe.backup.enabled is true but recipe.backup.backup_dir is missing")
+
+    # Self-mirror guard: backing up a target and restoring straight back into the
+    # SAME target is the v0.54.0 wizard failure mode (source question missing) —
+    # the restore would overwrite the system that was just backed up.
+    restore_block = recipe.get("restore") or {}
+    if isinstance(backup, dict) and isinstance(restore_block, dict) and backup.get("enabled"):
+        if restore_block.get("enabled"):
+            dest = str(recipe.get("destination", "") or "") or str(restore_block.get("target", "") or "")
+            if dest and str(backup.get("target", "") or "") == dest:
+                problems.append(
+                    f"backup source and restore destination are the same target ('{dest}') — "
+                    "the mirror would overwrite the system it just backed up"
+                )
 
     restore = recipe.get("restore") or {}
     if isinstance(restore, dict) and restore.get("enabled"):
