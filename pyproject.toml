@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.51.1"
+version = "0.52.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -55,6 +55,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["odoodev"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"usage/AGENT.md" = "odoodev/data/AGENT.md"
 
 [tool.ruff]
 line-length = 120

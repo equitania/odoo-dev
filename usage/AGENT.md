@@ -12,7 +12,8 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.44.0  ·  **Framework:** Python / Click
+- **Version:** 0.52.0  ·  **Framework:** Python / Click
+- **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
 **Version argument:** Almost every command takes an optional `[VERSION]` (`16`–`19`). If omitted, it
@@ -45,6 +46,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | Command | Purpose | Args / Flags |
 |---|---|---|
 | `odoodev bench` | Benchmark PostgreSQL on Docker vs Apple Container (isolated container, dedicated port). | [VERSION], --runtime docker\|apple\|both, --duration INT, --scale INT, --port INT, --keep |
+| `odoodev capability-card` | Print this capability card to stdout (raw Markdown, live version injected) — primary self-description surface for agents. | — |
 | `odoodev config edit` | Open the global config file in $EDITOR (creates defaults if missing). | — |
 | `odoodev config set` | Set a global configuration value. | KEY, VALUE (keys: base_dir, language, db.user, db.password, active_versions, **container_runtime** docker\|apple) |
 | `odoodev config show` | Show current platform, global config, and environment information. | — |
@@ -79,16 +81,16 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev migrate status` | Show migration status and active group details. | — |
 | `odoodev pull` | Pull (update) all existing repositories. | [VERSION], -c/--config PATH, -v/--verbose, --no-config, --select, --no-enterprise-prompt |
 | `odoodev repos` | Clone/update repositories and generate Odoo configuration. | [VERSION], -c/--config PATH, --init, --server-only, --config-only, --skip-access-check, --select, --no-enterprise-prompt, -v/--verbose |
-| `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --var/-D TEXT |
+| `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --steps, --var/-D TEXT |
 | `odoodev setup` | Interactive setup wizard for odoodev configuration. | --non-interactive, --reset |
 | `odoodev shell-setup` | Install odoodev shell wrapper function. | --shell fish\|bash\|zsh\|auto |
-| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, [EXTRA_ARGS] |
+| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, -y/--yes (alias for --no-confirm), [EXTRA_ARGS] |
 | `odoodev stop` | Stop Odoo server and Docker services for the given version. | [VERSION], --keep-docker, --force |
 | `odoodev venv activate` | Print the venv activation command for current shell. | [VERSION] |
 | `odoodev venv check` | Check venv status and requirements freshness. | [VERSION], --json |
 | `odoodev venv path` | Print the venv directory path. | [VERSION] |
 | `odoodev venv remove` | Remove the virtual environment for a version. | [VERSION], --yes/-y |
-| `odoodev venv setup` | Create virtual environment with UV and install requirements. | [VERSION], --force |
+| `odoodev venv setup` | Create virtual environment with UV and install requirements. | [VERSION], --force, --python-version TEXT (full Python version override) |
 
 Anything after a bare `--` on `odoodev start` is passed straight to `odoo-bin`.
 
@@ -245,6 +247,8 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   commands accept `-y`. Prefer these in automation to avoid blocking on prompts.
 
 ## Machine-readable outputs
+- `odoodev capability-card` → this card as raw Markdown (self-description; version always live).
+- `odoodev run --steps` → list of valid playbook step commands.
 - `odoodev db list --json` → array of databases.
 - `odoodev config versions --json` → full version registry (ports, paths, git).
 - `odoodev venv check --json` → venv/requirements freshness status.

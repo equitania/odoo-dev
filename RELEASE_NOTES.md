@@ -1,5 +1,21 @@
 # Release Notes
 
+## Version 0.52.0 (14.07.2026)
+
+### Added
+- **`odoodev capability-card`** — the tool now serves its own agent capability
+  card: prints `usage/AGENT.md` as raw Markdown on stdout with the version
+  header injected live from `__version__` (the card can no longer go stale).
+  The card is bundled into the wheel via hatchling force-include
+  (`usage/AGENT.md` → `odoodev/data/AGENT.md`); in editable/repo checkouts the
+  command falls back to `usage/AGENT.md` directly. Primary self-description
+  surface for LLM agents — no repo or website lookup needed.
+
+### Changed
+- `usage/AGENT.md` refreshed: version header, new **Self-serve** pointer,
+  `capability-card` row, missing flags added (`run --steps`, `start -y/--yes`,
+  `venv setup --python-version`), machine-readable outputs section extended.
+
 ## Version 0.51.1 (13.07.2026)
 
 ### Fixed

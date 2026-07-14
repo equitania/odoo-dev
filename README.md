@@ -97,6 +97,7 @@ odoodev start 18 --dev
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps (`--list`, `--var`) | [run.md](usage/run.md) |
 | `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
+| `odoodev capability-card` | Agent Capability Card ausgeben (rohes Markdown für KI-Agenten, Version live injiziert) | [AGENT.md](usage/AGENT.md) |
 
 ### Unterstützte Versionen
 
@@ -174,6 +175,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.52.0:**
+- **Neu:** `odoodev capability-card` — das Tool liefert seine eigene KI-Anleitung selbst aus. Der Befehl gibt die Agent Capability Card (`usage/AGENT.md`) als rohes Markdown auf stdout aus; die Versionszeile wird beim Ausgeben live aus `__version__` injiziert und kann damit nie mehr veralten. Die Karte wird per hatchling force-include ins Wheel gebündelt (`odoodev/data/AGENT.md`), im Repo-Checkout greift ein Fallback auf `usage/AGENT.md`. KI-Agenten brauchen damit weder Repo- noch Web-Zugriff: `odoodev capability-card` genügt als vollständige Selbstbeschreibung.
 
 **Version 0.50.0:**
 - **Neu:** Server-Modus-Playbooks — der manuelle Live→Test-Restore-Prozess auf Kundenservern läuft jetzt vollautomatisch über `odoodev run`. Playbooks definieren `targets:` (Container-Paare wie `live-odoo`/`live-db`, `test-odoo`/`test-db`), eine `env_file:` für Secrets (Werte der Datei gewinnen über die Prozess-Umgebung, nie im YAML) und eine `rpc:`-Sektion für API-Zugriff. Der komplette Ablauf: frisches Live-Backup (`server.backup`, container2backup-kompatibles `.tar.zst`) oder neuestes vorhandenes Backup per Glob-Pattern (`newest_in_dir`), `container.stop`, `server.restore` (Drop + `TEMPLATE template0`, Dump via `docker exec psql`, Filestore-Tausch über `docker inspect`-Mount-Auflösung inkl. `chown`, Sessions-Bereinigung, opt-in Sanitize-Schritte der bestehenden `db restore`-Maschinerie), kundenspezifisches SQL (`sql.execute`, Jinja-Templates in Statement-Listen), `container.start`, `server.neutralize`/`server.update-all` (odoo-bin im laufenden Container, Update mit anschließendem Neustart) und deklarative RPC-Konfiguration (`rpc.execute` via `odoorpc-toolbox`, neues Extra `odoodev-equitania[rpc]`). Beispiel-Playbook: `data/examples/playbooks/server-mirror.yaml`.
@@ -394,6 +398,7 @@ odoodev start 18 --dev
 | `odoodev run [PLAYBOOK]` | YAML playbook or inline steps (`--list`, `--var`) | [run.md](usage/run.md) |
 | `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Install shell completions and wrappers | [shell.md](usage/shell.md) |
+| `odoodev capability-card` | Print the agent capability card (raw Markdown for AI agents, live version injection) | [AGENT.md](usage/AGENT.md) |
 
 ### Supported Versions
 
@@ -471,6 +476,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.52.0:**
+- **Added:** `odoodev capability-card` — the tool now serves its own AI documentation. The command prints the agent capability card (`usage/AGENT.md`) as raw Markdown on stdout; the version line is injected live from `__version__` at print time, so it can never go stale. The card is bundled into the wheel via hatchling force-include (`odoodev/data/AGENT.md`), with a repo-checkout fallback to `usage/AGENT.md`. AI agents no longer need repo or web access: `odoodev capability-card` is the complete self-description surface.
 
 **Version 0.50.0:**
 - **Added:** Server-mode playbooks — the manual live→test restore process on customer servers now runs fully automated via `odoodev run`. Playbooks define `targets:` (container pairs like `live-odoo`/`live-db`, `test-odoo`/`test-db`), an `env_file:` for secrets (file values win over the process environment, never stored in YAML) and an `rpc:` section for API access. The complete flow: fresh live backup (`server.backup`, container2backup-compatible `.tar.zst`) or the newest existing backup by glob pattern (`newest_in_dir`), `container.stop`, `server.restore` (drop + `TEMPLATE template0`, dump via `docker exec psql`, filestore swap through `docker inspect` mount resolution incl. `chown`, sessions cleanup, opt-in sanitize steps reusing the existing `db restore` machinery), customer-specific SQL (`sql.execute`, Jinja templates inside statement lists), `container.start`, `server.neutralize`/`server.update-all` (odoo-bin inside the running container, update with subsequent restart) and declarative RPC configuration (`rpc.execute` via `odoorpc-toolbox`, new extra `odoodev-equitania[rpc]`). Example playbook: `data/examples/playbooks/server-mirror.yaml`.
