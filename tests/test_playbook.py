@@ -112,7 +112,8 @@ class TestValidCommands:
         from odoodev.core.playbook import SERVER_COMMANDS
 
         assert SERVER_COMMANDS <= VALID_COMMANDS
-        assert len(SERVER_COMMANDS) == 8
+        assert len(SERVER_COMMANDS) == 9
+        assert "server.rebuild" in SERVER_COMMANDS
 
 
 # =============================================================================

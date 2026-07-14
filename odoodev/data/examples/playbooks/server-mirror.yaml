@@ -42,6 +42,18 @@ steps:
       backup_dir: /opt/backups/docker
       compression_level: 5
 
+  # Optional — rebuild the test Odoo container from scratch (release fetch +
+  # docker build via update_docker_odoo.py from myodoo-docker; the access code
+  # lives in release.txt inside the container's build folder). The script
+  # starts the container itself, so container.stop below stays in place.
+  # - name: "Rebuild test-odoo container"
+  #   command: server.rebuild
+  #   args:
+  #     target: test                # container = odoo_container of the target
+  #     # script_path: ~/update_docker_odoo.py
+  #     # config: ~/docker2update.yaml
+  #     # timeout: 7200
+
   - name: "Stop test-odoo"
     command: container.stop
     args: { target: test, component: odoo }

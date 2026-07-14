@@ -131,6 +131,119 @@ class TestContainerLifecycleHandlers:
 
 
 # =============================================================================
+# server.rebuild — shell-out to update_docker_odoo.py
+# =============================================================================
+
+
+class TestServerRebuild:
+    @pytest.fixture
+    def rebuild_env(self, tmp_path):
+        script = tmp_path / "update_docker_odoo.py"
+        script.write_text("# fake update script\n")
+        config = tmp_path / "docker2update.yaml"
+        config.write_text("containers: []\n")
+        return {"script_path": str(script), "config": str(config)}
+
+    def _fake_run(self, monkeypatch, returncode=0, stdout="", stderr="", raise_timeout=False):
+        calls: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            calls["cmd"] = cmd
+            calls["kwargs"] = kwargs
+            if raise_timeout:
+                import subprocess
+
+                raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+            return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        return calls
+
+    def test_happy_path_command_shape(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch, returncode=0, stdout="done")
+        args = {**rebuild_env, "odoo_container": "test-odoo", "timeout": 123}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "ok"
+        assert result.details["container"] == "test-odoo"
+        assert calls["cmd"] == [
+            "python3",
+            rebuild_env["script_path"],
+            "-c",
+            rebuild_env["config"],
+            "-s",
+            "test-odoo",
+        ]
+        assert calls["kwargs"]["timeout"] == 123
+
+    def test_explicit_container_wins_over_target(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch)
+        args = {**rebuild_env, "container": "custom-odoo", "odoo_container": "test-odoo"}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "ok"
+        assert "-s" in calls["cmd"] and calls["cmd"][calls["cmd"].index("-s") + 1] == "custom-odoo"
+
+    def test_extra_args_appended(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch)
+        args = {**rebuild_env, "odoo_container": "test-odoo", "extra_args": ["--verbose"]}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "ok"
+        assert calls["cmd"][-1] == "--verbose"
+
+    def test_extra_args_must_be_list(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch)
+        args = {**rebuild_env, "odoo_container": "test-odoo", "extra_args": "--verbose"}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "error"
+        assert "extra_args" in result.message
+        assert "cmd" not in calls
+
+    def test_missing_container_is_error_without_subprocess(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch)
+        result = sa.handle_server_rebuild(version_cfg, dict(rebuild_env))
+        assert result.status == "error"
+        assert "container" in result.message
+        assert "cmd" not in calls
+
+    def test_missing_script_is_error(self, version_cfg, rebuild_env, monkeypatch, tmp_path):
+        calls = self._fake_run(monkeypatch)
+        args = {**rebuild_env, "script_path": str(tmp_path / "nope.py"), "odoo_container": "test-odoo"}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "error"
+        assert "Rebuild script not found" in result.message
+        assert "cmd" not in calls
+
+    def test_missing_config_is_error(self, version_cfg, rebuild_env, monkeypatch, tmp_path):
+        calls = self._fake_run(monkeypatch)
+        args = {**rebuild_env, "config": str(tmp_path / "nope.yaml"), "odoo_container": "test-odoo"}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "error"
+        assert "Rebuild config not found" in result.message
+        assert "cmd" not in calls
+
+    def test_nonzero_exit_reports_output_tail(self, version_cfg, rebuild_env, monkeypatch):
+        self._fake_run(monkeypatch, returncode=1, stdout="build log", stderr="docker build failed")
+        args = {**rebuild_env, "odoo_container": "test-odoo"}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "error"
+        assert "exit 1" in result.message
+        assert "docker build failed" in result.message
+
+    def test_timeout_is_error(self, version_cfg, rebuild_env, monkeypatch):
+        self._fake_run(monkeypatch, raise_timeout=True)
+        args = {**rebuild_env, "odoo_container": "test-odoo", "timeout": 5}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "error"
+        assert "timed out" in result.message
+
+    def test_default_timeout_used(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch)
+        args = {**rebuild_env, "odoo_container": "test-odoo"}
+        result = sa.handle_server_rebuild(version_cfg, args)
+        assert result.status == "ok"
+        assert calls["kwargs"]["timeout"] == sa.REBUILD_TIMEOUT
+
+
+# =============================================================================
 # server.backup
 # =============================================================================
 

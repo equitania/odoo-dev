@@ -188,6 +188,89 @@ def handle_server_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> St
 
 
 # =============================================================================
+# server.rebuild — full container rebuild via update_docker_odoo.py
+# =============================================================================
+
+# update_docker_odoo.py is deployed to $HOME on customer servers via getScripts.py;
+# its container definitions live in ~/docker2update.yaml (release access code sits
+# in release.txt inside each container's build folder — no extra secret needed here).
+REBUILD_SCRIPT_PATH = "~/update_docker_odoo.py"
+REBUILD_CONFIG_PATH = "~/docker2update.yaml"
+# Script-internal timeouts are hardcoded (build 3600s + update 1800s); leave headroom.
+REBUILD_TIMEOUT = 7200
+
+
+@_timed
+def handle_server_rebuild(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
+    """Rebuild a target's Odoo container from scratch via ``update_docker_odoo.py``.
+
+    Shells out to the myodoo-docker update script (exit code is the contract):
+    it fetches the release info from the release server, rebuilds the image with
+    ``docker build`` and recreates the container under the same name. The script
+    starts the container itself at the end — in a mirror playbook place a
+    ``container.stop`` step after this one, before ``server.restore``.
+    """
+    import subprocess
+
+    command = "server.rebuild"
+    container = str(args.get("container", "") or "") or str(args.get("odoo_container", "") or "")
+    if not container:
+        return _step_error(
+            command, command, f"{command}: missing 'container' (set it or reference a target with odoo_container)", 0
+        )
+    script_path = os.path.expanduser(str(args.get("script_path", "") or REBUILD_SCRIPT_PATH))
+    config_path = os.path.expanduser(str(args.get("config", "") or REBUILD_CONFIG_PATH))
+    timeout = int(args.get("timeout", REBUILD_TIMEOUT))
+    extra_args = args.get("extra_args") or []
+    if not isinstance(extra_args, list):
+        return _step_error(command, command, f"{command}: 'extra_args' must be a list", 0)
+    if not os.path.isfile(script_path):
+        return _step_error(
+            command,
+            command,
+            f"Rebuild script not found: {script_path} — deploy update_docker_odoo.py (getScripts.py) first",
+            0,
+        )
+    if not os.path.isfile(config_path):
+        return _step_error(
+            command,
+            command,
+            f"Rebuild config not found: {config_path} — the container must be defined in docker2update.yaml",
+            0,
+        )
+
+    cmd = ["python3", script_path, "-c", config_path, "-s", container, *[str(a) for a in extra_args]]
+    try:
+        result = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return _step_error(command, command, f"Rebuild of '{container}' timed out after {timeout}s", 0)
+    except FileNotFoundError as exc:
+        return _step_error(command, command, f"python3 not available: {exc}", 0)
+
+    if result.returncode != 0:
+        tail = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()[-2000:]
+        return _step_error(
+            command,
+            command,
+            f"update_docker_odoo.py failed for '{container}' (exit {result.returncode}): {tail}",
+            result.returncode,
+        )
+    return _step_ok(
+        command,
+        command,
+        f"Container '{container}' rebuilt via {os.path.basename(script_path)} (running now — stop before restore)",
+        0,
+        container=container,
+    )
+
+
+# =============================================================================
 # server.restore — drop/create, dump restore, filestore swap, psql sanitize
 # =============================================================================
 
@@ -607,6 +690,7 @@ SERVER_COMMAND_HANDLERS: dict[str, Any] = {
     "container.stop": handle_container_stop,
     "container.start": handle_container_start,
     "server.backup": handle_server_backup,
+    "server.rebuild": handle_server_rebuild,
     "server.restore": handle_server_restore,
     "server.neutralize": handle_server_neutralize,
     "server.update-all": handle_server_update_all,

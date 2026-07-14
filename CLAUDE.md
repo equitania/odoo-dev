@@ -50,7 +50,9 @@ uv build
 - **`core/venv_manager.py`** — UV-based venv creation. SHA256 hashing of requirements for freshness detection.
 - **`core/docker_compose.py`** — Renders and manages docker-compose.yml via Jinja2 template.
 - **`core/shell_integration.py`** — Installs `odoodev-activate` shell function for Fish, Bash, Zsh.
-- **`output.py`** — Rich console helpers (success/error/warning/info/header).
+- **`core/playbook_schema.py`** — Single source of truth for the playbook assistant (v0.54.0): `SCHEMA_VERSION`, frozen `WizardField`/`WizardSection` dataclasses, `SECTIONS`, `SQL_PRESETS` (enterprise code, eq_cloud cleanup, website-domain swap), `DEV_STEP_GROUPS`/`DEV_STEP_ORDER`, `STEP_ARG_SPECS` (descriptive per-step arg specs incl. `server.rebuild`), `wizard_schema()` (JSON-serializable; resolves `choices_source` like `available_versions` inline). Pure data — no questionary/click imports.
+- **`core/playbook_builder.py`** — Pure generator core (v0.54.0): answers dict → `build_playbook_dict()` → `render_playbook_yaml()`; `validate_generated()` round-trips through `playbook._validate_playbook` before any write; `answers_from_file()`/`validate_answers()` collect ALL structural problems into one `AnswersValidationError`; `write_env_file()` (0600 via `os.open`, merge-aware via `dotenv_values`), `find_env_references()`/`find_var_references()` (Jinja ref scanning), `slugify()`/`default_output_path()` (`./playbooks/<slug>.yaml`, matches `run.py` discovery). One shared input contract for the interactive wizard AND the GUI's `--answers` mode.
+- **`output.py`** — Rich console helpers (success/error/warning/info/header) + questionary wrappers (`confirm`, `select`, `text_input`, `path_input`, `password_input`, `checkbox_with_separators`).
 
 ### Commands (`commands/`)
 
@@ -60,6 +62,8 @@ uv build
 | `start` | Start Odoo server (modes: normal, --dev, --shell, --test, --prepare) |
 | `repos` | Clone/update repos from repos.yaml, generate odoo.conf |
 | `db` | list, restore, drop, uninstall, users, purge, recompute databases |
+| `playbook` | Playbook assistant (v0.54.0): `create` (interactive wizard: server branch = guided live→test mirror recipe incl. optional `server.rebuild`, dev branch = grouped step checkbox; or `--answers file.json --non-interactive` for GUI/agents, `--force` overwrite guard), `schema --json` (GUI form contract), `validate [--json]`. Secrets go into a 0600 env_file, never into the YAML |
+| `run` | YAML playbook execution (`--list`, `--steps`, `--var`, `--dry-run`, `--output json` NDJSON; server-mode steps incl. `server.rebuild` — shell-out to `update_docker_odoo.py`, v0.54.0) |
 | `env` | setup, check, show, dir for .env management |
 | `venv` | setup, check, activate, path for UV venv |
 | `docker` | up, down, status, logs for Docker services |

@@ -1,5 +1,40 @@
 # Release Notes
 
+## Version 0.54.0 (14.07.2026)
+
+### Added
+- **`odoodev playbook create` — interactive playbook assistant.** A guided
+  interview that generates runnable playbook YAML for both modes: the server
+  branch is an opinionated live→test mirror recipe (backup → optional container
+  rebuild → stop → restore with sanitize checkbox → SQL statement builder with
+  presets for enterprise code, eq_cloud cleanup and website-domain swap → start
+  → neutralize → update-all → rpc.execute), the dev branch is a grouped step
+  checkbox with per-step argument prompts. Secrets never land in the YAML: the
+  assistant optionally writes a 0600 env_file (merge-aware for existing files)
+  and auto-detects every `{{ env.X }}` reference for the checklist. Every
+  generated playbook is round-trip validated through the runner's own
+  `_validate_playbook` before it is written.
+- **`odoodev playbook create --answers file.json --non-interactive`** — the
+  GUI/agent submission endpoint: the identical answers dict the wizard builds,
+  as a JSON file; one shared generator core (`core/playbook_builder.py`), so
+  wizard and GUI can never drift. Structural validation reports ALL problems at
+  once; existing output/env files are refused without `--force`.
+- **`odoodev playbook schema --json`** — machine-readable wizard field schema
+  (sections, field types, defaults, conditionals, SQL presets, per-step arg
+  specs; `schema_version: 1`) as the GUI form-rendering contract
+  (`core/playbook_schema.py` is the single source of truth for both frontends).
+- **`odoodev playbook validate PLAYBOOK [--json]`** — non-executing validation
+  via the runner's `load_playbook()`.
+- **New server-mode step `server.rebuild`** — full Odoo container rebuild via
+  the deployed `update_docker_odoo.py` (myodoo-docker): release fetch by access
+  code, `docker build`, container recreation. Args: `container` (defaults to
+  the target's `odoo_container`), `script_path` (`~/update_docker_odoo.py`),
+  `config` (`~/docker2update.yaml`), `timeout` (7200s), `extra_args`. Exit code
+  is the contract. Place it before `container.stop` + `server.restore` — the
+  script starts the container itself.
+- `output.password_input()` — masked questionary prompt for secret values.
+- New doc `usage/playbook.md`; ~90 new DE/EN i18n keys (`playbook.*`).
+
 ## Version 0.53.0 (14.07.2026)
 
 ### Added

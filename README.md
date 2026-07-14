@@ -95,6 +95,7 @@ odoodev start 18 --dev
 | `odoodev doctor [VERSION]` | Umgebungs-Checks + PyPI-Update-Hinweis | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Konfiguration und Versionen (inkl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps (`--list`, `--var`) | [run.md](usage/run.md) |
+| `odoodev playbook [SUB]` | Playbook-Assistent: interaktiv erstellen (`create`), Feldschema für GUIs (`schema --json`), prüfen (`validate`) | [playbook.md](usage/playbook.md) |
 | `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
 | `odoodev capability-card` | Agent Capability Card ausgeben (rohes Markdown für KI-Agenten, Version live injiziert) | [AGENT.md](usage/AGENT.md) |
@@ -175,6 +176,9 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.54.0:**
+- **Neu:** `odoodev playbook create` — interaktiver Playbook-Assistent. Der Server-Zweig führt geführt durch das Live→Test-Mirror-Rezept (Backup → optionaler Container-Neuaufbau via `server.rebuild`/`update_docker_odoo.py` → Stop → Restore mit Sanitize-Auswahl → SQL-Presets für Enterprise-Code, eq_cloud-Bereinigung und Website-Domain-Tausch → Start → Neutralize → Update-all → RPC), der Dev-Zweig über eine gruppierte Schritt-Checkbox. Secrets landen nie in der YAML: Der Assistent schreibt sie auf Wunsch in eine env_file mit Rechten 600 (Merge bei bestehender Datei) und erkennt alle `{{ env.X }}`-Referenzen automatisch. Für GUI und Agenten: `playbook create --answers datei.json --non-interactive` (derselbe Generator-Kern, kein Drift möglich), `playbook schema --json` (Formular-Kontrakt) und `playbook validate [--json]`. Jedes erzeugte Playbook wird vor dem Schreiben durch die Runner-Validierung geprüft.
 
 **Version 0.52.0:**
 - **Neu:** `odoodev capability-card` — das Tool liefert seine eigene KI-Anleitung selbst aus. Der Befehl gibt die Agent Capability Card (`usage/AGENT.md`) als rohes Markdown auf stdout aus; die Versionszeile wird beim Ausgeben live aus `__version__` injiziert und kann damit nie mehr veralten. Die Karte wird per hatchling force-include ins Wheel gebündelt (`odoodev/data/AGENT.md`), im Repo-Checkout greift ein Fallback auf `usage/AGENT.md`. KI-Agenten brauchen damit weder Repo- noch Web-Zugriff: `odoodev capability-card` genügt als vollständige Selbstbeschreibung.
@@ -396,6 +400,7 @@ odoodev start 18 --dev
 | `odoodev doctor [VERSION]` | Environment checks + PyPI update notice | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Configuration and versions (incl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML playbook or inline steps (`--list`, `--var`) | [run.md](usage/run.md) |
+| `odoodev playbook [SUB]` | Playbook assistant: interactive creation (`create`), GUI field schema (`schema --json`), validation (`validate`) | [playbook.md](usage/playbook.md) |
 | `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Install shell completions and wrappers | [shell.md](usage/shell.md) |
 | `odoodev capability-card` | Print the agent capability card (raw Markdown for AI agents, live version injection) | [AGENT.md](usage/AGENT.md) |
@@ -476,6 +481,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.54.0:**
+- **Added:** `odoodev playbook create` — interactive playbook assistant. The server branch guides through the live→test mirror recipe (backup → optional container rebuild via `server.rebuild`/`update_docker_odoo.py` → stop → restore with sanitize checkbox → SQL presets for enterprise code, eq_cloud cleanup and website-domain swap → start → neutralize → update-all → RPC), the dev branch uses a grouped step checkbox. Secrets never land in the YAML: on request the assistant writes them into a 0600 env_file (merge-aware for existing files) and auto-detects every `{{ env.X }}` reference. For GUI and agents: `playbook create --answers file.json --non-interactive` (one shared generator core, no drift possible), `playbook schema --json` (form contract) and `playbook validate [--json]`. Every generated playbook is validated through the runner's own validation before it is written.
 
 **Version 0.52.0:**
 - **Added:** `odoodev capability-card` — the tool now serves its own AI documentation. The command prints the agent capability card (`usage/AGENT.md`) as raw Markdown on stdout; the version line is injected live from `__version__` at print time, so it can never go stale. The card is bundled into the wheel via hatchling force-include (`odoodev/data/AGENT.md`), with a repo-checkout fallback to `usage/AGENT.md`. AI agents no longer need repo or web access: `odoodev capability-card` is the complete self-description surface.

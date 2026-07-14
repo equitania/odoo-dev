@@ -132,6 +132,14 @@ def text_input(message: str, default: str = "") -> str:
     return result
 
 
+def password_input(message: str) -> str:
+    """Interactive masked input for secrets using questionary."""
+    result = questionary.password(message, style=_ownerp_style()).ask()
+    if result is None:
+        raise SystemExit(0)
+    return result
+
+
 def path_input(message: str, default: str = "") -> str:
     """Interactive file path input with autocomplete using questionary.
 

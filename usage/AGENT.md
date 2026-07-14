@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.53.0  ·  **Framework:** Python / Click
+- **Version:** 0.54.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -80,6 +80,9 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev migrate list` | List all defined migration groups. | — |
 | `odoodev migrate remove` | Remove a migration group definition. | NAME, --yes/-y |
 | `odoodev migrate status` | Show migration status and active group details. | — |
+| `odoodev playbook create` | Playbook assistant: interactive interview (dev or server mode) OR non-interactive generation from an answers JSON file — writes a validated playbook YAML + optional 0600 secrets env_file. | --answers FILE, --non-interactive, -o/--output PATH, --force |
+| `odoodev playbook schema` | Print the assistant's field schema (sections, fields, types, conditionals, step arg specs) — the GUI form-rendering contract. | --json |
+| `odoodev playbook validate` | Validate a playbook file without executing it (same validation as `odoodev run`). | PLAYBOOK, --json |
 | `odoodev pull` | Pull (update) all existing repositories. | [VERSION], -c/--config PATH, -v/--verbose, --no-config, --select, --no-enterprise-prompt |
 | `odoodev repos` | Clone/update repositories and generate Odoo configuration. | [VERSION], -c/--config PATH, --init, --server-only, --config-only, --skip-access-check, --select, --no-enterprise-prompt, -v/--verbose |
 | `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --steps, --var/-D TEXT |
@@ -192,7 +195,10 @@ optional `owner`/`data_dir` — empty `data_dir` is resolved via `docker inspect
 `ODOO_PASSWORD`/`ODOO_DATABASE` from the env_file). Steps reference targets via `target: <name>`.
 
 Steps: `container.stop`/`container.start` (idempotent; `component: odoo|db`), `server.backup`
-(`backup_dir`, container2backup-compatible `.tar.zst`), `server.restore` (`backup_source:` either
+(`backup_dir`, container2backup-compatible `.tar.zst`), `server.rebuild` (full container rebuild via
+the deployed `update_docker_odoo.py`: release fetch + `docker build` + recreate; args `script_path`
+default `~/update_docker_odoo.py`, `config` default `~/docker2update.yaml`, `timeout` default 7200s;
+exit code is the contract), `server.restore` (`backup_source:` either
 `{mode: file, path: …}` or `{mode: newest_in_dir, dir, pattern, select_by: mtime|filename_timestamp}`;
 `template: template0`; sanitize flags `deactivate_cron`/`neutralize`/`anonymize`/`wipe`/
 `purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute` (`statements:` list or
@@ -203,7 +209,25 @@ Steps: `container.stop`/`container.start` (idempotent; `component: odoo|db`), `s
 **Ordering guardrails:** `server.restore` refuses to run while the target Odoo container is up
 (stop it first); `server.neutralize`/`server.update-all` exec into the RUNNING container — place
 them after `container.start`. Run customer SQL (enterprise code, website domain) before the start.
+`server.rebuild` starts the container itself at the end — place it BEFORE `container.stop` +
+`server.restore`; it runs a host-wide `docker system prune -f` and has no lock, so never run two
+rebuilds on the same host in parallel.
 Bundled example: `server-mirror.yaml`. Requires root on the server (chown, data-dir access).
+
+### Generate a playbook (assistant / GUI)
+```bash
+odoodev playbook create                                   # interactive interview (dev or server)
+odoodev playbook create --answers a.json --non-interactive # GUI/agent mode, no prompts
+odoodev playbook schema --json                            # field schema for form rendering
+odoodev playbook validate playbooks/mirror.yaml --json    # non-executing validation
+```
+The wizard's server branch is a guided live→test mirror recipe (backup → rebuild → stop → restore
++ sanitize → SQL presets incl. enterprise code + website-domain swap → start → neutralize →
+update-all → rpc). Secrets never land in the YAML: the assistant writes them into a 0600 env_file
+referenced via `{{ env.X }}`. Answers-file format and schema JSON: see `usage/playbook.md`.
+Answers files may contain inline secrets — treat them like the env_file (0600, never commit,
+delete after use). In non-interactive mode an existing output/env file is refused without
+`--force`.
 
 ### Use Apple Container instead of Docker (macOS)
 ```bash
@@ -256,11 +280,16 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   + exists flag for .env, compose, requirements, repos.yaml, postgresql.conf, template/generated
   odoo.conf). Primary path-discovery surface for GUIs/agents — do not re-derive paths.
 - `odoodev venv check --json` → venv/requirements freshness status.
+- `odoodev playbook schema --json` → assistant field schema (GUI form-rendering contract).
+- `odoodev playbook create --answers f.json --non-interactive` → generate a playbook without
+  prompts (submission endpoint; `--force` to overwrite existing files).
+- `odoodev playbook validate FILE --json` → `{"valid": true|false, ...}` (exit code mirrors
+  validity; parse stdout regardless).
 - `odoodev db neutralize --stdout` → emits the neutralize SQL instead of applying it.
 - `odoodev run … --output json` → **NDJSON** stream, one JSON object per executed step (status,
   output, error). Primary integration surface for agents.
 
 ## Deeper docs
 For background and edge cases see `usage/`: `start.md`, `db.md`, `data-protection.md`, `repos.md`,
-`migrate.md`, `run.md`, `docker.md`, `apple-container.md`, `venv.md`, `config.md`, `setup.md`,
-`doctor.md`, `shell.md`, and the full `odoo-development-workflow.md`.
+`migrate.md`, `run.md`, `playbook.md`, `docker.md`, `apple-container.md`, `venv.md`, `config.md`,
+`setup.md`, `doctor.md`, `shell.md`, and the full `odoo-development-workflow.md`.

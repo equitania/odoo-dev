@@ -1,4 +1,4 @@
-# odoodev-equitania v0.52.0 | python/uv
+# odoodev-equitania v0.54.0 | python/uv
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▸ Setup:   uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Test:    pytest                    # single: pytest tests/test_database.py::test_name
@@ -8,4 +8,5 @@
 ▸ Build:   uv build
 ▸ Smoke:   odoodev --help
 ▸ AI-Doc:  odoodev capability-card   # agent capability card, live version
+▸ Wizard:  odoodev playbook create   # playbook assistant; schema --json (GUI), validate
 ▸ Python:  3.12/3.13 tested, >=3.12 (pyproject.toml); line-length 120, double quotes
