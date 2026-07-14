@@ -9,6 +9,49 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+_GENERATED_CONF_RE = re.compile(r"^odoo_\d{6}\.conf$")
+
+
+def resolve_config_paths(version_cfg, repos_config: dict | None = None) -> tuple[str, str]:
+    """Resolve the odoo.conf template path and the generated-config output dir.
+
+    repos.yaml ``paths.template`` / ``paths.config_dir`` override the defaults
+    (``conf_dir/odoo{version}_template.conf`` and ``myconfs_dir``).
+
+    Args:
+        version_cfg: VersionConfig of the target version.
+        repos_config: Parsed repos.yaml dict (or None/{} when unavailable).
+
+    Returns:
+        Tuple of (template_path, config_dir), both ~-expanded.
+    """
+    paths = (repos_config or {}).get("paths") or {}
+    template_path = paths.get("template")
+    config_dir = paths.get("config_dir", version_cfg.paths.myconfs_dir)
+    config_dir = os.path.expanduser(config_dir)
+
+    if not template_path:
+        # Fall back to template in conf dir
+        template_path = os.path.join(version_cfg.paths.conf_dir, f"odoo{version_cfg.version}_template.conf")
+
+    return os.path.expanduser(template_path), config_dir
+
+
+def latest_generated_conf(config_dir: str) -> str | None:
+    """Return the newest generated ``odoo_YYMMDD.conf`` in config_dir, or None.
+
+    Filenames sort correctly by date (YYMMDD), so the lexicographic maximum
+    is the latest generated config.
+    """
+    try:
+        names = os.listdir(config_dir)
+    except OSError:
+        return None
+    matches = sorted(n for n in names if _GENERATED_CONF_RE.match(n))
+    if not matches:
+        return None
+    return os.path.join(config_dir, matches[-1])
+
 
 def generate_addons_path(
     all_paths: dict[str, list[str]],

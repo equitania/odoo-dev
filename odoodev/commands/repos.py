@@ -20,7 +20,7 @@ from odoodev.core.git_ops import (
     update_repo,
     verify_all_repo_access,
 )
-from odoodev.core.odoo_config import create_odoo_config
+from odoodev.core.odoo_config import create_odoo_config, resolve_config_paths
 from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import console, print_error, print_info, print_start_hint, print_success, print_warning
 
@@ -467,16 +467,7 @@ def _generate_config(config: dict, version_cfg, all_paths: dict, repo_metadata: 
     """Generate Odoo config file from template and collected paths."""
     from odoodev.core.global_config import load_global_config
 
-    paths = config.get("paths", {})
-    template_path = paths.get("template")
-    config_dir = paths.get("config_dir", version_cfg.paths.myconfs_dir)
-    config_dir = os.path.expanduser(config_dir)
-
-    if not template_path:
-        # Fall back to template in conf dir
-        template_path = os.path.join(version_cfg.paths.conf_dir, f"odoo{version_cfg.version}_template.conf")
-
-    template_path = os.path.expanduser(template_path)
+    template_path, config_dir = resolve_config_paths(version_cfg, config)
 
     if not os.path.exists(template_path):
         print_warning(f"Config template not found: {template_path}")

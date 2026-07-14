@@ -96,6 +96,88 @@ def config_versions(plain: bool, as_json: bool) -> None:
     print_version_table(versions)
 
 
+def _file_entry(path: str) -> dict:
+    """Build a single file-inventory entry for `config paths`."""
+    return {"path": path, "exists": os.path.exists(path)}
+
+
+def _version_paths(version: str, cfg) -> dict:
+    """Collect the editable config-file inventory for one version."""
+    from odoodev.commands.repos import _find_repos_config, _load_repos_config
+    from odoodev.core.odoo_config import latest_generated_conf, resolve_config_paths
+
+    native_dir = cfg.paths.native_dir
+
+    repos_config: dict = {}
+    repos_yaml_path = _find_repos_config(cfg)
+    if repos_yaml_path:
+        try:
+            repos_config = _load_repos_config(repos_yaml_path) or {}
+        except (OSError, ValueError, TypeError):
+            repos_config = {}
+
+    template_path, config_dir = resolve_config_paths(cfg, repos_config)
+    generated = latest_generated_conf(config_dir)
+
+    return {
+        "native_dir": native_dir,
+        "conf_dir": cfg.paths.conf_dir,
+        "myconfs_dir": config_dir,
+        "files": {
+            "env": _file_entry(os.path.join(native_dir, ".env")),
+            "compose": _file_entry(os.path.join(native_dir, "docker-compose.yml")),
+            "requirements": _file_entry(os.path.join(native_dir, "requirements.txt")),
+            "repos_yaml": _file_entry(repos_yaml_path or os.path.join(native_dir, "repos.yaml")),
+            "postgresql_conf": _file_entry(os.path.join(native_dir, "postgresql.conf")),
+            "template_conf": _file_entry(template_path),
+            "generated_conf": _file_entry(generated) if generated else None,
+        },
+    }
+
+
+@config.command("paths")
+@click.argument("version", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON output")
+def config_paths(version: str | None, as_json: bool) -> None:
+    """Show editable config file locations per version.
+
+    Lists .env, docker-compose.yml, requirements.txt, repos.yaml,
+    postgresql.conf, the odoo.conf template and the latest generated
+    odoo.conf for one VERSION or all versions.
+    """
+    from odoodev.core.version_registry import get_version
+
+    versions = load_versions()
+    if version:
+        try:
+            get_version(version, versions)
+        except KeyError as e:
+            raise click.UsageError(str(e)) from e
+        selected = {version: versions[version]}
+    else:
+        selected = versions
+
+    payload = {v: _version_paths(v, cfg) for v, cfg in selected.items()}
+
+    if as_json:
+        import json
+        import sys
+
+        sys.stdout.write(json.dumps(payload) + "\n")
+        return
+
+    for v, data in payload.items():
+        print_header(f"Odoo {v} config files", data["native_dir"])
+        rows = {}
+        for role, entry in data["files"].items():
+            if entry is None:
+                rows[role] = "(none generated yet)"
+                continue
+            marker = "" if entry["exists"] else "  [missing]"
+            rows[role] = f"{entry['path']}{marker}"
+        print_table("Files", rows)
+
+
 @config.command("set")
 @click.argument("key")
 @click.argument("value")

@@ -1,5 +1,22 @@
 # Release Notes
 
+## Version 0.53.0 (14.07.2026)
+
+### Added
+- **`odoodev config paths [VERSION] --json`** — machine-readable per-version
+  inventory of all editable config files: `native_dir`/`conf_dir`/`myconfs_dir`
+  plus path + exists flag for `.env`, `docker-compose.yml`, `requirements.txt`,
+  `repos.yaml`, `postgresql.conf`, the `odoo{version}_template.conf` and the
+  latest generated `odoo_YYMMDD.conf`. Respects `repos.yaml` `paths.template` /
+  `paths.config_dir` overrides. Without `--json` a human-readable table is
+  printed. Primary path-discovery surface for odoodev-gui and agents.
+
+### Changed
+- Template/config-dir resolution extracted into reusable
+  `resolve_config_paths()` + `latest_generated_conf()` helpers in
+  `core/odoo_config.py`; `repos` config generation now uses the shared helper
+  (no behavior change).
+
 ## Version 0.52.0 (14.07.2026)
 
 ### Added

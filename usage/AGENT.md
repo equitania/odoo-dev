@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.52.0  ·  **Framework:** Python / Click
+- **Version:** 0.53.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -48,6 +48,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev bench` | Benchmark PostgreSQL on Docker vs Apple Container (isolated container, dedicated port). | [VERSION], --runtime docker\|apple\|both, --duration INT, --scale INT, --port INT, --keep |
 | `odoodev capability-card` | Print this capability card to stdout (raw Markdown, live version injected) — primary self-description surface for agents. | — |
 | `odoodev config edit` | Open the global config file in $EDITOR (creates defaults if missing). | — |
+| `odoodev config paths` | Show editable config file locations per version (.env, docker-compose.yml, requirements.txt, repos.yaml, postgresql.conf, odoo.conf template + latest generated). | [VERSION], --json |
 | `odoodev config set` | Set a global configuration value. | KEY, VALUE (keys: base_dir, language, db.user, db.password, active_versions, **container_runtime** docker\|apple) |
 | `odoodev config show` | Show current platform, global config, and environment information. | — |
 | `odoodev config versions` | List all available Odoo versions with their configuration. | --plain, --json |
@@ -251,6 +252,9 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 - `odoodev run --steps` → list of valid playbook step commands.
 - `odoodev db list --json` → array of databases.
 - `odoodev config versions --json` → full version registry (ports, paths, git).
+- `odoodev config paths --json` → per-version config-file inventory (native/conf/myconfs dirs; path
+  + exists flag for .env, compose, requirements, repos.yaml, postgresql.conf, template/generated
+  odoo.conf). Primary path-discovery surface for GUIs/agents — do not re-derive paths.
 - `odoodev venv check --json` → venv/requirements freshness status.
 - `odoodev db neutralize --stdout` → emits the neutralize SQL instead of applying it.
 - `odoodev run … --output json` → **NDJSON** stream, one JSON object per executed step (status,
