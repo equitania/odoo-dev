@@ -11,12 +11,21 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from odoodev import i18n
 from odoodev.cli import cli
 from odoodev.core.playbook import load_playbook
 
 DEFAULT = object()
 
 _PC = "odoodev.commands.playbook_cmd"
+
+
+@pytest.fixture(autouse=True)
+def _explicit_language(monkeypatch):
+    """Pin the language explicitly so the wizard's language question never
+    fires here — otherwise prompt queues would shift depending on whether the
+    developer's machine has a ~/.config/odoodev/config.yaml."""
+    monkeypatch.setenv("ODOODEV_LANG", "en")
 
 
 class PromptScript:
@@ -328,6 +337,72 @@ class TestServerWizard:
         result = _run_create(tmp_path, monkeypatch)
         assert result.exit_code == 0
         assert not (tmp_path / "playbooks" / "mirror.yaml").exists()
+
+    def test_source_and_dest_prompts_use_role_labels(self, tmp_path, monkeypatch, install_script):
+        script = install_script(_server_script(tmp_path))
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+
+        text_prompts = [message for kind, message in script.log if kind == "text"]
+        assert i18n.MESSAGES["en"]["playbook.server.source.name"] in text_prompts
+        assert i18n.MESSAGES["en"]["playbook.server.dest.name"] in text_prompts
+        # the generic label is reserved for the optional extra-target loop
+        assert i18n.MESSAGES["en"]["playbook.server.target.name"] not in text_prompts
+
+
+# =============================================================================
+# Language question
+# =============================================================================
+
+
+class TestLanguageQuestion:
+    def test_asked_and_persisted_when_not_explicit(self, monkeypatch, install_script):
+        from pathlib import Path
+
+        from odoodev.commands import playbook_cmd
+        from odoodev.core.global_config import GlobalConfig
+
+        monkeypatch.setattr(i18n, "_explicit_language", False)
+        monkeypatch.setattr(i18n, "_active_language", "en")
+        saved = {}
+
+        def fake_save(config):
+            saved["config"] = config
+            return Path("/tmp/config.yaml")
+
+        monkeypatch.setattr("odoodev.core.global_config.load_global_config", lambda: GlobalConfig())
+        monkeypatch.setattr("odoodev.core.global_config.save_global_config", fake_save)
+
+        script = install_script(PromptScript(select=["de"], confirm=[True]))
+        playbook_cmd._wizard_language()
+        script.assert_drained()
+
+        assert i18n.get_language() == "de"
+        assert saved["config"].cli.language == "de"
+
+    def test_decline_persist_keeps_language_for_session_only(self, monkeypatch, install_script):
+        from odoodev.commands import playbook_cmd
+
+        monkeypatch.setattr(i18n, "_explicit_language", False)
+        monkeypatch.setattr(i18n, "_active_language", "en")
+
+        def fail_save(config):  # pragma: no cover - must not be reached
+            raise AssertionError("save_global_config must not be called")
+
+        monkeypatch.setattr("odoodev.core.global_config.save_global_config", fail_save)
+
+        script = install_script(PromptScript(select=["de"], confirm=[False]))
+        playbook_cmd._wizard_language()
+        script.assert_drained()
+        assert i18n.get_language() == "de"
+
+    def test_skipped_when_language_is_explicit(self, monkeypatch, install_script):
+        from odoodev.commands import playbook_cmd
+
+        monkeypatch.setattr(i18n, "_explicit_language", True)
+        script = install_script(PromptScript())  # any prompt would fail the queue assert
+        playbook_cmd._wizard_language()
+        script.assert_drained()
 
 
 # =============================================================================

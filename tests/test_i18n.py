@@ -108,3 +108,23 @@ def test_de_translation_parity_with_en():
     en_keys = set(i18n.MESSAGES["en"].keys())
     de_keys = set(i18n.MESSAGES["de"].keys())
     assert en_keys == de_keys, f"Missing translations: {en_keys ^ de_keys}"
+
+
+def test_detect_language_env_counts_as_explicit(monkeypatch):
+    monkeypatch.setenv("ODOODEV_LANG", "de")
+    assert i18n.detect_language(cli_flag=None) == "de"
+    assert i18n.language_was_explicit() is True
+
+
+def test_detect_language_locale_is_not_explicit(monkeypatch):
+    monkeypatch.delenv("ODOODEV_LANG", raising=False)
+    monkeypatch.setattr(i18n, "_config_language", lambda: None)
+    monkeypatch.setattr(i18n, "_locale_language", lambda: "de_DE.UTF-8")
+    assert i18n.detect_language(cli_flag=None) == "de"
+    assert i18n.language_was_explicit() is False
+
+
+def test_config_language_is_none_without_config_file(monkeypatch):
+    """Without a config file the dataclass default 'en' must NOT mask locale detection."""
+    monkeypatch.setattr("odoodev.core.global_config.config_exists", lambda: False)
+    assert i18n._config_language() is None

@@ -31,10 +31,21 @@ odoodev playbook validate playbooks/mirror.yaml
 odoodev playbook validate playbooks/mirror.yaml --json
 ```
 
+#### Sprachwahl (seit v0.56.0)
+
+Ist keine Sprache explizit konfiguriert (`--lang`, `ODOODEV_LANG`, `cli.language` in
+`~/.config/odoodev/config.yaml`), beginnt der Assistent mit **„Sprache / Language?"**
+(Deutsch/English, Vorbelegung aus der Shell-Locale) und bietet an, die Wahl als
+odoodev-weiten Standard zu speichern. Danach führt er in nummerierten Schritten durch
+den Ablauf („Schritt 1/6 — Grundlagen" … „Schritt 6/6 — Zusammenfassung";
+Dev-Zweig: 4 Schritte).
+
 #### Server-Branch: Quelle → Ziel → Optionen (seit v0.55.0)
 
-Der Server-Zweig fragt zuerst die **Quelle**, dann das **Ziel**, dann die Optionen —
-`server.restore` ist immer Teil des Mirrors:
+Der Server-Zweig folgt dem Mirror-Modell **Quelle → Ziel**: erst die Quelle, dann das
+Ziel, dann die Optionen — `server.restore` ist immer Teil des Mirrors. Der Quell-Block
+fragt „Quell-Name", der Ziel-Block „Ziel-Name"; das generische „Target-Name" gibt es
+nur noch für optionale Zusatz-Targets:
 
 1. **„Was ist die QUELLE des Mirrors?"** (Auswahl):
    - **Frisches Backup von einem laufenden Container-Paar** — fragt das Quell-Target

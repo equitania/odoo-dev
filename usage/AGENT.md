@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.55.0  ·  **Framework:** Python / Click
+- **Version:** 0.56.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -221,9 +221,12 @@ odoodev playbook create --answers a.json --non-interactive # GUI/agent mode, no 
 odoodev playbook schema --json                            # field schema for form rendering
 odoodev playbook validate playbooks/mirror.yaml --json    # non-executing validation
 ```
-The wizard's server branch is **source-first** (v0.55.0): it asks the mirror SOURCE first (fresh
-backup from a container pair with auto-derived restore pattern / existing backup file / newest by
-pattern), then the DESTINATION target (self-mirror guard: restoring back onto the source pair
+The wizard opens with a DE/EN language question when no language is explicitly configured
+(`--lang`/`ODOODEV_LANG`/config; default from shell locale, optionally persisted) and walks
+through numbered steps (server: 6, dev: 4). The server branch is **source-first** (v0.55.0):
+it asks the mirror SOURCE first (fresh backup from a container pair with auto-derived restore
+pattern / existing backup file / newest by pattern; prompt "Source name"), then the DESTINATION
+target (prompt "Destination name"; self-mirror guard: restoring back onto the source pair
 needs explicit confirmation), then the optional steps (rebuild → stop → SQL presets incl.
 enterprise code + website-domain swap → start → neutralize → update-all → rpc) — `server.restore`
 is always included. Server-side paths stay literal (`~/...` is expanded on the server, never on

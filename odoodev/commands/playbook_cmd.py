@@ -110,25 +110,76 @@ def _secret_or_text(key: str, message: str) -> str:
     return text_input(message)
 
 
-def _on_error_select(label_key: str, default: str) -> str:
-    return select(i18n.t(label_key), choices=["stop", "continue"], default=default)
-
-
-# =============================================================================
-# Interview: common head
-# =============================================================================
-
-
-def _wizard_common(answers: dict[str, Any]) -> None:
+def _on_error_select(label_key: str, default: str, include_inherit: bool = False) -> str:
     import questionary
 
-    from odoodev.core.version_registry import available_versions, detect_version_from_cwd
+    choices = []
+    if include_inherit:
+        choices.append(questionary.Choice(i18n.t("playbook.choice.on_error_inherit"), value="inherit"))
+    choices += [
+        questionary.Choice(i18n.t("playbook.choice.on_error_stop"), value="stop"),
+        questionary.Choice(i18n.t("playbook.choice.on_error_continue"), value="continue"),
+    ]
+    return select(i18n.t(label_key), choices=choices, default=default)
+
+
+def _select_by_input(default: str = "mtime") -> str:
+    import questionary
+
+    choices = [
+        questionary.Choice(i18n.t("playbook.choice.select_mtime"), value="mtime"),
+        questionary.Choice(i18n.t("playbook.choice.select_filename_ts"), value="filename_timestamp"),
+    ]
+    return select(i18n.t("playbook.server.restore.select_by"), choices=choices, default=default)
+
+
+def _step_header(step: int, total: int, title_key: str, subtitle_key: str = "") -> None:
+    title = i18n.t("playbook.step.prefix", step=step, total=total, title=i18n.t(title_key))
+    print_header(title, i18n.t(subtitle_key) if subtitle_key else "")
+
+
+# =============================================================================
+# Interview: language + common head
+# =============================================================================
+
+
+def _wizard_language() -> None:
+    """Offer a one-time DE/EN choice when no language is explicitly configured.
+
+    Skipped whenever --lang, ODOODEV_LANG or the config file already decided
+    (language_was_explicit) — the default comes from the shell locale.
+    """
+    if i18n.language_was_explicit():
+        return
+    import questionary
+
+    choices = [
+        questionary.Choice("Deutsch", value="de"),
+        questionary.Choice("English", value="en"),
+    ]
+    lang = select(i18n.t("playbook.lang.question"), choices=choices, default=i18n.get_language())
+    i18n.set_language(lang)
+    if confirm(i18n.t("playbook.lang.persist"), default=True):
+        from dataclasses import replace
+
+        from odoodev.core.global_config import CliConfig, load_global_config, save_global_config
+
+        path = save_global_config(replace(load_global_config(), cli=CliConfig(language=lang)))
+        print_info(i18n.t("playbook.lang.saved", path=str(path)))
+
+
+def _wizard_type(answers: dict[str, Any]) -> None:
+    import questionary
 
     type_choices = [
         questionary.Choice(i18n.t("playbook.type.server"), value="server"),
         questionary.Choice(i18n.t("playbook.type.dev"), value="dev"),
     ]
     answers["playbook_type"] = select(i18n.t("playbook.type.question"), choices=type_choices, default="server")
+
+
+def _wizard_basics(answers: dict[str, Any]) -> None:
+    from odoodev.core.version_registry import available_versions, detect_version_from_cwd
 
     answers["name"] = _required_text(i18n.t("playbook.common.name"))
     answers["description"] = text_input(i18n.t("playbook.common.description"), default=answers["name"])
@@ -161,11 +212,18 @@ _SOURCE_FILE = "existing_file"
 _SOURCE_NEWEST = "newest_in_dir"
 
 
-def _wizard_one_target(answers: dict[str, Any], name_default: str) -> str:
-    """Ask one target block (container pair); returns its unique name."""
+def _wizard_one_target(
+    answers: dict[str, Any], name_default: str, name_label_key: str = "playbook.server.target.name"
+) -> str:
+    """Ask one target block (container pair); returns its unique name.
+
+    name_label_key adapts the first prompt to the block's role — asking for a
+    generic "target name" right after the SOURCE question reads like a
+    contradiction (found by the Captain in the v0.55.0 field test).
+    """
     targets: dict[str, dict[str, str]] = answers.setdefault("targets", {})
     while True:
-        name = text_input(i18n.t("playbook.server.target.name"), default=name_default).strip()
+        name = text_input(i18n.t(name_label_key), default=name_default).strip()
         if not name:
             print_warning(i18n.t("playbook.server.target.need_one"))
             continue
@@ -212,8 +270,8 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
     source: dict[str, Any] = {"mode": mode}
 
     if mode == _SOURCE_FRESH:
-        print_header(i18n.t("playbook.server.source.header"))
-        name = _wizard_one_target(answers, "live")
+        print_info(i18n.t("playbook.server.source.header"))
+        name = _wizard_one_target(answers, "live", "playbook.server.source.name")
         backup_dir = _required_text(i18n.t("playbook.server.recipe.backup_dir"), default="/opt/backups/docker")
         recipe["backup"] = {
             "enabled": True,
@@ -237,9 +295,7 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
             backup_source["pattern"] = _required_text(
                 i18n.t("playbook.server.restore.source_pattern"), default=backup_source["pattern"]
             )
-            backup_source["select_by"] = select(
-                i18n.t("playbook.server.restore.select_by"), choices=["mtime", "filename_timestamp"], default="mtime"
-            )
+            backup_source["select_by"] = _select_by_input()
         source["target"] = name
         source["backup_source"] = backup_source
     elif mode == _SOURCE_FILE:
@@ -254,19 +310,17 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
             "pattern": _required_text(
                 i18n.t("playbook.server.restore.source_pattern"), default="*_dockerbackup_*.tar.zst"
             ),
-            "select_by": select(
-                i18n.t("playbook.server.restore.select_by"), choices=["mtime", "filename_timestamp"], default="mtime"
-            ),
+            "select_by": _select_by_input(),
         }
     return source
 
 
 def _wizard_destination(answers: dict[str, Any], source: dict[str, Any]) -> str:
     """Ask the destination target; guard against restoring back onto the source."""
-    print_header(i18n.t("playbook.server.dest.header"))
+    print_info(i18n.t("playbook.server.dest.header"))
     source_target = answers["targets"].get(str(source.get("target", "")), {})
     while True:
-        name = _wizard_one_target(answers, "test")
+        name = _wizard_one_target(answers, "test", "playbook.server.dest.name")
         db_container = answers["targets"][name]["db_container"]
         if source.get("mode") == _SOURCE_FRESH and db_container == source_target.get("db_container"):
             print_warning(i18n.t("playbook.server.dest.self_mirror_warning", name=db_container))
@@ -276,7 +330,7 @@ def _wizard_destination(answers: dict[str, Any], source: dict[str, Any]) -> str:
         return name
 
 
-def _wizard_server(answers: dict[str, Any]) -> None:
+def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
     import questionary
 
     answers["targets"] = {}
@@ -285,12 +339,15 @@ def _wizard_server(answers: dict[str, Any]) -> None:
     answers["extra_steps"] = []
     pending_env: set[str] = set()
 
+    _step_header(2, total_steps, "playbook.step.source", "playbook.step.source_sub")
     source = _wizard_source(answers)
+    _step_header(3, total_steps, "playbook.step.dest", "playbook.step.dest_sub")
     dest = _wizard_destination(answers, source)
     recipe["destination"] = dest
     while confirm(i18n.t("playbook.server.target.add_more"), default=False):
         _wizard_one_target(answers, "")
 
+    _step_header(4, total_steps, "playbook.step.flow", "playbook.step.flow_sub")
     choices = [
         questionary.Choice(i18n.t(label_key), value=key, checked=checked) for key, label_key, checked in _RECIPE_ITEMS
     ]
@@ -353,7 +410,10 @@ def _wizard_restore(dest: str, backup_source: dict[str, Any]) -> dict[str, Any]:
     restore["drop"] = confirm(i18n.t("playbook.server.restore.drop"), default=True)
 
     flag_choices = [
-        questionary.Choice(flag, value=flag, checked=flag in SANITIZE_FLAGS_DEFAULT) for flag in SANITIZE_FLAGS
+        questionary.Choice(
+            i18n.t(f"playbook.server.restore.flag.{flag}"), value=flag, checked=flag in SANITIZE_FLAGS_DEFAULT
+        )
+        for flag in SANITIZE_FLAGS
     ]
     restore["sanitize_flags"] = checkbox_with_separators(i18n.t("playbook.server.restore.sanitize"), flag_choices)
 
@@ -444,9 +504,7 @@ def _wizard_extra_steps(answers: dict[str, Any]) -> None:
             args[key] = text_input(i18n.t("playbook.server.extra_step.arg_value", name=key))
         if args:
             step["args"] = args
-        on_error = select(
-            i18n.t("playbook.server.extra_step.on_error"), choices=["inherit", "stop", "continue"], default="inherit"
-        )
+        on_error = _on_error_select("playbook.server.extra_step.on_error", "inherit", include_inherit=True)
         if on_error != "inherit":
             step["on_error"] = on_error
         answers["extra_steps"].append(step)
@@ -613,17 +671,28 @@ def _wizard_secrets(answers: dict[str, Any]) -> None:
 
 def _run_wizard(output_default: str = "") -> dict[str, Any]:
     os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
+    _wizard_language()
     print_header(i18n.t("playbook.wizard.header"), i18n.t("playbook.wizard.subtitle"))
 
     answers: dict[str, Any] = {"schema_version": SCHEMA_VERSION}
-    _wizard_common(answers)
+    _wizard_type(answers)
     if answers["playbook_type"] == "server":
-        _wizard_server(answers)
+        total = 6
+        print_info(i18n.t("playbook.server.intro"))
+        _step_header(1, total, "playbook.step.basics")
+        _wizard_basics(answers)
+        _wizard_server(answers, total)  # steps 2-4: source, destination, flow
     else:
+        total = 4
+        _step_header(1, total, "playbook.step.basics")
+        _wizard_basics(answers)
+        _step_header(2, total, "playbook.step.steps")
         _wizard_dev(answers)
+    _step_header(total - 1, total, "playbook.step.secrets")
     _wizard_vars(answers)
     _wizard_secrets(answers)
 
+    _step_header(total, total, "playbook.step.summary")
     default_output = output_default or default_output_path(answers["name"])
     answers["output_path"] = path_input(i18n.t("playbook.output.path"), default=default_output)
     return answers

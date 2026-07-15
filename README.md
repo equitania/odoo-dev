@@ -177,6 +177,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.56.0:**
+- **Neu:** Sprachwahl im Playbook-Assistenten. Ist keine Sprache explizit konfiguriert (`--lang`, `ODOODEV_LANG`, `cli.language` in der Config), startet der Assistent mit „Sprache / Language?" (Deutsch/English, Vorbelegung aus der Shell-Locale) und speichert die Wahl auf Wunsch als odoodev-weiten Standard.
+- **Geändert:** Geführte Usability durch den ganzen Assistenten: nummerierte Schritte („Schritt 1/6 — Grundlagen" … „Schritt 6/6 — Zusammenfassung", Dev-Zweig 4 Schritte) mit Kurz-Intro zum Mirror-Modell QUELLE → ZIEL; der Quell-Block fragt „Quell-Name", der Ziel-Block „Ziel-Name" (das generische „Target-Name" bleibt den Zusatz-Targets vorbehalten); einfache Formulierungen mit beschrifteten Auswahloptionen („Was soll bei einem Fehler passieren?" — Anhalten/Weitermachen; Sanitize-Flags mit Klartext-Beschreibung). Gespeicherte Werte, Answers-Dateien und erzeugte YAML bleiben unverändert. **Fix:** Die Shell-Locale-Erkennung der Sprache griff nie, weil die Config-Abfrage auch ohne Config-Datei „en" lieferte.
+
 **Version 0.55.0:**
 - **Geändert:** Playbook-Assistent mit Quelle-zuerst-Führung. Der Server-Zweig fragt jetzt explizit „Was ist die QUELLE des Mirrors?" (frisches Backup von einem Container-Paar mit automatisch abgeleitetem Restore-Pattern, bestehende Backup-Datei oder neuestes Backup nach Muster) und danach getrennt das Ziel — mit Self-Mirror-Guard: Ein Restore zurück auf das gerade gesicherte System erfordert eine explizite Bestätigung, die Builder-Validierung lehnt Backup-Quelle == Restore-Ziel ab. `server.restore` ist immer Teil des Mirrors; die Options-Checkbox umfasst nur noch die Zusatzschritte. Schema-Version 2 (Answers-Dateien der Version 1 bleiben gültig). **Fixes:** Server-Pfade (`~/update_docker_odoo.py` etc.) werden nicht mehr lokal expandiert, sondern bleiben wörtlich in der YAML; ohne eingegebene Secret-Werte wird keine leere env-Datei mehr geschrieben.
 
@@ -484,6 +488,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.56.0:**
+- **Added:** Language question in the playbook assistant. When no language is explicitly configured (`--lang`, `ODOODEV_LANG`, `cli.language` in the config), the wizard opens with "Sprache / Language?" (Deutsch/English, defaulting from the shell locale) and can persist the choice as the odoodev-wide default.
+- **Changed:** Guided usability throughout the assistant: numbered steps ("Step 1/6 — Basics" … "Step 6/6 — Summary", dev branch 4 steps) with a short intro explaining the SOURCE -> DESTINATION mirror model; the source block asks "Source name:", the destination block "Destination name:" (the generic "Target name:" is reserved for extra targets); plain-language questions with labeled choices ("What should happen when a step fails?" — stop/continue; sanitize flags with descriptive labels). Stored values, answers files and generated YAML are unchanged. **Fix:** shell-locale language detection never kicked in because the config lookup returned "en" even without a config file.
 
 **Version 0.55.0:**
 - **Changed:** Playbook assistant with source-first guidance. The server branch now explicitly asks "What is the SOURCE of the mirror?" (fresh backup from a container pair with auto-derived restore pattern, an existing backup file, or the newest backup by pattern) and then the destination separately — with a self-mirror guard: restoring back onto the system that was just backed up requires explicit confirmation, and builder validation rejects backup source == restore destination. `server.restore` is always part of the mirror; the options checkbox only covers the extra steps. Schema version 2 (version-1 answers files remain valid). **Fixes:** server-side paths (`~/update_docker_odoo.py` etc.) are no longer expanded locally and stay literal in the YAML; no more empty env files when no secret values were entered.

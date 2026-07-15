@@ -1,4 +1,4 @@
-# odoodev-equitania v0.55.0 | python/uv
+# odoodev-equitania v0.56.0 | python/uv
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▸ Setup:   uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Test:    pytest                    # single: pytest tests/test_database.py::test_name

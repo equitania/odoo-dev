@@ -1,5 +1,35 @@
 # Release Notes
 
+## Version 0.56.0 (15.07.2026)
+
+### Added
+- **Playbook assistant: language question.** When no language is explicitly
+  configured (`--lang`, `ODOODEV_LANG`, `cli.language` in the config file),
+  the wizard opens with "Sprache / Language?" (Deutsch/English, default from
+  the shell locale) and offers to persist the choice as the odoodev-wide
+  default in `~/.config/odoodev/config.yaml`.
+
+### Changed
+- **Playbook assistant: guided source → destination flow.** The server
+  branch now walks through numbered steps ("Step 1/6 — Basics" … "Step 6/6 —
+  Summary") with a short intro explaining the mirror model (SOURCE ->
+  DESTINATION); the dev branch gets the same mechanic with 4 steps.
+- **Role-specific prompts.** The source block asks "Source name:", the
+  destination block "Destination name:" — the generic "Target name:" is
+  reserved for the optional extra-target loop (previously the SOURCE
+  question was immediately followed by a confusing "Target name:" prompt).
+- **Plain-language choices.** on_error questions now read "What should
+  happen when a step fails?" with labeled options (stop/continue/inherit);
+  the source choices drop the step-name jargon; `select_by` and the sanitize
+  flags show descriptive labels (e.g. "anonymize — replace personal data
+  with fake data"). All stored values are unchanged — answers files and
+  generated YAML stay identical.
+
+### Fixed
+- **Shell-locale language detection actually works now.** `_config_language()`
+  returned the dataclass default "en" even when no config file existed,
+  which silently disabled the documented locale fallback (`de_*` -> de).
+
 ## Version 0.55.0 (14.07.2026)
 
 ### Changed

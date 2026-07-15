@@ -30,6 +30,9 @@ SUPPORTED = ("en", "de")
 DEFAULT_LANGUAGE = "en"
 
 _active_language: str = DEFAULT_LANGUAGE
+# True when the last detect_language() resolved via an explicit source
+# (--lang flag, ODOODEV_LANG, config file) rather than locale/default.
+_explicit_language: bool = False
 
 # Flat dot-namespaced keys, en is the canonical source. de mirrors en.
 MESSAGES: dict[str, dict[str, str]] = {
@@ -186,6 +189,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         # --- playbook assistant ---
         "playbook.wizard.header": "odoodev playbook assistant",
         "playbook.wizard.subtitle": "Answer the questions — a runnable playbook YAML comes out.",
+        "playbook.lang.question": "Sprache / Language?",
+        "playbook.lang.persist": "Save as default language for odoodev?",
+        "playbook.lang.saved": "Language saved to {path}.",
+        "playbook.step.prefix": "Step {step}/{total} — {title}",
+        "playbook.step.basics": "Basics",
+        "playbook.step.source": "Source",
+        "playbook.step.source_sub": "Where does the data come from?",
+        "playbook.step.dest": "Destination",
+        "playbook.step.dest_sub": "Where should the data go?",
+        "playbook.step.flow": "Mirror options",
+        "playbook.step.flow_sub": "What should happen along the way?",
+        "playbook.step.steps": "Steps",
+        "playbook.step.secrets": "Variables & credentials",
+        "playbook.step.summary": "Summary",
+        "playbook.server.intro": (
+            "A mirror copies one Odoo system onto another: SOURCE -> DESTINATION.\n"
+            "The assistant asks three things: 1) Where does the data come from?\n"
+            "2) Where should it go? 3) What should happen along the way?"
+        ),
         "playbook.type.question": "Which kind of playbook do you want to create?",
         "playbook.type.dev": "Dev-mode (local Odoo development environment)",
         "playbook.type.server": "Server-mode (customer server with Docker containers)",
@@ -193,7 +215,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.common.name_invalid": "Name must not be empty.",
         "playbook.common.description": "Description:",
         "playbook.common.version": "Odoo version:",
-        "playbook.common.on_error": "Default error behavior (on_error):",
+        "playbook.common.on_error": "What should happen when a step fails?",
+        "playbook.choice.on_error_stop": "Stop the playbook (stop)",
+        "playbook.choice.on_error_continue": "Continue with the next step (continue)",
+        "playbook.choice.on_error_inherit": "Use the playbook default (inherit)",
+        "playbook.choice.select_mtime": "Newest file by modification time (mtime)",
+        "playbook.choice.select_filename_ts": "Newest by timestamp in the filename (filename_timestamp)",
         "playbook.common.vars": "Custom variables ({{ vars.x }})",
         "playbook.common.vars_add": "Add a custom variable?",
         "playbook.common.var_key": "Variable name (empty = done):",
@@ -211,13 +238,15 @@ MESSAGES: dict[str, dict[str, str]] = {
             "Which optional steps should the mirror include? (restore is always part of it)"
         ),
         "playbook.server.source.question": "What is the SOURCE of the mirror?",
-        "playbook.server.source.fresh": "Create a fresh backup from a running container pair (server.backup)",
+        "playbook.server.source.fresh": "Create a fresh backup from the running source system",
         "playbook.server.source.file": "Use an existing backup file",
-        "playbook.server.source.newest": "Use the newest backup matching a pattern",
+        "playbook.server.source.newest": "Use the newest backup file from a directory",
+        "playbook.server.source.name": "Source name (identifier in the playbook):",
         "playbook.server.source.header": "Source — the container pair the backup is taken FROM",
         "playbook.server.source.derived_pattern": "Derived restore source: newest '{pattern}' in {dir}",
         "playbook.server.source.adjust_pattern": "Adjust the derived directory/pattern?",
         "playbook.server.dest.header": "Destination — the container pair the backup is restored INTO",
+        "playbook.server.dest.name": "Destination name (identifier in the playbook):",
         "playbook.server.dest.self_mirror_warning": (
             "Destination uses the SAME database container as the source ('{name}') — "
             "the restore would overwrite the system you just backed up!"
@@ -242,7 +271,7 @@ MESSAGES: dict[str, dict[str, str]] = {
             "the container must be an active entry in docker2update.yaml."
         ),
         "playbook.server.recipe.update_all_restart": "Restart the container after the module update?",
-        "playbook.server.recipe.update_all_on_error": "on_error for the module update:",
+        "playbook.server.recipe.update_all_on_error": "If the module update fails:",
         "playbook.server.restore.source_dir": "Backup directory:",
         "playbook.server.restore.source_pattern": "Filename pattern:",
         "playbook.server.restore.select_by": "Select newest by:",
@@ -250,6 +279,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.restore.template": "CREATE DATABASE template:",
         "playbook.server.restore.drop": "Drop the existing database first?",
         "playbook.server.restore.sanitize": "Sanitize steps after restore:",
+        "playbook.server.restore.flag.deactivate_cron": "deactivate_cron — disable cron jobs & outgoing mail",
+        "playbook.server.restore.flag.neutralize": "neutralize — neutralize Odoo (payments, IAP, webhooks off)",
+        "playbook.server.restore.flag.anonymize": "anonymize — replace personal data with fake data",
+        "playbook.server.restore.flag.wipe": "wipe — delete messages & attachments",
+        "playbook.server.restore.flag.purge_transactions": (
+            "purge_transactions — delete transactional data (orders, postings, stock)"
+        ),
         "playbook.server.restore.purge_master_data": "Also purge ALL master data (destructive template reset)?",
         "playbook.server.restore.purge_warning": (
             "purge_master_data deletes partners, CRM/HR content and attachments — only for template databases!"
@@ -263,7 +299,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.sql.custom_input": "SQL statement:",
         "playbook.server.sql.website_domain": "New website domain:",
         "playbook.server.sql.statements": "SQL statements",
-        "playbook.server.sql.on_error": "on_error for the SQL step:",
+        "playbook.server.sql.on_error": "If the SQL step fails:",
         "playbook.server.sql.none_added": "No statements added — skipping the SQL step.",
         "playbook.server.rpc.configure": "Configure the RPC connection block (rpc:)?",
         "playbook.server.rpc.host": "Odoo host/URL (use {{ env.ODOO_URL }} for secrets):",
@@ -286,7 +322,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.extra_step.args": "Step args",
         "playbook.server.extra_step.arg_key": "Arg name (empty = done):",
         "playbook.server.extra_step.arg_value": "Value for '{name}':",
-        "playbook.server.extra_step.on_error": "on_error for this step:",
+        "playbook.server.extra_step.on_error": "If this step fails:",
         "playbook.dev.steps.question": "Which steps should the playbook run?",
         "playbook.dev.steps.none": "No steps selected — using defaults ({defaults}).",
         "playbook.dev.args_header": "Arguments for '{command}'",
@@ -489,6 +525,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         # --- playbook assistant ---
         "playbook.wizard.header": "odoodev Playbook-Assistent",
         "playbook.wizard.subtitle": "Fragen beantworten — heraus kommt eine lauffähige Playbook-YAML.",
+        "playbook.lang.question": "Sprache / Language?",
+        "playbook.lang.persist": "Als Standardsprache für odoodev speichern?",
+        "playbook.lang.saved": "Sprache gespeichert in {path}.",
+        "playbook.step.prefix": "Schritt {step}/{total} — {title}",
+        "playbook.step.basics": "Grundlagen",
+        "playbook.step.source": "Quelle",
+        "playbook.step.source_sub": "Woher kommen die Daten?",
+        "playbook.step.dest": "Ziel",
+        "playbook.step.dest_sub": "Wohin sollen die Daten?",
+        "playbook.step.flow": "Ablauf-Optionen",
+        "playbook.step.flow_sub": "Was soll dabei passieren?",
+        "playbook.step.steps": "Schritte",
+        "playbook.step.secrets": "Variablen & Zugangsdaten",
+        "playbook.step.summary": "Zusammenfassung",
+        "playbook.server.intro": (
+            "Ein Mirror kopiert ein Odoo-System auf ein anderes: QUELLE -> ZIEL.\n"
+            "Der Assistent fragt drei Dinge: 1) Woher kommen die Daten?\n"
+            "2) Wohin sollen sie? 3) Was soll dabei passieren?"
+        ),
         "playbook.type.question": "Welche Art Playbook möchtest du erstellen?",
         "playbook.type.dev": "Dev-Mode (lokale Odoo-Entwicklungsumgebung)",
         "playbook.type.server": "Server-Mode (Kundenserver mit Docker-Containern)",
@@ -496,7 +551,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.common.name_invalid": "Der Name darf nicht leer sein.",
         "playbook.common.description": "Beschreibung:",
         "playbook.common.version": "Odoo-Version:",
-        "playbook.common.on_error": "Standard-Fehlerverhalten (on_error):",
+        "playbook.common.on_error": "Was soll bei einem Fehler passieren?",
+        "playbook.choice.on_error_stop": "Playbook anhalten (stop)",
+        "playbook.choice.on_error_continue": "Mit dem nächsten Schritt weitermachen (continue)",
+        "playbook.choice.on_error_inherit": "Standard des Playbooks verwenden (inherit)",
+        "playbook.choice.select_mtime": "Neueste Datei nach Änderungszeit (mtime)",
+        "playbook.choice.select_filename_ts": "Neueste nach Zeitstempel im Dateinamen (filename_timestamp)",
         "playbook.common.vars": "Eigene Variablen ({{ vars.x }})",
         "playbook.common.vars_add": "Eigene Variable hinzufügen?",
         "playbook.common.var_key": "Variablenname (leer = fertig):",
@@ -514,13 +574,15 @@ MESSAGES: dict[str, dict[str, str]] = {
             "Welche optionalen Schritte soll der Mirror enthalten? (Restore ist immer dabei)"
         ),
         "playbook.server.source.question": "Was ist die QUELLE des Mirrors?",
-        "playbook.server.source.fresh": "Frisches Backup von einem laufenden Container-Paar erstellen (server.backup)",
+        "playbook.server.source.fresh": "Frisches Backup vom laufenden Quellsystem erstellen",
         "playbook.server.source.file": "Bestehende Backup-Datei verwenden",
-        "playbook.server.source.newest": "Neuestes Backup nach Muster verwenden",
+        "playbook.server.source.newest": "Neueste Backup-Datei aus einem Verzeichnis nehmen",
+        "playbook.server.source.name": "Quell-Name (Bezeichner im Playbook):",
         "playbook.server.source.header": "Quelle — das Container-Paar, VON dem gesichert wird",
         "playbook.server.source.derived_pattern": "Abgeleitete Restore-Quelle: neueste '{pattern}' in {dir}",
         "playbook.server.source.adjust_pattern": "Abgeleitetes Verzeichnis/Muster anpassen?",
         "playbook.server.dest.header": "Ziel — das Container-Paar, IN das restored wird",
+        "playbook.server.dest.name": "Ziel-Name (Bezeichner im Playbook):",
         "playbook.server.dest.self_mirror_warning": (
             "Das Ziel nutzt denselben Datenbank-Container wie die Quelle ('{name}') — "
             "der Restore würde das gerade gesicherte System überschreiben!"
@@ -545,7 +607,7 @@ MESSAGES: dict[str, dict[str, str]] = {
             "der Container muss als aktiver Eintrag in docker2update.yaml existieren."
         ),
         "playbook.server.recipe.update_all_restart": "Container nach dem Modul-Update neu starten?",
-        "playbook.server.recipe.update_all_on_error": "on_error für das Modul-Update:",
+        "playbook.server.recipe.update_all_on_error": "Wenn das Modul-Update fehlschlägt:",
         "playbook.server.restore.source_dir": "Backup-Verzeichnis:",
         "playbook.server.restore.source_pattern": "Dateinamen-Muster:",
         "playbook.server.restore.select_by": "Neueste Datei bestimmen nach:",
@@ -553,6 +615,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.restore.template": "CREATE-DATABASE-Template:",
         "playbook.server.restore.drop": "Bestehende Datenbank vorher löschen?",
         "playbook.server.restore.sanitize": "Sanitize-Schritte nach dem Restore:",
+        "playbook.server.restore.flag.deactivate_cron": "deactivate_cron — Cronjobs & Mailversand deaktivieren",
+        "playbook.server.restore.flag.neutralize": "neutralize — Odoo neutralisieren (Zahlungen, IAP, Webhooks aus)",
+        "playbook.server.restore.flag.anonymize": "anonymize — Personendaten durch Fake-Daten ersetzen",
+        "playbook.server.restore.flag.wipe": "wipe — Nachrichten & Anhänge löschen",
+        "playbook.server.restore.flag.purge_transactions": (
+            "purge_transactions — Bewegungsdaten löschen (Aufträge, Buchungen, Lager)"
+        ),
         "playbook.server.restore.purge_master_data": (
             "Zusätzlich ALLE Stammdaten löschen (destruktiver Template-Reset)?"
         ),
@@ -568,7 +637,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.sql.custom_input": "SQL-Statement:",
         "playbook.server.sql.website_domain": "Neue Website-Domain:",
         "playbook.server.sql.statements": "SQL-Statements",
-        "playbook.server.sql.on_error": "on_error für den SQL-Schritt:",
+        "playbook.server.sql.on_error": "Wenn der SQL-Schritt fehlschlägt:",
         "playbook.server.sql.none_added": "Keine Statements hinzugefügt — SQL-Schritt wird übersprungen.",
         "playbook.server.rpc.configure": "RPC-Verbindungsblock (rpc:) konfigurieren?",
         "playbook.server.rpc.host": "Odoo-Host/-URL ({{ env.ODOO_URL }} für Secrets verwenden):",
@@ -591,7 +660,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.extra_step.args": "Step-Argumente",
         "playbook.server.extra_step.arg_key": "Argumentname (leer = fertig):",
         "playbook.server.extra_step.arg_value": "Wert für '{name}':",
-        "playbook.server.extra_step.on_error": "on_error für diesen Schritt:",
+        "playbook.server.extra_step.on_error": "Wenn dieser Schritt fehlschlägt:",
         "playbook.dev.steps.question": "Welche Schritte soll das Playbook ausführen?",
         "playbook.dev.steps.none": "Keine Schritte gewählt — Standard wird verwendet ({defaults}).",
         "playbook.dev.args_header": "Argumente für '{command}'",
@@ -671,25 +740,40 @@ def detect_language(cli_flag: str | None = None) -> str:
     """Resolve the active language using the documented precedence chain.
 
     Order: cli_flag > ODOODEV_LANG env > config file > system locale > default.
+    Also records whether the result came from an explicit source (flag, env,
+    config) so interactive wizards can offer a language choice otherwise.
     """
-    chain: list[str | None] = [
+    global _explicit_language
+    explicit_sources: tuple[str | None, ...] = (
         cli_flag,
         os.environ.get("ODOODEV_LANG"),
         _config_language(),
-        _locale_language(),
-    ]
-    for candidate in chain:
+    )
+    for candidate in explicit_sources:
         normalized = normalize_language(candidate)
         if normalized:
+            _explicit_language = True
             return normalized
-    return DEFAULT_LANGUAGE
+    _explicit_language = False
+    return normalize_language(_locale_language()) or DEFAULT_LANGUAGE
+
+
+def language_was_explicit() -> bool:
+    """True when the last detect_language() hit --lang, ODOODEV_LANG or the config file."""
+    return _explicit_language
 
 
 def _config_language() -> str | None:
-    """Read cli.language from the global config without raising on errors."""
-    try:
-        from odoodev.core.global_config import load_global_config
+    """Read cli.language from the global config without raising on errors.
 
+    Returns None when no config file exists — the dataclass default would
+    otherwise mask locale detection with a hardcoded "en".
+    """
+    try:
+        from odoodev.core.global_config import config_exists, load_global_config
+
+        if not config_exists():
+            return None
         return load_global_config().cli.language
     except (ImportError, AttributeError, OSError):
         return None
