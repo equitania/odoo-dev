@@ -30,7 +30,7 @@ from odoodev.core.playbook_schema import (
 
 # Answers files from v1 (0.54.0) remain valid — the answers format is unchanged;
 # schema v2 only restructured the wizard/GUI question flow (source-first).
-SUPPORTED_SCHEMA_VERSIONS = (1, SCHEMA_VERSION)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, SCHEMA_VERSION)
 
 _ENV_REF_RE = re.compile(r"\{\{\s*env\.(\w+)\s*\}\}")
 _VAR_REF_RE = re.compile(r"\{\{\s*vars\.(\w+)\s*\}\}")
@@ -163,6 +163,16 @@ def _validate_server_answers(answers: dict[str, Any]) -> list[str]:
         elif isinstance(source, dict) and mode == "newest_in_dir":
             if not str(source.get("dir", "") or "").strip() or not str(source.get("pattern", "") or "").strip():
                 problems.append("recipe.restore.backup_source.mode 'newest_in_dir' requires 'dir' and 'pattern'")
+        elif isinstance(source, dict) and mode == "from_backup_step":
+            if not (isinstance(backup, dict) and backup.get("enabled")):
+                problems.append(
+                    "recipe.restore.backup_source.mode 'from_backup_step' requires recipe.backup.enabled "
+                    "(the restore consumes the file that backup step creates)"
+                )
+        elif isinstance(source, dict) and mode not in ("", "file", "newest_in_dir", "from_backup_step"):
+            problems.append(
+                f"recipe.restore.backup_source.mode must be 'from_backup_step', 'file' or 'newest_in_dir', got {mode!r}"
+            )
         elif not isinstance(source, str | dict) or not source:
             problems.append("recipe.restore.enabled is true but recipe.restore.backup_source is missing")
         flags = restore.get("sanitize_flags") or []
@@ -325,8 +335,10 @@ def _build_server_steps(answers: dict[str, Any]) -> list[dict[str, Any]]:
         source_cfg = restore.get("backup_source") or {}
         if isinstance(source_cfg, dict):
             mode = str(source_cfg.get("mode", "") or "")
-            if mode == "file":
-                backup_source: Any = {"mode": "file", "path": str(source_cfg.get("path", ""))}
+            if mode == "from_backup_step":
+                backup_source: Any = {"mode": "from_backup_step"}
+            elif mode == "file":
+                backup_source = {"mode": "file", "path": str(source_cfg.get("path", ""))}
             else:
                 backup_source = {
                     "mode": "newest_in_dir",

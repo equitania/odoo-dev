@@ -48,18 +48,19 @@ fragt „Quell-Name", der Ziel-Block „Ziel-Name"; das generische „Target-Nam
 nur noch für optionale Zusatz-Targets:
 
 1. **„Was ist die QUELLE des Mirrors?"** (Auswahl):
-   - **Frisches Backup von einem laufenden Container-Paar** — fragt das Quell-Target
-     (z. B. `live` / `live-db` / `live-odoo`) und das Backup-Verzeichnis; die
-     Restore-Quelle wird automatisch aus der Backup-Namenskonvention abgeleitet
-     (`{db}_{container}_dockerbackup_*.tar.zst`, neueste Datei) und kann auf Wunsch
-     angepasst werden. Erzeugt den `server.backup`-Step.
+   - **Frisches Backup vom laufenden Quellsystem** — fragt das Quell-Target
+     (z. B. `live` / `live-db` / `live-odoo`) und das Backup-Verzeichnis; der
+     Restore verwendet automatisch die in diesem Lauf erzeugte Backup-Datei
+     (`backup_source.mode: from_backup_step`, seit v0.57.0) — keine Pattern-Fragen.
+     Erzeugt den `server.backup`-Step.
    - **Bestehende Backup-Datei** — fragt nur den Pfad; kein Backup-Step.
-   - **Neuestes Backup nach Muster** — fragt Verzeichnis + Pattern; kein Backup-Step.
+   - **Neueste Backup-Datei aus einem Verzeichnis** — fragt Verzeichnis + Pattern;
+     kein Backup-Step.
 2. **„Was ist das ZIEL?"** — das Ziel-Target (z. B. `test` / `test-db` / `test-odoo`).
    **Self-Mirror-Guard:** Nutzt das Ziel denselben DB-Container wie die Quelle,
    warnt der Assistent und fragt explizit nach (Default: Nein → Ziel neu eingeben) —
    sonst würde der Restore das gerade gesicherte System überschreiben.
-3. **Options-Checkbox** (Restore ist immer dabei):
+3. **Options-Checkbox** (Restore ist immer dabei; nur Infrastruktur-Schritte):
    `server.rebuild` (optional) — Ziel-Container komplett neu aufbauen via
    `update_docker_odoo.py` (Release-Abruf per Access-Code aus `release.txt`,
    `docker build`, Container-Neuerstellung; steht **vor** stop/restore, weil das
@@ -67,10 +68,14 @@ nur noch für optionale Zusatz-Targets:
    `sql.execute` (Statement-Builder mit Presets: **Enterprise-Code setzen**
    (`{{ env.PARTNER_ENTERPRISE_CODE }}`), **eq_cloud-Connector-Parameter leeren**,
    **Website-Domain tauschen**, freies SQL) · `container.start` ·
-   `server.neutralize` · `server.update-all` · `rpc.execute`
-4. **Restore-Details** — `template`, `drop`, Sanitize-Checkbox (`deactivate_cron`,
-   `neutralize`, `anonymize`, `wipe`, `purge_transactions`) plus separater Confirm
-   für `purge_master_data`
+   `server.update-all` · `rpc.execute`
+4. **Restore-Details** — `template`, `drop`, dann die EINE Frage **„Was soll mit
+   der wiederhergestellten Datenbank passieren?"** (`deactivate_cron`,
+   `neutralize`, `anonymize`, `wipe`, `purge_transactions`; seit v0.57.0 deckt
+   `neutralize` hier die komplette Neutralisierung ab — psql-Sanitize-Flag UND
+   der `server.neutralize`-Step nach `container.start`; ohne „nach dem Restore
+   starten" entfällt der Step mit Warnung) plus separater Confirm für
+   `purge_master_data`
 
 Danach: freie Zusatz-Schritte (Escape-Hatch), RPC-Verbindungsblock, Variablen,
 Secrets-Datei, Ausgabepfad, Zusammenfassung (zeigt Quelle → Ziel) mit Bestätigung.
@@ -140,8 +145,7 @@ core (`odoodev/core/playbook_builder.py`), so the two frontends can never drift.
     "stop_before_restore": true,
     "restore": {
       "enabled": true, "target": "test",
-      "backup_source": {"mode": "newest_in_dir", "dir": "/opt/backups/docker",
-                        "pattern": "production_*_dockerbackup_*.tar.zst", "select_by": "mtime"},
+      "backup_source": {"mode": "from_backup_step"},
       "template": "template0", "drop": true,
       "sanitize_flags": ["deactivate_cron", "neutralize"],
       "purge_master_data": false
@@ -164,8 +168,14 @@ core (`odoodev/core/playbook_builder.py`), so the two frontends can never drift.
 
 Notes:
 
-- `schema_version`: currently `2` (v0.55.0, source-first wizard flow); `1` (v0.54.0)
-  is still accepted — the answers format itself is unchanged between the two.
+- `schema_version`: currently `3` (v0.57.0, `from_backup_step` handoff + single
+  restored-database decision); `1` (v0.54.0) and `2` (v0.55.0) are still accepted —
+  the answers format is backward compatible across all three.
+- `recipe.restore.backup_source.mode`: `"from_backup_step"` (use the exact file the
+  `server.backup` step of the same run creates — requires `recipe.backup.enabled`),
+  `"file"` (`path`) or `"newest_in_dir"` (`dir` + `pattern` + optional `select_by`).
+- `recipe.neutralize` is still accepted in answers files; the wizard derives it from
+  the `neutralize` sanitize flag (one decision covers psql flag + odoo-bin step).
 - `playbook_type`: `"server"` or `"dev"`. Dev playbooks use `dev_steps` instead of
   `targets`/`recipe`: a list of `{"command": "pull", "args": {...}}` entries (plain
   strings allowed); the builder orders them canonically (docker.up → pull → repos →

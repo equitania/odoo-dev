@@ -21,8 +21,12 @@ from typing import Any
 
 # v2 (0.55.0): source-first server flow — new server_source section (source.mode),
 # restore always part of the recipe, server-side paths as plain text fields.
-# The ANSWERS format is unchanged between v1 and v2 (targets + recipe).
-SCHEMA_VERSION = 2
+# v3 (0.57.0): fresh_backup hands the created file to the restore via
+# ``backup_source.mode: from_backup_step`` (no pattern fields); the neutralize
+# decision moved into the restore's sanitize question (recipe.neutralize is
+# still accepted in answers files, the wizard derives it).
+# The ANSWERS format is backward compatible across v1-v3 (targets + recipe).
+SCHEMA_VERSION = 3
 
 PLAYBOOK_TYPES = ("dev", "server")
 
@@ -208,8 +212,10 @@ SECTIONS: tuple[WizardSection, ...] = (
     ),
     # The mirror SOURCE (asked before the destination). ``source.mode`` is a
     # wizard-guidance field: ``fresh_backup`` implies a source target block +
-    # ``recipe.backup.enabled: true`` + a derived ``newest_in_dir`` restore
-    # source; the two file-based modes only fill ``recipe.restore.backup_source``.
+    # ``recipe.backup.enabled: true`` + ``backup_source.mode: from_backup_step``
+    # (the restore consumes the exact file that backup step creates — no
+    # pattern questions); the two file-based modes fill
+    # ``recipe.restore.backup_source`` instead.
     # All paths below live on the SERVER — render them as plain text inputs,
     # never expand/validate them on the machine running the wizard/GUI.
     WizardSection(
@@ -363,7 +369,6 @@ SECTIONS: tuple[WizardSection, ...] = (
                 depends_value=True,
             ),
             _f("recipe.start_after_restore", "confirm", "playbook.server.recipe.start_after", default=True),
-            _f("recipe.neutralize.enabled", "confirm", "playbook.server.recipe.neutralize", default=True),
             _f("recipe.update_all.enabled", "confirm", "playbook.server.recipe.update_all", default=True),
             _f(
                 "recipe.update_all.restart",

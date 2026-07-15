@@ -197,12 +197,14 @@ def _wizard_basics(answers: dict[str, Any]) -> None:
 
 # Optional recipe items — server.restore itself is ALWAYS part of the mirror
 # (its source comes from the dedicated source question, never from this checkbox).
+# Neutralize is NOT in here: what happens to the restored database is ONE
+# decision, asked in the restore's sanitize question (which derives the
+# server.neutralize step).
 _RECIPE_ITEMS = (
     ("rebuild", "playbook.server.recipe.rebuild", False),
     ("stop_before_restore", "playbook.server.recipe.stop_before", True),
     ("sql_after_restore", "playbook.server.recipe.sql", False),
     ("start_after_restore", "playbook.server.recipe.start_after", True),
-    ("neutralize", "playbook.server.recipe.neutralize", True),
     ("update_all", "playbook.server.recipe.update_all", True),
     ("rpc_call", "playbook.server.recipe.rpc_call", False),
 )
@@ -280,24 +282,11 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
             "compression_level": _int_input(i18n.t("playbook.server.recipe.compression_level"), 5),
             "only_sql": confirm(i18n.t("playbook.server.recipe.only_sql"), default=False),
         }
-        src = answers["targets"][name]
-        # Mirror handle_server_backup's output naming: {db}_{data_container}_dockerbackup_{ts}.tar.zst
-        data_container = src["odoo_container"] or src["db_container"]
-        backup_source: dict[str, Any] = {
-            "mode": "newest_in_dir",
-            "dir": backup_dir,
-            "pattern": f"{src['db_name']}_{data_container}_dockerbackup_*.tar.zst",
-            "select_by": "mtime",
-        }
-        print_info(i18n.t("playbook.server.source.derived_pattern", pattern=backup_source["pattern"], dir=backup_dir))
-        if confirm(i18n.t("playbook.server.source.adjust_pattern"), default=False):
-            backup_source["dir"] = _required_text(i18n.t("playbook.server.restore.source_dir"), default=backup_dir)
-            backup_source["pattern"] = _required_text(
-                i18n.t("playbook.server.restore.source_pattern"), default=backup_source["pattern"]
-            )
-            backup_source["select_by"] = _select_by_input()
+        # The runner hands the exact file the backup step creates to the
+        # restore (from_backup_step) — no pattern questions needed here.
+        print_info(i18n.t("playbook.server.source.auto_handoff"))
         source["target"] = name
-        source["backup_source"] = backup_source
+        source["backup_source"] = {"mode": "from_backup_step"}
     elif mode == _SOURCE_FILE:
         source["backup_source"] = {
             "mode": "file",
@@ -368,9 +357,12 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
         }
 
     recipe["stop_before_restore"] = "stop_before_restore" in selected
+    start_after = "start_after_restore" in selected
 
-    # server.restore is the core of the mirror — always included.
-    recipe["restore"] = _wizard_restore(dest, source["backup_source"])
+    # server.restore is the core of the mirror — always included. Its sanitize
+    # question is the ONE place deciding what happens to the restored database
+    # (including whether a server.neutralize step is added to the recipe).
+    recipe["restore"] = _wizard_restore(dest, source["backup_source"], recipe, start_after)
 
     if "sql_after_restore" in selected:
         statements = _wizard_sql_statements(answers, pending_env)
@@ -383,8 +375,7 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
         else:
             print_info(i18n.t("playbook.server.sql.none_added"))
 
-    recipe["start_after_restore"] = "start_after_restore" in selected
-    recipe["neutralize"] = {"enabled": "neutralize" in selected}
+    recipe["start_after_restore"] = start_after
 
     if "update_all" in selected:
         recipe["update_all"] = {
@@ -401,8 +392,16 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
     answers["_pending_env_keys"] = pending_env
 
 
-def _wizard_restore(dest: str, backup_source: dict[str, Any]) -> dict[str, Any]:
-    """Restore details for the destination; the source was decided upfront."""
+def _wizard_restore(
+    dest: str, backup_source: dict[str, Any], recipe: dict[str, Any], start_after: bool
+) -> dict[str, Any]:
+    """Restore details for the destination; the source was decided upfront.
+
+    The sanitize checkbox is the ONE decision about the restored database:
+    picking ``neutralize`` covers the full neutralization — the psql sanitize
+    flag AND the ``server.neutralize`` step (odoo-bin neutralize in the running
+    container, so it needs ``start_after_restore``).
+    """
     import questionary
 
     restore: dict[str, Any] = {"enabled": True, "target": dest, "backup_source": backup_source}
@@ -416,6 +415,11 @@ def _wizard_restore(dest: str, backup_source: dict[str, Any]) -> dict[str, Any]:
         for flag in SANITIZE_FLAGS
     ]
     restore["sanitize_flags"] = checkbox_with_separators(i18n.t("playbook.server.restore.sanitize"), flag_choices)
+    if "neutralize" in restore["sanitize_flags"]:
+        if start_after:
+            recipe["neutralize"] = {"enabled": True}
+        else:
+            print_warning(i18n.t("playbook.server.restore.neutralize_needs_start"))
 
     print_warning(i18n.t("playbook.server.restore.purge_warning"))
     restore["purge_master_data"] = confirm(i18n.t("playbook.server.restore.purge_master_data"), default=False)

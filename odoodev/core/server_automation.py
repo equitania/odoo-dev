@@ -276,7 +276,12 @@ def handle_server_rebuild(version_cfg: VersionConfig, args: dict[str, Any]) -> S
 
 
 def _resolve_backup_file(args: dict[str, Any], command: str) -> str:
-    """Resolve the restore input from ``backup_source`` (file | newest_in_dir)."""
+    """Resolve the restore input from ``backup_source``.
+
+    Modes: ``from_backup_step`` (the exact file a previous ``server.backup``
+    step created this run — no pattern guessing), ``file`` (explicit path) and
+    ``newest_in_dir`` (glob pattern, newest match).
+    """
     from odoodev.core.docker_exec import find_latest_backup
 
     source = args.get("backup_source") or {}
@@ -286,6 +291,19 @@ def _resolve_backup_file(args: dict[str, Any], command: str) -> str:
         raise ValueError(f"{command}: 'backup_source' must be a mapping or a file path")
 
     mode = str(source.get("mode", "") or ("file" if source.get("path") else "newest_in_dir"))
+    if mode == "from_backup_step":
+        runtime = args.get("_runtime") or {}
+        backup_file = str(runtime.get("backup_file", "") or "") if isinstance(runtime, dict) else ""
+        if not backup_file:
+            raise ValueError(
+                f"{command}: backup_source.mode 'from_backup_step' needs a successful server.backup "
+                f"step earlier in this playbook — add one before the restore, or use mode "
+                f"'file'/'newest_in_dir' instead"
+            )
+        if not os.path.isfile(backup_file):
+            raise ValueError(f"{command}: backup file from the backup step no longer exists: {backup_file}")
+        return backup_file
+
     if mode == "file":
         path = os.path.expanduser(str(source.get("path", "") or ""))
         if not path:
@@ -305,7 +323,9 @@ def _resolve_backup_file(args: dict[str, Any], command: str) -> str:
             raise ValueError(f"{command}: no backup matching '{pattern}' found in {directory}")
         return newest
 
-    raise ValueError(f"{command}: backup_source.mode must be 'file' or 'newest_in_dir', got '{mode}'")
+    raise ValueError(
+        f"{command}: backup_source.mode must be 'from_backup_step', 'file' or 'newest_in_dir', got '{mode}'"
+    )
 
 
 @_timed

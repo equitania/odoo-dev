@@ -243,8 +243,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.source.newest": "Use the newest backup file from a directory",
         "playbook.server.source.name": "Source name (identifier in the playbook):",
         "playbook.server.source.header": "Source — the container pair the backup is taken FROM",
-        "playbook.server.source.derived_pattern": "Derived restore source: newest '{pattern}' in {dir}",
-        "playbook.server.source.adjust_pattern": "Adjust the derived directory/pattern?",
+        "playbook.server.source.auto_handoff": (
+            "The restore will automatically use the backup file this run creates — nothing to configure."
+        ),
         "playbook.server.dest.header": "Destination — the container pair the backup is restored INTO",
         "playbook.server.dest.name": "Destination name (identifier in the playbook):",
         "playbook.server.dest.self_mirror_warning": (
@@ -256,7 +257,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.recipe.stop_before": "Stop destination Odoo before restore (container.stop)",
         "playbook.server.recipe.sql": "Run custom SQL after restore (sql.execute)",
         "playbook.server.recipe.start_after": "Start destination Odoo after restore (container.start)",
-        "playbook.server.recipe.neutralize": "Neutralize the instance (server.neutralize)",
         "playbook.server.recipe.update_all": "Update all modules (server.update-all)",
         "playbook.server.recipe.rpc_call": "Post-restore RPC call (rpc.execute)",
         "playbook.server.recipe.backup_dir": "Backup directory on the server:",
@@ -278,9 +278,15 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.restore.source_path": "Backup file path:",
         "playbook.server.restore.template": "CREATE DATABASE template:",
         "playbook.server.restore.drop": "Drop the existing database first?",
-        "playbook.server.restore.sanitize": "Sanitize steps after restore:",
+        "playbook.server.restore.sanitize": "What should happen to the restored database?",
         "playbook.server.restore.flag.deactivate_cron": "deactivate_cron — disable cron jobs & outgoing mail",
-        "playbook.server.restore.flag.neutralize": "neutralize — neutralize Odoo (payments, IAP, webhooks off)",
+        "playbook.server.restore.flag.neutralize": (
+            "neutralize — neutralize Odoo (payments, IAP, webhooks, bank sync off)"
+        ),
+        "playbook.server.restore.neutralize_needs_start": (
+            "neutralize needs the Odoo container running — without 'start after restore' "
+            "only the psql part runs; the odoo-bin neutralize step is skipped."
+        ),
         "playbook.server.restore.flag.anonymize": "anonymize — replace personal data with fake data",
         "playbook.server.restore.flag.wipe": "wipe — delete messages & attachments",
         "playbook.server.restore.flag.purge_transactions": (
@@ -579,8 +585,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.source.newest": "Neueste Backup-Datei aus einem Verzeichnis nehmen",
         "playbook.server.source.name": "Quell-Name (Bezeichner im Playbook):",
         "playbook.server.source.header": "Quelle — das Container-Paar, VON dem gesichert wird",
-        "playbook.server.source.derived_pattern": "Abgeleitete Restore-Quelle: neueste '{pattern}' in {dir}",
-        "playbook.server.source.adjust_pattern": "Abgeleitetes Verzeichnis/Muster anpassen?",
+        "playbook.server.source.auto_handoff": (
+            "Der Restore verwendet automatisch die in diesem Lauf erzeugte Backup-Datei — nichts zu konfigurieren."
+        ),
         "playbook.server.dest.header": "Ziel — das Container-Paar, IN das restored wird",
         "playbook.server.dest.name": "Ziel-Name (Bezeichner im Playbook):",
         "playbook.server.dest.self_mirror_warning": (
@@ -592,7 +599,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.recipe.stop_before": "Ziel-Odoo vor dem Restore stoppen (container.stop)",
         "playbook.server.recipe.sql": "Eigenes SQL nach dem Restore ausführen (sql.execute)",
         "playbook.server.recipe.start_after": "Ziel-Odoo nach dem Restore starten (container.start)",
-        "playbook.server.recipe.neutralize": "Instanz neutralisieren (server.neutralize)",
         "playbook.server.recipe.update_all": "Alle Module aktualisieren (server.update-all)",
         "playbook.server.recipe.rpc_call": "RPC-Aufruf nach dem Restore (rpc.execute)",
         "playbook.server.recipe.backup_dir": "Backup-Verzeichnis auf dem Server:",
@@ -614,9 +620,15 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.restore.source_path": "Pfad zur Backup-Datei:",
         "playbook.server.restore.template": "CREATE-DATABASE-Template:",
         "playbook.server.restore.drop": "Bestehende Datenbank vorher löschen?",
-        "playbook.server.restore.sanitize": "Sanitize-Schritte nach dem Restore:",
+        "playbook.server.restore.sanitize": "Was soll mit der wiederhergestellten Datenbank passieren?",
         "playbook.server.restore.flag.deactivate_cron": "deactivate_cron — Cronjobs & Mailversand deaktivieren",
-        "playbook.server.restore.flag.neutralize": "neutralize — Odoo neutralisieren (Zahlungen, IAP, Webhooks aus)",
+        "playbook.server.restore.flag.neutralize": (
+            "neutralize — Odoo neutralisieren (Zahlungen, IAP, Webhooks, Bank-Sync aus)"
+        ),
+        "playbook.server.restore.neutralize_needs_start": (
+            "neutralize braucht den laufenden Odoo-Container — ohne 'nach dem Restore starten' "
+            "läuft nur der psql-Teil; der odoo-bin-neutralize-Schritt entfällt."
+        ),
         "playbook.server.restore.flag.anonymize": "anonymize — Personendaten durch Fake-Daten ersetzen",
         "playbook.server.restore.flag.wipe": "wipe — Nachrichten & Anhänge löschen",
         "playbook.server.restore.flag.purge_transactions": (

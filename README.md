@@ -177,6 +177,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.57.0:**
+- **Neu:** `backup_source.mode: from_backup_step` — der Playbook-Runner reicht die vom `server.backup`-Step erzeugte Datei jetzt direkt an `server.restore` im selben Lauf weiter. Kein Pattern-Raten mehr zwischen Backup und Restore; `file` und `newest_in_dir` bleiben voll unterstützt.
+- **Geändert:** Assistenten-Logik nach dem zweiten Praxistest: (1) Beim frischen Backup entfallen alle Pattern-/Ableitungsfragen — das Playbook nutzt automatisch `from_backup_step`. (2) Was mit der wiederhergestellten Datenbank passiert, ist EINE Entscheidung: Die Frage „Was soll mit der wiederhergestellten Datenbank passieren?" deckt mit `neutralize` sowohl das psql-Sanitize-Flag als auch den `server.neutralize`-Step ab (Neutralize taucht nicht mehr doppelt auf); die Options-Checkbox enthält nur noch Infrastruktur-Schritte. Schema-Version 3; Answers-Dateien der Versionen 1 und 2 bleiben gültig.
+
 **Version 0.56.0:**
 - **Neu:** Sprachwahl im Playbook-Assistenten. Ist keine Sprache explizit konfiguriert (`--lang`, `ODOODEV_LANG`, `cli.language` in der Config), startet der Assistent mit „Sprache / Language?" (Deutsch/English, Vorbelegung aus der Shell-Locale) und speichert die Wahl auf Wunsch als odoodev-weiten Standard.
 - **Geändert:** Geführte Usability durch den ganzen Assistenten: nummerierte Schritte („Schritt 1/6 — Grundlagen" … „Schritt 6/6 — Zusammenfassung", Dev-Zweig 4 Schritte) mit Kurz-Intro zum Mirror-Modell QUELLE → ZIEL; der Quell-Block fragt „Quell-Name", der Ziel-Block „Ziel-Name" (das generische „Target-Name" bleibt den Zusatz-Targets vorbehalten); einfache Formulierungen mit beschrifteten Auswahloptionen („Was soll bei einem Fehler passieren?" — Anhalten/Weitermachen; Sanitize-Flags mit Klartext-Beschreibung). Gespeicherte Werte, Answers-Dateien und erzeugte YAML bleiben unverändert. **Fix:** Die Shell-Locale-Erkennung der Sprache griff nie, weil die Config-Abfrage auch ohne Config-Datei „en" lieferte.
@@ -488,6 +492,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.57.0:**
+- **Added:** `backup_source.mode: from_backup_step` — the playbook runner now hands the file created by the `server.backup` step directly to `server.restore` in the same run. No more pattern guessing between backup and restore; `file` and `newest_in_dir` remain fully supported.
+- **Changed:** Assistant logic after the second field test: (1) fresh backups no longer trigger any pattern/derivation questions — the playbook simply uses `from_backup_step`; (2) what happens to the restored database is ONE decision: "What should happen to the restored database?" covers both the psql sanitize flag and the `server.neutralize` step when `neutralize` is picked (neutralize no longer appears twice); the options checkbox only contains infrastructure steps. Schema version 3; answers files of versions 1 and 2 stay valid.
 
 **Version 0.56.0:**
 - **Added:** Language question in the playbook assistant. When no language is explicitly configured (`--lang`, `ODOODEV_LANG`, `cli.language` in the config), the wizard opens with "Sprache / Language?" (Deutsch/English, defaulting from the shell locale) and can persist the choice as the odoodev-wide default.

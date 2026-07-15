@@ -224,6 +224,14 @@ class TestBuildServerPlaybook:
         assert restore["args"]["backup_source"] == {"mode": "file", "path": "/opt/backups/fixed.tar.zst"}
         validate_generated(playbook)
 
+    def test_from_backup_step_mode_backup_source(self):
+        answers = server_answers()
+        answers["recipe"]["restore"]["backup_source"] = {"mode": "from_backup_step"}
+        playbook = build_playbook_dict(answers)
+        restore = next(s for s in playbook["steps"] if s["command"] == "server.restore")
+        assert restore["args"]["backup_source"] == {"mode": "from_backup_step"}
+        validate_generated(playbook)
+
 
 class TestBuildDevPlaybook:
     def test_round_trip_is_loadable(self):
@@ -299,6 +307,27 @@ class TestValidateAnswers:
         answers = server_answers()
         answers["schema_version"] = 1
         assert validate_answers(answers) == []
+
+    def test_schema_version_2_still_accepted(self):
+        answers = server_answers()
+        answers["schema_version"] = 2
+        assert validate_answers(answers) == []
+
+    def test_from_backup_step_mode_accepted_with_backup(self):
+        answers = server_answers()
+        answers["recipe"]["restore"]["backup_source"] = {"mode": "from_backup_step"}
+        assert validate_answers(answers) == []
+
+    def test_from_backup_step_mode_requires_backup_step(self):
+        answers = server_answers()
+        answers["recipe"]["restore"]["backup_source"] = {"mode": "from_backup_step"}
+        answers["recipe"]["backup"] = {"enabled": False}
+        assert any("from_backup_step" in p for p in validate_answers(answers))
+
+    def test_unknown_backup_source_mode_rejected(self):
+        answers = server_answers()
+        answers["recipe"]["restore"]["backup_source"] = {"mode": "teleport"}
+        assert any("'teleport'" in p for p in validate_answers(answers))
 
     def test_self_mirror_is_rejected(self):
         # v0.54.0 failure mode: backup source == restore destination.

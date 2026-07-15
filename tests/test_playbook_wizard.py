@@ -115,7 +115,6 @@ def _server_script(tmp_path) -> PromptScript:
         ],
         confirm=[
             False,  # only_sql
-            False,  # adjust derived pattern?
             False,  # add another target?
             True,  # drop
             False,  # purge_master_data
@@ -127,8 +126,8 @@ def _server_script(tmp_path) -> PromptScript:
             True,  # write playbook (summary confirm)
         ],
         checkbox=[
-            ["rebuild", "stop_before_restore", "start_after_restore", "neutralize", "update_all"],  # recipe
-            ["deactivate_cron", "neutralize"],  # sanitize flags
+            ["rebuild", "stop_before_restore", "start_after_restore", "update_all"],  # recipe (no neutralize here)
+            ["deactivate_cron", "neutralize"],  # what happens to the restored DB (drives server.neutralize)
         ],
     )
 
@@ -158,7 +157,7 @@ class TestServerWizard:
             "server.update-all",
         ]
 
-    def test_fresh_backup_derives_restore_pattern(self, tmp_path, monkeypatch, install_script):
+    def test_fresh_backup_hands_file_to_restore(self, tmp_path, monkeypatch, install_script):
         install_script(_server_script(tmp_path))
         result = _run_create(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
@@ -168,12 +167,8 @@ class TestServerWizard:
         assert backup["args"]["target"] == "live"
         restore = next(s for s in data["steps"] if s["command"] == "server.restore")
         assert restore["args"]["target"] == "test"
-        assert restore["args"]["backup_source"] == {
-            "mode": "newest_in_dir",
-            "dir": "/opt/backups/docker",
-            "pattern": "production_live-odoo_dockerbackup_*.tar.zst",
-            "select_by": "mtime",
-        }
+        # No pattern guessing: the restore consumes the exact file the backup created.
+        assert restore["args"]["backup_source"] == {"mode": "from_backup_step"}
 
     def test_rebuild_server_paths_stay_unexpanded(self, tmp_path, monkeypatch, install_script):
         # Defaults (answered via DEFAULT) must be omitted; a custom ~ path must stay literal.
@@ -224,7 +219,7 @@ class TestServerWizard:
                     True,  # write playbook
                 ],
                 checkbox=[
-                    ["stop_before_restore", "start_after_restore", "neutralize", "update_all"],
+                    ["stop_before_restore", "start_after_restore", "update_all"],
                     ["deactivate_cron", "neutralize"],
                 ],
             )
@@ -279,7 +274,6 @@ class TestServerWizard:
                 path=[str(tmp_path / "playbooks" / "guarded.yaml")],
                 confirm=[
                     False,  # only_sql
-                    False,  # adjust pattern
                     False,  # self-mirror confirm -> NO, re-ask destination
                     False,  # add another target?
                     True,  # drop
@@ -292,7 +286,7 @@ class TestServerWizard:
                     True,  # write
                 ],
                 checkbox=[
-                    ["stop_before_restore", "start_after_restore", "neutralize", "update_all"],
+                    ["stop_before_restore", "start_after_restore", "update_all"],
                     ["deactivate_cron", "neutralize"],
                 ],
             )
@@ -318,6 +312,34 @@ class TestServerWizard:
         assert restore["args"]["anonymize"] is True
         assert restore["args"]["wipe"] is True
         assert restore["args"]["neutralize"] is False
+        # ONE decision: neutralize deselected in the sanitize question -> no step either.
+        assert "server.neutralize" not in [s["command"] for s in data["steps"]]
+
+    def test_neutralize_selection_adds_the_step(self, tmp_path, monkeypatch, install_script):
+        # neutralize is picked ONCE (sanitize question) and yields flag + step.
+        install_script(_server_script(tmp_path))
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+
+        data = yaml.safe_load((tmp_path / "playbooks" / "mirror.yaml").read_text().split("\n", 1)[1])
+        restore = next(s for s in data["steps"] if s["command"] == "server.restore")
+        assert restore["args"]["neutralize"] is True
+        assert "server.neutralize" in [s["command"] for s in data["steps"]]
+
+    def test_neutralize_without_start_after_skips_step(self, tmp_path, monkeypatch, install_script):
+        prompts = _server_script(tmp_path)
+        prompts.queues["checkbox"][0] = ["rebuild", "stop_before_restore", "update_all"]  # no start_after
+        install_script(prompts)
+        result = _run_create(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+
+        data = yaml.safe_load((tmp_path / "playbooks" / "mirror.yaml").read_text().split("\n", 1)[1])
+        commands = [s["command"] for s in data["steps"]]
+        assert "container.start" not in commands
+        # odoo-bin neutralize needs the running container -> step omitted, psql flag stays.
+        assert "server.neutralize" not in commands
+        restore = next(s for s in data["steps"] if s["command"] == "server.restore")
+        assert restore["args"]["neutralize"] is True
 
     def test_cancel_midway_exits_zero_without_output(self, tmp_path, monkeypatch, install_script):
         install_script(PromptScript(select=["server"]))

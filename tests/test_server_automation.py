@@ -344,6 +344,38 @@ class TestServerBackup:
 # =============================================================================
 
 
+class TestResolveBackupFile:
+    def test_from_backup_step_uses_runtime_file(self, tmp_path):
+        backup = tmp_path / "production_live-odoo_dockerbackup_2026-07-15_02-00-00.tar.zst"
+        backup.write_text("archive")
+        args = {
+            "backup_source": {"mode": "from_backup_step"},
+            "_runtime": {"backup_file": str(backup)},
+        }
+        assert sa._resolve_backup_file(args, "server.restore") == str(backup)
+
+    def test_from_backup_step_without_backup_step_errors(self):
+        args = {"backup_source": {"mode": "from_backup_step"}, "_runtime": {}}
+        with pytest.raises(ValueError, match="server.backup"):
+            sa._resolve_backup_file(args, "server.restore")
+
+    def test_from_backup_step_missing_runtime_errors(self):
+        with pytest.raises(ValueError, match="from_backup_step"):
+            sa._resolve_backup_file({"backup_source": {"mode": "from_backup_step"}}, "server.restore")
+
+    def test_from_backup_step_vanished_file_errors(self, tmp_path):
+        args = {
+            "backup_source": {"mode": "from_backup_step"},
+            "_runtime": {"backup_file": str(tmp_path / "gone.tar.zst")},
+        }
+        with pytest.raises(ValueError, match="no longer exists"):
+            sa._resolve_backup_file(args, "server.restore")
+
+    def test_unknown_mode_lists_all_modes(self):
+        with pytest.raises(ValueError, match="from_backup_step.*file.*newest_in_dir"):
+            sa._resolve_backup_file({"backup_source": {"mode": "teleport"}}, "server.restore")
+
+
 class TestServerRestore:
     def _setup(self, tmp_path, monkeypatch, *, running_odoo=False, with_filestore=True, **extra):
         backups = tmp_path / "backups"

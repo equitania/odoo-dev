@@ -493,9 +493,16 @@ class PlaybookRunner:
         results: list[StepResult] = []
         start_time = time.monotonic()
         aborted = False
+        # Runtime values produced by earlier steps and consumed by later ones —
+        # currently the backup file created by server.backup, picked up by
+        # server.restore via backup_source.mode "from_backup_step".
+        runtime: dict[str, Any] = {}
 
         def record(result: StepResult) -> None:
             results.append(result)
+            backup_file = result.details.get("backup_file")
+            if result.status == "ok" and backup_file:
+                runtime["backup_file"] = backup_file
             if on_step is not None:
                 on_step(result)
 
@@ -518,6 +525,8 @@ class PlaybookRunner:
                 step_args = _inject_target_context(step_args, playbook.targets)
                 if step.command == "rpc.execute" and "_rpc_config" not in step_args:
                     step_args["_rpc_config"] = rpc_config
+                if step.command == "server.restore" and "_runtime" not in step_args:
+                    step_args["_runtime"] = runtime
             except PlaybookValidationError as exc:
                 record(
                     StepResult(

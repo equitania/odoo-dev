@@ -1,5 +1,32 @@
 # Release Notes
 
+## Version 0.57.0 (15.07.2026)
+
+### Added
+- **`backup_source.mode: from_backup_step`.** The playbook runner now hands
+  the exact file a `server.backup` step created to a later `server.restore`
+  in the same run (`_runtime` injection, like `_rpc_config` for RPC steps) —
+  no more pattern guessing between backup and restore, immune to parallel
+  backups landing in the same directory. `file` and `newest_in_dir` remain
+  fully supported; a restore with `from_backup_step` but no prior backup step
+  fails with a clear message.
+
+### Changed
+- **Wizard: no pattern questions for a fresh backup.** Choosing "create a
+  fresh backup from the running source system" no longer derives/asks a
+  restore pattern — the generated playbook simply uses `from_backup_step`
+  (the wizard says so in one info line). Found by the Captain: "then you
+  already know the backup file's name."
+- **Wizard: ONE decision about the restored database.** The neutralize
+  choice no longer appears twice (recipe checkbox + sanitize flags). The
+  restore's question "What should happen to the restored database?" is the
+  single place: picking `neutralize` sets the psql sanitize flag AND adds
+  the `server.neutralize` step (odoo-bin neutralize after container.start;
+  skipped with a warning when "start after restore" is off). The options
+  checkbox now only covers infrastructure steps.
+- Wizard schema `schema_version: 3`; answers files of versions 1 and 2 stay
+  valid (`recipe.neutralize` is still accepted — the wizard now derives it).
+
 ## Version 0.56.0 (15.07.2026)
 
 ### Added

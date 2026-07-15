@@ -63,10 +63,16 @@ steps:
     args:
       target: test
       backup_source:
-        mode: newest_in_dir
-        dir: /opt/backups/docker
-        pattern: "production_live-*_dockerbackup_*.tar.zst"
-        select_by: mtime          # or: filename_timestamp
+        # Use the exact file the server.backup step above just created:
+        mode: from_backup_step
+        # Alternative — newest file matching a pattern (no backup step needed):
+        # mode: newest_in_dir
+        # dir: /opt/backups/docker
+        # pattern: "production_live-*_dockerbackup_*.tar.zst"
+        # select_by: mtime        # or: filename_timestamp
+        # Alternative — explicit file:
+        # mode: file
+        # path: /opt/backups/docker/production_live-odoo_dockerbackup_2026-07-15_02-00-00.tar.zst
       drop: true
       template: template0
       # psql-based sanitize steps (same core functions as `odoodev db restore`):

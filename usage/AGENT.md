@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.56.0  ·  **Framework:** Python / Click
+- **Version:** 0.57.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -198,8 +198,9 @@ Steps: `container.stop`/`container.start` (idempotent; `component: odoo|db`), `s
 (`backup_dir`, container2backup-compatible `.tar.zst`), `server.rebuild` (full container rebuild via
 the deployed `update_docker_odoo.py`: release fetch + `docker build` + recreate; args `script_path`
 default `~/update_docker_odoo.py`, `config` default `~/docker2update.yaml`, `timeout` default 7200s;
-exit code is the contract), `server.restore` (`backup_source:` either
-`{mode: file, path: …}` or `{mode: newest_in_dir, dir, pattern, select_by: mtime|filename_timestamp}`;
+exit code is the contract), `server.restore` (`backup_source:` `{mode: from_backup_step}` — the exact
+file a previous `server.backup` step of the same run created (v0.57.0) —
+or `{mode: file, path: …}` or `{mode: newest_in_dir, dir, pattern, select_by: mtime|filename_timestamp}`;
 `template: template0`; sanitize flags `deactivate_cron`/`neutralize`/`anonymize`/`wipe`/
 `purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute` (`statements:` list or
 `file:`, Jinja-templated; works against a `target` or the dev DB), `server.neutralize`,
@@ -224,15 +225,18 @@ odoodev playbook validate playbooks/mirror.yaml --json    # non-executing valida
 The wizard opens with a DE/EN language question when no language is explicitly configured
 (`--lang`/`ODOODEV_LANG`/config; default from shell locale, optionally persisted) and walks
 through numbered steps (server: 6, dev: 4). The server branch is **source-first** (v0.55.0):
-it asks the mirror SOURCE first (fresh backup from a container pair with auto-derived restore
-pattern / existing backup file / newest by pattern; prompt "Source name"), then the DESTINATION
-target (prompt "Destination name"; self-mirror guard: restoring back onto the source pair
-needs explicit confirmation), then the optional steps (rebuild → stop → SQL presets incl.
-enterprise code + website-domain swap → start → neutralize → update-all → rpc) — `server.restore`
-is always included. Server-side paths stay literal (`~/...` is expanded on the server, never on
+it asks the mirror SOURCE first (fresh backup from a container pair — the restore then
+automatically consumes the file that backup creates via `backup_source.mode: from_backup_step`,
+no pattern questions (v0.57.0) — / existing backup file / newest by pattern; prompt "Source
+name"), then the DESTINATION target (prompt "Destination name"; self-mirror guard: restoring
+back onto the source pair needs explicit confirmation), then the infrastructure options
+(rebuild → stop → SQL presets incl. enterprise code + website-domain swap → start →
+update-all → rpc) — `server.restore` is always included, and what happens to the restored
+database is ONE question (sanitize flags; picking `neutralize` also adds the
+`server.neutralize` step). Server-side paths stay literal (`~/...` is expanded on the server, never on
 the machine running the wizard). Secrets never land in the YAML: the assistant writes them into a
 0600 env_file referenced via `{{ env.X }}` (nothing entered → no file written). Answers-file
-format and schema JSON (`schema_version: 2`; `1` still accepted): see `usage/playbook.md`.
+format and schema JSON (`schema_version: 3`; `1`/`2` still accepted): see `usage/playbook.md`.
 Answers files may contain inline secrets — treat them like the env_file (0600, never commit,
 delete after use). In non-interactive mode an existing output/env file is refused without
 `--force`.

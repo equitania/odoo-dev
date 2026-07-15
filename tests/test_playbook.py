@@ -324,6 +324,78 @@ class TestPlaybookRunner:
         assert result.status == "ok"
         mock_handler.assert_called_once()
 
+    def test_backup_file_handoff_to_restore(self):
+        """server.backup's created file reaches server.restore via _runtime."""
+        backup_handler = MagicMock(
+            return_value=StepResult(
+                name="server.backup",
+                command="server.backup",
+                status="ok",
+                message="Backup created",
+                exit_code=0,
+                duration_ms=100,
+                details={"backup_file": "/opt/backups/prod_live_dockerbackup_x.tar.zst"},
+            )
+        )
+        seen_args: dict = {}
+
+        def restore_handler(version_cfg, args):
+            seen_args.update(args)
+            return StepResult(
+                name="server.restore",
+                command="server.restore",
+                status="ok",
+                message="restored",
+                exit_code=0,
+                duration_ms=100,
+            )
+
+        runner = self._make_runner(handlers={"server.backup": backup_handler, "server.restore": restore_handler})
+        pb = PlaybookConfig(
+            version="18",
+            on_error="stop",
+            steps=(
+                StepConfig(name="backup", command="server.backup"),
+                StepConfig(
+                    name="restore", command="server.restore", args={"backup_source": {"mode": "from_backup_step"}}
+                ),
+            ),
+        )
+
+        with patch("odoodev.core.version_registry.get_version") as mock_gv:
+            mock_gv.return_value = MagicMock()
+            result = runner.execute(pb, playbook_name="test")
+
+        assert result.status == "ok"
+        assert seen_args["_runtime"] == {"backup_file": "/opt/backups/prod_live_dockerbackup_x.tar.zst"}
+
+    def test_runtime_empty_without_backup_step(self):
+        seen_args: dict = {}
+
+        def restore_handler(version_cfg, args):
+            seen_args.update(args)
+            return StepResult(
+                name="server.restore",
+                command="server.restore",
+                status="ok",
+                message="restored",
+                exit_code=0,
+                duration_ms=100,
+            )
+
+        runner = self._make_runner(handlers={"server.restore": restore_handler})
+        pb = PlaybookConfig(
+            version="18",
+            on_error="stop",
+            steps=(StepConfig(name="restore", command="server.restore"),),
+        )
+
+        with patch("odoodev.core.version_registry.get_version") as mock_gv:
+            mock_gv.return_value = MagicMock()
+            runner.execute(pb, playbook_name="test")
+
+        assert seen_args["_runtime"] == {}
+
     def test_on_error_stop_skips_remaining(self):
         error_handler = MagicMock(
             return_value=StepResult(
