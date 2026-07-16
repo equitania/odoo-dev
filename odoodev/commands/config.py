@@ -61,6 +61,31 @@ def config() -> None:
     """Global configuration and available versions."""
 
 
+def _effective_ports(cfg) -> dict:
+    """Resolve the ports a version actually uses at runtime.
+
+    Multi-user hosts override the registry defaults per user via the
+    version's ``.env`` (``DB_PORT``/``ODOO_PORT``/``GEVENT_PORT``/
+    ``MAILPIT_PORT``, e.g. user 2 gets 28069/28432). Consumers such as the
+    GUI must match containers and build URLs against these values, not the
+    registry defaults.
+    """
+    from odoodev.core.container_backend import read_env_file
+
+    env = read_env_file(cfg.paths.native_dir)
+
+    def pick(key: str, default: int) -> int:
+        raw = (env.get(key) or "").strip()
+        return int(raw) if raw.isdigit() else default
+
+    return {
+        "db": pick("DB_PORT", cfg.ports.db),
+        "odoo": pick("ODOO_PORT", cfg.ports.odoo),
+        "gevent": pick("GEVENT_PORT", cfg.ports.gevent),
+        "mailpit": pick("MAILPIT_PORT", cfg.ports.mailpit),
+    }
+
+
 @config.command("versions")
 @click.option("--plain", is_flag=True, help="Plain output (one version per line, for scripts)")
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON output")
@@ -87,6 +112,7 @@ def config_versions(plain: bool, as_json: bool) -> None:
                     "gevent": cfg.ports.gevent,
                     "mailpit": cfg.ports.mailpit,
                 },
+                "effective_ports": _effective_ports(cfg),
                 "base": cfg.paths.base,
             }
             for v, cfg in versions.items()

@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.58.0 (16.07.2026)
+
+### Added
+- **`effective_ports` in `config versions --json`.** Each version now also
+  reports the ports it actually uses at runtime: the registry defaults
+  overridden by the version's `.env` (`DB_PORT`, `ODOO_PORT`, `GEVENT_PORT`,
+  `MAILPIT_PORT`). On multi-user hosts every user has an own port prefix
+  (user 2 → 28069/28432, …) stored in their `v1X-dev/.env`; GUIs and agents
+  must match containers and build URLs against `effective_ports`, not the
+  unchanged `ports` defaults.
+
 ## Version 0.57.0 (15.07.2026)
 
 ### Added

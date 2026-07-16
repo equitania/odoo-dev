@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.57.0  ·  **Framework:** Python / Click
+- **Version:** 0.58.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -287,7 +287,11 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 - `odoodev capability-card` → this card as raw Markdown (self-description; version always live).
 - `odoodev run --steps` → list of valid playbook step commands.
 - `odoodev db list --json` → array of databases.
-- `odoodev config versions --json` → full version registry (ports, paths, git).
+- `odoodev config versions --json` → full version registry (ports, paths, git). Since 0.58.0 each
+  version also carries `effective_ports` (registry defaults overridden by the version's `.env`
+  `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/`MAILPIT_PORT`) — on multi-user hosts every user has an own
+  port prefix, so consumers must match containers and build URLs against `effective_ports`, not
+  `ports`.
 - `odoodev config paths --json` → per-version config-file inventory (native/conf/myconfs dirs; path
   + exists flag for .env, compose, requirements, repos.yaml, postgresql.conf, template/generated
   odoo.conf). Primary path-discovery surface for GUIs/agents — do not re-derive paths.

@@ -73,10 +73,17 @@ Gibt ein JSON-Objekt aus, das nach Versionsnummer indiziert ist:
     "python": "3.13",
     "postgres": "16.11",
     "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025},
+    "effective_ports": {"db": 28432, "odoo": 28069, "gevent": 28072, "mailpit": 28025},
     "base": "~/gitbase/v18"
   }
 }
 ```
+
+`effective_ports` (seit 0.58.0) sind die tatsaechlich genutzten Laufzeit-Ports:
+Registry-Defaults, ueberschrieben durch `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/
+`MAILPIT_PORT` aus der `.env` der Version. Auf Multi-User-Hosts hat jeder
+Benutzer ein eigenes Port-Praefix — Konsumenten (GUI, Agents) muessen Container
+und URLs gegen `effective_ports` aufloesen, nicht gegen `ports`.
 
 `--plain` und `--json` sind gegenseitig ausschliessend.
 
@@ -213,10 +220,17 @@ Returns a JSON object keyed by version number:
     "python": "3.13",
     "postgres": "16.11",
     "ports": {"db": 18432, "odoo": 18069, "gevent": 18072, "mailpit": 18025},
+    "effective_ports": {"db": 28432, "odoo": 28069, "gevent": 28072, "mailpit": 28025},
     "base": "~/gitbase/v18"
   }
 }
 ```
+
+`effective_ports` (since 0.58.0) are the ports actually used at runtime:
+registry defaults overridden by `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/
+`MAILPIT_PORT` from the version's `.env`. On multi-user hosts every user has
+an own port prefix — consumers (GUI, agents) must resolve containers and URLs
+against `effective_ports`, not `ports`.
 
 `--plain` and `--json` are mutually exclusive.
 

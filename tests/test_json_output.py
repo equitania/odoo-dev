@@ -48,6 +48,49 @@ class TestConfigVersionsJson:
         assert result.exit_code != 0
         assert "mutually exclusive" in result.output
 
+    def test_payload_contains_effective_ports(self):
+        result = CliRunner().invoke(cli, ["config", "versions", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output.strip())
+        assert set(data["18"]["effective_ports"]) == {"db", "odoo", "gevent", "mailpit"}
+
+
+class TestEffectivePorts:
+    """Multi-user hosts override registry ports per user via the version's .env."""
+
+    def _cfg(self, native_dir):
+        return SimpleNamespace(
+            paths=SimpleNamespace(native_dir=str(native_dir)),
+            ports=SimpleNamespace(db=18432, odoo=18069, gevent=18072, mailpit=18025),
+        )
+
+    def test_env_overrides_registry_defaults(self, tmp_path):
+        from odoodev.commands.config import _effective_ports
+
+        (tmp_path / ".env").write_text("DB_PORT=28432\nODOO_PORT=28069\n# comment\nGEVENT_PORT=\n")
+        assert _effective_ports(self._cfg(tmp_path)) == {
+            "db": 28432,
+            "odoo": 28069,
+            "gevent": 18072,
+            "mailpit": 18025,
+        }
+
+    def test_missing_env_falls_back_to_defaults(self, tmp_path):
+        from odoodev.commands.config import _effective_ports
+
+        assert _effective_ports(self._cfg(tmp_path)) == {
+            "db": 18432,
+            "odoo": 18069,
+            "gevent": 18072,
+            "mailpit": 18025,
+        }
+
+    def test_non_numeric_value_is_ignored(self, tmp_path):
+        from odoodev.commands.config import _effective_ports
+
+        (tmp_path / ".env").write_text("ODOO_PORT=not-a-port\n")
+        assert _effective_ports(self._cfg(tmp_path))["odoo"] == 18069
+
 
 class TestVenvCheckJson:
     def test_missing_venv_exits_1_with_json(self, monkeypatch, tmp_path):
