@@ -64,7 +64,21 @@ def _resolve_database(database: str | None, db_port: int, non_interactive: bool)
 
 @click.group()
 def export() -> None:
-    """Export data from a running Odoo instance."""
+    """Export data from a running Odoo instance (XML-RPC).
+
+    The instance must be up — start it first with 'odoodev start VERSION'.
+    Credentials are resolved from --user/--password, the environment
+    (ODOODEV_ODOO_USER / ODOODEV_ODOO_PASSWORD), or the stored config
+    ('odoodev config set odoo_login.username / odoo_login.password').
+
+    \b
+    Examples:
+        odoodev export modules 18                      # interactive DB picker
+        odoodev export modules 18 -d v18_exam --scope installed
+        odoodev export modules 18 -d v18_exam --json   # machine-readable (GUI)
+
+    Full documentation: usage/export.md or 'odoodev capability-card'.
+    """
 
 
 @export.command("modules")
@@ -112,6 +126,27 @@ def export_modules(
 
     Talks XML-RPC to a RUNNING Odoo instance (start it first). Shares its
     logic with the TUI export ('x' key), so results are identical.
+    Default output: ~/Downloads/modules_<db>_<scope>_<timestamp>.csv
+    (header: .id,name,installed_version,display_name).
+
+    \b
+    Examples:
+        odoodev export modules 18 -d v18_exam
+        odoodev export modules 18 -d v18_exam --scope no-enterprise
+        odoodev export modules 18 -d v18_exam --cleanup --update-list
+        odoodev export modules 18 -d v18_exam --output /tmp/modules.csv
+        odoodev export modules 18 -d v18_exam --json    # for GUIs/agents
+
+    \b
+    Credential precedence:
+        1. --user / --password
+        2. $ODOODEV_ODOO_USER / $ODOODEV_ODOO_PASSWORD
+        3. odoodev config set odoo_login.username / odoo_login.password
+        4. admin/admin (dev default)
+
+    With --json a single-line result object is printed:
+    {"version", "database", "scope", "path", "count", "updated", "cleaned"} —
+    an empty module list is a soft outcome (count 0, path null, exit 0).
     """
     import datetime
     import json

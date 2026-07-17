@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.59.0  ·  **Framework:** Python / Click
+- **Version:** 0.59.1  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 

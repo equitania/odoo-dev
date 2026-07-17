@@ -178,6 +178,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.59.1:**
+- **Behoben:** Der Export-Button im TUI-Export-Dialog wurde auf üblichen Terminalhöhen unterhalb des sichtbaren Bereichs abgeschnitten. Das Layout ist jetzt kompakt (Login + Passwort nebeneinander), der Dialog scrollt bei sehr kleinen Terminals, und Enter in einem Eingabefeld startet den Export direkt. `odoodev export --help` liefert jetzt eine vollwertige Hilfeseite mit Beispielen und Credential-Reihenfolge.
+
 **Version 0.59.0:**
 - **Neu:** `odoodev export modules` — der Releasemanager-CSV-Export ist jetzt ein eigenständiger CLI-Befehl mit demselben Kern wie der TUI-Export (`x`). Für GUIs/Agenten: `--json` liefert ein einzeiliges Ergebnis (`path`, `count`, `updated`, `cleaned`); Zugangsdaten per Flags, `ODOODEV_ODOO_USER`/`ODOODEV_ODOO_PASSWORD` oder der neuen `odoo_login`-Sektion der globalen Config (`config set odoo_login.username/password`). Der TUI-Export-Dialog hat jetzt Benutzer/Passwort-Felder (vorbelegt aus der Config, optional speicherbar), läuft in einem Worker-Thread und zeigt einen Fortschritts-Overlay statt die Oberfläche zu blockieren.
 - **Geändert:** `odoodev start` zeigt die Instanz-Informationen (Ports, Datenbank, Config, Verzeichnisse) ZUERST, gefolgt von genau einer Bestätigungsfrage; erst danach laufen die Preflight-Checks mit Seiteneffekten. `--yes/-y` ist dokumentiert und überspringt nur die Frage. Wer den Start ablehnt, hinterlässt keine Spuren mehr (kein `.pgpass`-Write, kein Container-Start).
@@ -503,6 +506,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.59.1:**
+- **Fixed:** The Export button in the TUI export dialog was clipped below the visible area on typical terminal heights. The layout is compact now (login + password side by side), the dialog scrolls on very short terminals, and Enter in any input field submits the export directly. `odoodev export --help` now provides a full help page with examples and the credential precedence chain.
 
 **Version 0.59.0:**
 - **Added:** `odoodev export modules` — the Releasemanager CSV export is now a standalone CLI command sharing its core with the TUI export (`x`). For GUIs/agents: `--json` returns a single-line result (`path`, `count`, `updated`, `cleaned`); credentials via flags, `ODOODEV_ODOO_USER`/`ODOODEV_ODOO_PASSWORD`, or the new `odoo_login` section of the global config (`config set odoo_login.username/password`). The TUI export dialog gains username/password fields (pre-filled from the config, optionally persisted), runs in a worker thread, and shows a progress overlay instead of freezing the UI.

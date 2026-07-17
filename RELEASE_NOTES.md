@@ -1,5 +1,24 @@
 # Release Notes
 
+## Version 0.59.1 (17.07.2026)
+
+### Changed
+- **`odoodev export --help` is a real help page now.** The group and the
+  `modules` subcommand carry usage examples, the credential-precedence chain,
+  the default output path and the `--json` result contract — instead of a
+  bare one-liner.
+
+### Fixed
+- **TUI export dialog: Export button was clipped off-screen.** With the new
+  credential fields the dialog grew taller than typical terminals, so the
+  button row rendered below the visible area and appeared missing (the same
+  root cause already affected the pre-0.59.0 dialog on short terminals).
+  The layout is now compact (login + password side by side, filler margins
+  removed), the dialog scrolls when the terminal is very short
+  (`max-height: 90%` + `overflow-y: auto`), and **Enter in any input field
+  submits the export** — a visibility regression test pins the button inside
+  a 28-line viewport.
+
 ## Version 0.59.0 (17.07.2026)
 
 ### Added

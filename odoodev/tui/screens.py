@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, LoadingIndicator, OptionList, RadioButton, RadioSet, Static
 from textual.widgets.option_list import Option
@@ -239,24 +239,27 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
     #export-dialog {
         width: 72;
         height: auto;
-        max-height: 34;
+        max-height: 90%;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
+        overflow-y: auto;
     }
     #export-dialog Label {
         margin-bottom: 1;
     }
-    #export-db, #export-username, #export-password {
+    #export-db {
         width: 100%;
-        margin-bottom: 1;
     }
     #export-options {
         width: 100%;
-        margin-bottom: 1;
     }
-    #export-chk-update, #export-chk-cleanup, #export-chk-remember {
-        margin-bottom: 1;
+    #export-credentials {
+        height: 3;
+        width: 100%;
+    }
+    #export-username, #export-password {
+        width: 1fr;
     }
     .button-row {
         height: 3;
@@ -286,7 +289,12 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
         self._username, self._password = get_odoo_login_credentials()
 
     def compose(self) -> ComposeResult:
-        """Build the export dialog."""
+        """Build the export dialog.
+
+        Kept deliberately compact (login + password side by side, no filler
+        margins) so the button row stays visible on ~30-line terminals — a
+        taller layout clipped the Export button below the screen edge.
+        """
         with Vertical(id="export-dialog"):
             yield Label(t("tui.export_title"))
             yield Static(f"[dim]{t('tui.export_db_label')}[/]")
@@ -297,10 +305,10 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
                 RadioButton(t("tui.export_opt_installed"), id="opt-installed"),
                 id="export-options",
             )
-            yield Static(f"[dim]{t('tui.export_username_label')}[/]")
-            yield Input(value=self._username, placeholder="admin", id="export-username")
-            yield Static(f"[dim]{t('tui.export_password_label')}[/]")
-            yield Input(value=self._password, password=True, id="export-password")
+            yield Static(f"[dim]{t('tui.export_username_label')} / {t('tui.export_password_label')}[/]")
+            with Horizontal(id="export-credentials"):
+                yield Input(value=self._username, placeholder="admin", id="export-username")
+                yield Input(value=self._password, password=True, id="export-password")
             yield Checkbox(t("tui.export_chk_update"), id="export-chk-update")
             yield Checkbox(t("tui.export_chk_cleanup"), id="export-chk-cleanup")
             yield Checkbox(t("tui.export_chk_remember"), id="export-chk-remember")
@@ -315,6 +323,10 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
             return
         if event.button.id == "btn-export":
             self._do_export()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter in any input triggers the export (buttons stay optional)."""
+        self._do_export()
 
     def action_cancel_export(self) -> None:
         """Close the dialog without exporting."""

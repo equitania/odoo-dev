@@ -1046,6 +1046,44 @@ class TestExportModulesScreen:
             await pilot.pause(0.1)
             assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
 
+    async def test_export_button_visible_on_small_terminal(self, mock_cmd, tmp_path):
+        """Regression: the Export button was clipped below the screen edge.
+
+        With db + scope + credential fields the dialog grew taller than a
+        typical terminal — the button row rendered off-screen and looked
+        missing. The compact layout must keep it inside a 28-line viewport.
+        """
+        from textual.widgets import Button
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(100, 28)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("x")
+            await pilot.pause(0.2)
+            screen = app.screen_stack[-1]
+            btn = screen.query_one("#btn-export", Button)
+            assert btn.region.height > 0, "Export button has no rendered area"
+            assert btn.region.bottom <= app.size.height, (
+                f"Export button clipped: bottom={btn.region.bottom} > terminal height={app.size.height}"
+            )
+
+    async def test_export_enter_submits(self, mock_cmd, tmp_path):
+        """Enter in the DB input triggers the export without touching buttons."""
+        from odoodev.tui.screens import ExportModulesChoice, ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        results = []
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.3)
+            app.push_screen(ExportModulesScreen("v18_exam"), results.append)
+            await pilot.pause(0.1)
+            app.screen_stack[-1].query_one("#export-db").focus()
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+        assert len(results) == 1
+        assert isinstance(results[0], ExportModulesChoice)
+        assert results[0].db_name == "v18_exam"
+
     async def test_export_escape_dismisses(self, mock_cmd, tmp_path):
         from odoodev.tui.screens import ExportModulesScreen
 
