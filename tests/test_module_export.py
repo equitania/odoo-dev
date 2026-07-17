@@ -1,8 +1,8 @@
-"""Tests for odoodev.tui.module_export."""
+"""Tests for odoodev.core.module_export."""
 
 from datetime import datetime
 
-from odoodev.tui.module_export import (
+from odoodev.core.module_export import (
     EXPORT_FIELDS,
     EXPORT_HEADER,
     EXPORT_SCOPES,

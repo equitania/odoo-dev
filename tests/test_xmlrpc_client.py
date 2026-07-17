@@ -1,10 +1,10 @@
-"""Tests for odoodev.tui.xmlrpc_client."""
+"""Tests for odoodev.core.xmlrpc_client."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
+from odoodev.core.xmlrpc_client import OdooXmlRpcClient
 
 
 @pytest.fixture
@@ -33,6 +33,19 @@ class TestOdooXmlRpcClientInit:
         assert client._database == "v18_exam"
         assert client._base_url == "http://localhost:18069"
 
+    def test_from_stored_credentials(self, monkeypatch):
+        """The factory pulls the odoo_login section of the global config."""
+        monkeypatch.setattr(
+            "odoodev.core.global_config.get_odoo_login_credentials",
+            lambda: ("stored_user", "stored_pw"),
+        )
+        client = OdooXmlRpcClient.from_stored_credentials(port=18069, database="v18_exam")
+        assert client._username == "stored_user"
+        assert client._password == "stored_pw"
+        assert client._port == 18069
+        assert client._database == "v18_exam"
+        assert client._host == "localhost"
+
 
 class TestRemoteHostSafety:
     """Test plaintext HTTP safeguards for non-local hosts."""
@@ -41,7 +54,7 @@ class TestRemoteHostSafety:
         """No warning emitted for localhost connections."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
+        with caplog.at_level(logging.WARNING, logger="odoodev.core.xmlrpc_client"):
             OdooXmlRpcClient(host="localhost", port=8069, database="test")
         assert "plaintext HTTP" not in caplog.text
 
@@ -49,7 +62,7 @@ class TestRemoteHostSafety:
         """No warning emitted for 127.0.0.1."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
+        with caplog.at_level(logging.WARNING, logger="odoodev.core.xmlrpc_client"):
             OdooXmlRpcClient(host="127.0.0.1", port=8069, database="test")
         assert "plaintext HTTP" not in caplog.text
 
@@ -67,7 +80,7 @@ class TestRemoteHostSafety:
         """allow_insecure_remote=True connects over plaintext but logs a warning."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="odoodev.tui.xmlrpc_client"):
+        with caplog.at_level(logging.WARNING, logger="odoodev.core.xmlrpc_client"):
             client = OdooXmlRpcClient(
                 host="remote-server.example.com",
                 port=8069,
@@ -82,7 +95,7 @@ class TestRemoteHostSafety:
 class TestAuthenticate:
     """Test authentication."""
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_authenticate_success(self, mock_proxy_cls, client):
         mock_proxy = MagicMock()
         mock_proxy.authenticate.return_value = 2
@@ -92,7 +105,7 @@ class TestAuthenticate:
         assert uid == 2
         assert client._uid == 2
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_authenticate_failure(self, mock_proxy_cls, client):
         mock_proxy = MagicMock()
         mock_proxy.authenticate.return_value = False
@@ -101,7 +114,7 @@ class TestAuthenticate:
         with pytest.raises(ValueError, match="Authentication failed"):
             client.authenticate()
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_authenticate_connection_error(self, mock_proxy_cls, client):
         mock_proxy = MagicMock()
         mock_proxy.authenticate.side_effect = ConnectionRefusedError("Connection refused")
@@ -114,7 +127,7 @@ class TestAuthenticate:
 class TestListInstalledModules:
     """Test module listing."""
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_list_modules(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2
@@ -135,7 +148,7 @@ class TestListInstalledModules:
         assert len(modules) == 2
         assert modules[0]["name"] == "base"
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_list_modules_empty(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2
@@ -171,7 +184,7 @@ class TestListModules:
         mock_proxy_cls.side_effect = proxy_factory
         return mock_object
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_all_modules_domain(self, mock_proxy_cls, client):
         """Default flags -> exclude only non-installable modules (state-based)."""
         mock_object = self._wire(mock_proxy_cls, [{"id": 1, "name": "base"}])
@@ -186,21 +199,21 @@ class TestListModules:
             {"fields": ["id", "name", "installed_version", "display_name"], "order": "name asc"},
         )
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_installed_only_domain(self, mock_proxy_cls, client):
         mock_object = self._wire(mock_proxy_cls, [])
         client.list_modules(installed_only=True)
         args = mock_object.execute_kw.call_args.args
         assert args[5] == [[["state", "=", "installed"]]]
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_exclude_enterprise_domain(self, mock_proxy_cls, client):
         mock_object = self._wire(mock_proxy_cls, [])
         client.list_modules(exclude_enterprise=True)
         args = mock_object.execute_kw.call_args.args
         assert args[5] == [[["state", "!=", "uninstallable"], ["license", "!=", "OEEL-1"]]]
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_domain_never_uses_removed_installable_field(self, mock_proxy_cls, client):
         """Regression: 'installable' was removed from ir.module.module in v19."""
         mock_object = self._wire(mock_proxy_cls, [])
@@ -211,7 +224,7 @@ class TestListModules:
             fields = [cond[0] for cond in domain[0]]
             assert "installable" not in fields
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_test_and_hw_filtered_theme_kept(self, mock_proxy_cls, client):
         """test_/hw_ modules are dropped client-side; theme_ survives."""
         self._wire(
@@ -226,7 +239,7 @@ class TestListModules:
         names = [r["name"] for r in client.list_modules()]
         assert names == ["base", "theme_clean"]
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_non_list_result_returns_empty(self, mock_proxy_cls, client):
         self._wire(mock_proxy_cls, False)
         assert client.list_modules() == []
@@ -235,7 +248,7 @@ class TestListModules:
 class TestFindModules:
     """Test module ID lookup."""
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_find_existing_modules(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2
@@ -256,7 +269,7 @@ class TestFindModules:
 class TestUpgradeModules:
     """Test module upgrade."""
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_upgrade_success(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2
@@ -274,7 +287,7 @@ class TestUpgradeModules:
         result = client.upgrade_modules(["eq_sale"])
         assert result is True
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_upgrade_no_modules_found(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2
@@ -304,7 +317,7 @@ class TestUpdateModuleList:
         mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
         return mock_object
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_calls_update_list_with_no_args(self, mock_proxy_cls, client):
         mock_object = self._wire(mock_proxy_cls, [3, 5])
         added = client.update_module_list()
@@ -319,7 +332,7 @@ class TestUpdateModuleList:
             {},
         )
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_non_tuple_result_returns_zero(self, mock_proxy_cls, client):
         self._wire(mock_proxy_cls, None)
         assert client.update_module_list() == 0
@@ -328,7 +341,7 @@ class TestUpdateModuleList:
 class TestCleanupUninstalledModules:
     """Test removal of non-installed module catalog entries."""
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_searches_non_installed_then_unlinks(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2
@@ -347,7 +360,7 @@ class TestCleanupUninstalledModules:
         assert unlink_args[4] == "unlink"
         assert unlink_args[5] == [[7, 8, 9]]
 
-    @patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy")
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_no_matches_skips_unlink(self, mock_proxy_cls, client):
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 2

@@ -48,7 +48,10 @@ wiederholt (silent).
 | `language` | `en` oder `de` |
 | `db.user` | PostgreSQL-Benutzername |
 | `db.password` | PostgreSQL-Passwort (nicht echo) |
+| `odoo_login.username` | Odoo-XML-RPC-Login (res.users) fuer Modul-Aktionen/Export (v0.59.0, Default `admin`) |
+| `odoo_login.password` | Odoo-XML-RPC-Passwort (maskiert ausgegeben, Default `admin`) |
 | `active_versions` | Kommagetrennt, z.B. `16,17,18,19` |
+| `container_runtime` | `docker` oder `apple` |
 
 ### Konfiguration im Editor oeffnen (`odoodev config edit`)
 
@@ -195,7 +198,10 @@ Unknown keys are rejected. Passwords are never echoed to the terminal.
 | `language` | `en` or `de` |
 | `db.user` | PostgreSQL username |
 | `db.password` | PostgreSQL password (not echoed) |
+| `odoo_login.username` | Odoo XML-RPC login (res.users) for module actions/export (v0.59.0, default `admin`) |
+| `odoo_login.password` | Odoo XML-RPC password (masked output, default `admin`) |
 | `active_versions` | Comma-separated, e.g. `16,17,18,19` |
+| `container_runtime` | `docker` or `apple` |
 
 ### Open Configuration in Editor (`odoodev config edit`)
 

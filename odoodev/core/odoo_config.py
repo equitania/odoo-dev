@@ -53,6 +53,32 @@ def latest_generated_conf(config_dir: str) -> str | None:
     return os.path.join(config_dir, matches[-1])
 
 
+def effective_ports(version_cfg) -> dict:
+    """Resolve the ports a version actually uses at runtime.
+
+    Multi-user hosts override the registry defaults per user via the
+    version's ``.env`` (``DB_PORT``/``ODOO_PORT``/``GEVENT_PORT``/
+    ``MAILPIT_PORT``, e.g. user 2 gets 28069/28432). Consumers such as the
+    GUI must match containers and build URLs against these values, not the
+    registry defaults. Shared by ``config versions --json`` and
+    ``export modules``.
+    """
+    from odoodev.core.container_backend import read_env_file
+
+    env = read_env_file(version_cfg.paths.native_dir)
+
+    def pick(key: str, default: int) -> int:
+        raw = (env.get(key) or "").strip()
+        return int(raw) if raw.isdigit() else default
+
+    return {
+        "db": pick("DB_PORT", version_cfg.ports.db),
+        "odoo": pick("ODOO_PORT", version_cfg.ports.odoo),
+        "gevent": pick("GEVENT_PORT", version_cfg.ports.gevent),
+        "mailpit": pick("MAILPIT_PORT", version_cfg.ports.mailpit),
+    }
+
+
 def generate_addons_path(
     all_paths: dict[str, list[str]],
     repo_metadata: dict[str, dict],

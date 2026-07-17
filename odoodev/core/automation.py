@@ -193,7 +193,10 @@ def handle_pull(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     server_config = config.get("server", {})
     server_path = os.path.join(base_path, server_config.get("path", version_cfg.paths.server_subdir))
     if os.path.isdir(server_path):
-        if update_repo(server_path, branch):
+        # update_repo returns (success, error) — a bare truthiness check on the
+        # 2-tuple would always pass and misreport failed pulls as updated.
+        success, _error = update_repo(server_path, branch)
+        if success:
             updated += 1
         else:
             failed += 1
@@ -204,7 +207,8 @@ def handle_pull(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
         repo_path = repo.get("path", "")
         full_path = os.path.join(base_path, repo_path)
         if os.path.isdir(full_path):
-            if update_repo(full_path, branch):
+            success, _error = update_repo(full_path, branch)
+            if success:
                 updated += 1
             else:
                 failed += 1
@@ -254,9 +258,9 @@ def handle_repos(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult
     if ssh_key:
         set_ssh_key(ssh_key)
 
-    # Config-only mode
+    # Config-only mode — documented as "no git operations"
     if config_only:
-        all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
+        all_paths, repo_metadata, _summary = _process_repos(config, base_path, branch, set(), skip_git=True)
         _generate_config(config, version_cfg, all_paths, repo_metadata)
         return _step_ok("repos", "repos", "Odoo config regenerated (config-only)", 0)
 
@@ -284,10 +288,19 @@ def handle_repos(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult
         return _step_ok("repos", "repos", "Server updated", 0)
 
     # Process repos
-    all_paths, repo_metadata = _process_repos(config, base_path, branch, accessible_paths)
+    all_paths, repo_metadata, summary = _process_repos(config, base_path, branch, accessible_paths)
     _generate_config(config, version_cfg, all_paths, repo_metadata)
 
-    return _step_ok("repos", "repos", f"Repositories processed for v{version_cfg.version}", 0)
+    if summary.failed:
+        details = "; ".join(f"{key}: {error}" for key, error in summary.failed)
+        return _step_error("repos", "repos", f"{len(summary.failed)} repositories failed — {details}", 0)
+    return _step_ok(
+        "repos",
+        "repos",
+        f"Repositories processed for v{version_cfg.version} "
+        f"({len(summary.cloned)} cloned, {len(summary.updated)} updated)",
+        0,
+    )
 
 
 # =============================================================================

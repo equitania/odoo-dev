@@ -17,6 +17,10 @@ DEFAULT_DB_USER = "ownerp"
 DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
 DEFAULT_ACTIVE_VERSIONS = ["16", "17", "18", "19"]
 DEFAULT_LANGUAGE = "en"
+# Odoo res.users login for XML-RPC module actions (TUI export/update/cleanup,
+# `odoodev export modules`). Dev-database convention — NOT the PostgreSQL login.
+DEFAULT_ODOO_LOGIN_USERNAME = "admin"
+DEFAULT_ODOO_LOGIN_PASSWORD = "admin"  # noqa: S105 — dev-tool placeholder, matches xmlrpc_client default
 # Container runtime for the local PostgreSQL service: "docker" or "apple"
 # (Apple Container — github.com/apple/container, macOS 26+). Docker is the
 # default so existing setups keep their behaviour unchanged.
@@ -42,12 +46,26 @@ class CliConfig:
 
 
 @dataclass(frozen=True)
+class OdooLoginConfig:
+    """Odoo XML-RPC login for module actions (export/update-list/cleanup/hot-update).
+
+    This is the res.users account of the local dev instance — distinct from
+    both the PostgreSQL credentials (DatabaseConfig) and the Odoo master
+    password (admin_passwd in odoo.conf).
+    """
+
+    username: str = DEFAULT_ODOO_LOGIN_USERNAME
+    password: str = DEFAULT_ODOO_LOGIN_PASSWORD
+
+
+@dataclass(frozen=True)
 class GlobalConfig:
     """Global odoodev configuration stored in ~/.config/odoodev/config.yaml."""
 
     base_dir: str = DEFAULT_BASE_DIR
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     cli: CliConfig = field(default_factory=CliConfig)
+    odoo_login: OdooLoginConfig = field(default_factory=OdooLoginConfig)
     active_versions: list[str] = field(default_factory=lambda: list(DEFAULT_ACTIVE_VERSIONS))
     container_runtime: str = DEFAULT_CONTAINER_RUNTIME
 
@@ -106,10 +124,17 @@ def load_global_config() -> GlobalConfig:
     cli_data = data.get("cli", {})
     cli_config = CliConfig(language=cli_data.get("language", DEFAULT_LANGUAGE))
 
+    login_data = data.get("odoo_login", {})
+    odoo_login = OdooLoginConfig(
+        username=login_data.get("username", DEFAULT_ODOO_LOGIN_USERNAME),
+        password=login_data.get("password", DEFAULT_ODOO_LOGIN_PASSWORD),
+    )
+
     _cached_config = GlobalConfig(
         base_dir=data.get("base_dir", DEFAULT_BASE_DIR),
         database=db_config,
         cli=cli_config,
+        odoo_login=odoo_login,
         active_versions=data.get("active_versions", list(DEFAULT_ACTIVE_VERSIONS)),
         container_runtime=data.get("container_runtime", DEFAULT_CONTAINER_RUNTIME),
     )
@@ -140,6 +165,10 @@ def save_global_config(config: GlobalConfig) -> Path:
         "cli": {
             "language": config.cli.language,
         },
+        "odoo_login": {
+            "username": config.odoo_login.username,
+            "password": config.odoo_login.password,
+        },
         "active_versions": config.active_versions,
         "container_runtime": config.container_runtime,
     }
@@ -159,3 +188,18 @@ def clear_config_cache() -> None:
     """Clear the module-level config cache. Useful for testing."""
     global _cached_config
     _cached_config = None
+
+
+def get_odoo_login_credentials() -> tuple[str, str]:
+    """Return the stored Odoo XML-RPC login as (username, password)."""
+    cfg = load_global_config()
+    return cfg.odoo_login.username, cfg.odoo_login.password
+
+
+def save_odoo_login_credentials(username: str, password: str) -> Path:
+    """Persist the Odoo XML-RPC login in the global config (0600 file)."""
+    import dataclasses
+
+    cfg = load_global_config()
+    updated = dataclasses.replace(cfg, odoo_login=OdooLoginConfig(username=username, password=password))
+    return save_global_config(updated)

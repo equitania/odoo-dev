@@ -67,4 +67,5 @@ class TestYesFlagUnification:
 
         opt = next(p for p in start.params if p.name == "yes_flag")
         assert "-y" in opt.opts and "--yes" in opt.opts
-        assert opt.hidden is True
+        # Documented (un-hidden) since v0.59.0 — it is the primary skip flag.
+        assert opt.hidden is False

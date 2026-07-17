@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, OptionList, RadioButton, RadioSet, Static
+from textual.widgets import Button, Checkbox, Input, Label, LoadingIndicator, OptionList, RadioButton, RadioSet, Static
 from textual.widgets.option_list import Option
 
 from odoodev.i18n import t
@@ -99,9 +101,9 @@ class ModuleUpdateScreen(ModalScreen[str | None]):
         """Trigger module update via XML-RPC."""
         module_list = [m.strip() for m in modules.split(",") if m.strip()]
         try:
-            from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
+            from odoodev.core.xmlrpc_client import OdooXmlRpcClient
 
-            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
             updated = client.upgrade_modules(module_list)
             if updated:
                 self.dismiss(f"xmlrpc:{','.join(module_list)}")
@@ -202,14 +204,32 @@ class LanguageLoadScreen(ModalScreen[str | None]):
         self.dismiss(f"lang:{lang}{overwrite_label}")
 
 
-class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
-    """Modal dialog to choose scope and database for the Releasemanager CSV.
+@dataclass(frozen=True)
+class ExportModulesChoice:
+    """User selection from the export dialog.
 
-    Returns ``(scope, db_name, do_update, do_cleanup)`` via ``dismiss`` —
     ``scope`` is one of the ``EXPORT_SCOPES`` keys ('all', 'all_no_enterprise',
-    'installed'), ``db_name`` is the (editable) target database, and the two
-    booleans request an apps-list update / non-installed cleanup before the
-    export — or ``None`` on cancel.
+    'installed'); ``username``/``password`` are the Odoo res.users login for
+    the XML-RPC calls; ``remember_credentials`` persists them in the global
+    config after a successful export.
+    """
+
+    scope: str
+    db_name: str
+    do_update: bool
+    do_cleanup: bool
+    username: str
+    password: str
+    remember_credentials: bool
+
+
+class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
+    """Modal dialog to configure the Releasemanager CSV export.
+
+    Collects target database, scope, Odoo login credentials (pre-filled from
+    the global config's ``odoo_login`` section) and pre-export maintenance
+    options. Returns an :class:`ExportModulesChoice` via ``dismiss`` or
+    ``None`` on cancel.
     """
 
     DEFAULT_CSS = """
@@ -219,7 +239,7 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
     #export-dialog {
         width: 72;
         height: auto;
-        max-height: 24;
+        max-height: 34;
         border: thick $primary;
         background: $surface;
         padding: 1 2;
@@ -227,7 +247,7 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
     #export-dialog Label {
         margin-bottom: 1;
     }
-    #export-db {
+    #export-db, #export-username, #export-password {
         width: 100%;
         margin-bottom: 1;
     }
@@ -235,7 +255,7 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
         width: 100%;
         margin-bottom: 1;
     }
-    #export-chk-update, #export-chk-cleanup {
+    #export-chk-update, #export-chk-cleanup, #export-chk-remember {
         margin-bottom: 1;
     }
     .button-row {
@@ -248,6 +268,10 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
     }
     """
 
+    BINDINGS = [
+        ("escape", "cancel_export", "Close"),
+    ]
+
     _SCOPE_BY_ID = {
         "opt-all": "all",
         "opt-all-no-ent": "all_no_enterprise",
@@ -257,6 +281,9 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
     def __init__(self, db_name: str = "") -> None:
         super().__init__()
         self._db_name = db_name
+        from odoodev.core.global_config import get_odoo_login_credentials
+
+        self._username, self._password = get_odoo_login_credentials()
 
     def compose(self) -> ComposeResult:
         """Build the export dialog."""
@@ -270,8 +297,13 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
                 RadioButton(t("tui.export_opt_installed"), id="opt-installed"),
                 id="export-options",
             )
+            yield Static(f"[dim]{t('tui.export_username_label')}[/]")
+            yield Input(value=self._username, placeholder="admin", id="export-username")
+            yield Static(f"[dim]{t('tui.export_password_label')}[/]")
+            yield Input(value=self._password, password=True, id="export-password")
             yield Checkbox(t("tui.export_chk_update"), id="export-chk-update")
             yield Checkbox(t("tui.export_chk_cleanup"), id="export-chk-cleanup")
+            yield Checkbox(t("tui.export_chk_remember"), id="export-chk-remember")
             with Vertical(classes="button-row"):
                 yield Button(t("tui.export_btn"), variant="primary", id="btn-export")
                 yield Button(t("tui.export_cancel"), variant="error", id="btn-cancel")
@@ -284,20 +316,74 @@ class ExportModulesScreen(ModalScreen["tuple[str, str, bool, bool] | None"]):
         if event.button.id == "btn-export":
             self._do_export()
 
+    def action_cancel_export(self) -> None:
+        """Close the dialog without exporting."""
+        self.dismiss(None)
+
     def _do_export(self) -> None:
-        """Validate the database field and dismiss the chosen options."""
+        """Validate the input fields and dismiss the chosen options."""
         db_input = self.query_one("#export-db", Input)
         db_name = db_input.value.strip()
         if not db_name:
             db_input.placeholder = t("tui.export_db_required")
             return
+        username_input = self.query_one("#export-username", Input)
+        username = username_input.value.strip()
+        if not username:
+            username_input.placeholder = t("tui.export_username_required")
+            return
+        password = self.query_one("#export-password", Input).value
         radio_set = self.query_one("#export-options", RadioSet)
         pressed = radio_set.pressed_button
         button_id = pressed.id if pressed is not None else "opt-all"
         scope = self._SCOPE_BY_ID.get(button_id or "opt-all", "all")
         do_update = self.query_one("#export-chk-update", Checkbox).value
         do_cleanup = self.query_one("#export-chk-cleanup", Checkbox).value
-        self.dismiss((scope, db_name, do_update, do_cleanup))
+        remember = self.query_one("#export-chk-remember", Checkbox).value
+        self.dismiss(
+            ExportModulesChoice(
+                scope=scope,
+                db_name=db_name,
+                do_update=do_update,
+                do_cleanup=do_cleanup,
+                username=username,
+                password=password,
+                remember_credentials=remember,
+            )
+        )
+
+
+class ExportProgressScreen(ModalScreen[None]):
+    """Non-interactive progress overlay shown while the export worker runs."""
+
+    DEFAULT_CSS = """
+    ExportProgressScreen {
+        align: center middle;
+    }
+    #export-progress-dialog {
+        width: 56;
+        height: auto;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #export-progress-dialog Label {
+        margin-bottom: 1;
+    }
+    #export-progress-status {
+        margin-top: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="export-progress-dialog"):
+            yield Label(t("tui.export_title"))
+            yield LoadingIndicator()
+            yield Static("", id="export-progress-status")
+
+    def set_status(self, text: str) -> None:
+        """Update the progress status line (called via call_from_thread)."""
+        self.query_one("#export-progress-status", Static).update(text)
 
 
 class BackupScreen(ModalScreen["tuple[str, str] | None"]):

@@ -50,6 +50,25 @@ class TestConfigSet:
         assert cfg.database.user == "devuser"
         assert cfg.database.password == "s3cret"
 
+    def test_set_odoo_login_username_and_password(self, monkeypatch, tmp_path):
+        _isolate_config(monkeypatch, tmp_path)
+        runner = CliRunner()
+        assert runner.invoke(cli, ["config", "set", "odoo_login.username", "exporter"]).exit_code == 0
+        result = runner.invoke(cli, ["config", "set", "odoo_login.password", "s3cret"])
+        assert result.exit_code == 0
+        # Password must be masked in the confirmation output
+        assert "s3cret" not in result.output
+        assert "********" in result.output
+        global_config.clear_config_cache()
+        cfg = global_config.load_global_config()
+        assert cfg.odoo_login.username == "exporter"
+        assert cfg.odoo_login.password == "s3cret"
+
+    def test_set_odoo_login_password_with_newline_rejected(self, monkeypatch, tmp_path):
+        _isolate_config(monkeypatch, tmp_path)
+        result = CliRunner().invoke(cli, ["config", "set", "odoo_login.password", "bad\npass"])
+        assert result.exit_code != 0
+
     def test_set_active_versions(self, monkeypatch, tmp_path):
         _isolate_config(monkeypatch, tmp_path)
         result = CliRunner().invoke(cli, ["config", "set", "active_versions", "17,18"])

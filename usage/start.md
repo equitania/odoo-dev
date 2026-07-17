@@ -122,16 +122,31 @@ Server läuft in einer eigenen Session und wird per Prozessgruppen-Signal gestop
 der Port zuverlässig freigegeben wird. (Der interaktive `--shell`-Modus bleibt im
 Vordergrund, damit die REPL Eingaben lesen kann.)
 
+### Ablauf: Info zuerst, dann Bestaetigung (v0.59.0)
+
+`odoodev start` zeigt direkt nach dem Laden der `.env` eine Instanz-Info-Tabelle
+(Modus, Datenbank, Odoo-/DB-/Gevent-/Mailpit-Port, Config-Vorschau, Verzeichnisse)
+und stellt danach genau EINE Bestaetigungsfrage. Erst nach der Bestaetigung laufen
+die Preflight-Checks mit Seiteneffekten (siehe unten).
+
+```bash
+# Bestaetigung ueberspringen (Automatisierung/CI) — die Info-Tabelle erscheint trotzdem
+odoodev start 18 --yes        # kurz: -y, gleichbedeutend mit --no-confirm
+```
+
+Wer die Startfrage (und den Shell-Fallback) verneint, hinterlaesst keine Spuren —
+kein `.pgpass`-Write, kein Container-Start, keine Setup-Prompts.
+
 ### Start-Voraussetzungen
 
-Was `odoodev start` vor dem Start prueft:
+Was `odoodev start` (nach der Bestaetigung) prueft:
 
-1. `.env`-Datei existiert im native_dir — bietet Erstellung an wenn fehlend
+1. `.env`-Datei existiert im native_dir — bietet Erstellung an wenn fehlend (laeuft VOR der Info-Tabelle, ohne `.env` ist nichts anzeigbar)
 2. `.venv/`-Verzeichnis existiert — bietet Erstellung an wenn fehlend
 3. `odoo-bin` existiert im server_dir — bietet Repository-Klonen an wenn fehlend
 4. `odoo_*.conf` existiert im myconfs_dir (verwendet neueste nach Datumsendung)
 5. PostgreSQL ist bereit — geprueft auf Protokollebene (`pg_isready` oder Socket-Probe), nicht nur per TCP-Check; bietet Start des Container-Runtimes an wenn nichts lauscht und pollt nach dem Start bis zu 60 s (wichtig fuer Apple Container: der Port-Forwarder nimmt TCP an bevor PostgreSQL in der VM bereit ist)
-6. `requirements.txt` SHA256-Hash unveraendert — bietet Update an wenn geaendert
+6. `requirements.txt` SHA256-Hash unveraendert — bietet Update an wenn geaendert; der Hash wird nach erfolgreichem Update gespeichert (v0.59.0 — vorher fragte jeder Start erneut)
 7. Python-Patch-Version — Hinweis wenn neuere Version verfuegbar
 
 ### Server stoppen
@@ -266,16 +281,31 @@ Since v0.35.0 `Ctrl+C` stops the server cleanly including all worker processes �
 runs in its own session and is stopped via a process-group signal, so the port is reliably
 released. (The interactive `--shell` mode stays in the foreground so the REPL can read input.)
 
+### Flow: info first, then confirmation (v0.59.0)
+
+`odoodev start` prints an instance-info table (mode, database, Odoo/DB/Gevent/
+Mailpit ports, config preview, directories) right after loading `.env`, followed
+by exactly ONE confirmation prompt. The side-effecting preflight checks below
+only run after confirmation.
+
+```bash
+# Skip the confirmation (automation/CI) — the info table still prints
+odoodev start 18 --yes        # short: -y, equivalent to --no-confirm
+```
+
+Declining the start (and the shell fallback) leaves the system untouched — no
+`.pgpass` write, no container start, no setup prompts.
+
 ### Start Prerequisites
 
-What `odoodev start` checks before launching Odoo:
+What `odoodev start` checks (after confirmation):
 
-1. `.env` file exists in native_dir — offers creation if missing
+1. `.env` file exists in native_dir — offers creation if missing (runs BEFORE the info table; nothing is displayable without it)
 2. `.venv/` directory exists — offers creation if missing
 3. `odoo-bin` exists in server_dir — offers repository cloning if missing
 4. `odoo_*.conf` exists in myconfs_dir (uses latest by date suffix)
 5. PostgreSQL is ready — verified at the protocol level (`pg_isready` or socket probe), not just a TCP check; offers to start the container runtime when nothing listens and polls up to 60s after starting it (important for Apple Container: the port forwarder accepts TCP before PostgreSQL inside the VM is ready)
-6. `requirements.txt` SHA256 hash unchanged — offers update if changed
+6. `requirements.txt` SHA256 hash unchanged — offers update if changed; the hash is stored after a successful update (v0.59.0 — previously every start re-prompted)
 7. Python patch version — advisory when newer version available
 
 ### Stop Server

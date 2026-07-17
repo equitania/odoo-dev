@@ -12,7 +12,7 @@
 
 - **Invoke:** `odoodev [--lang en|de] <command> [VERSION] [flags]`
 - **Install:** `uv tool install odoodev` (or editable: `uv pip install -e ".[dev]"`)
-- **Version:** 0.58.0  ·  **Framework:** Python / Click
+- **Version:** 0.59.0  ·  **Framework:** Python / Click
 - **Self-serve:** `odoodev capability-card` prints this card from the installed tool (live version injected)
 - **Human docs:** `usage/*.md` (bilingual DE/EN handbook chapters)
 
@@ -49,7 +49,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev capability-card` | Print this capability card to stdout (raw Markdown, live version injected) — primary self-description surface for agents. | — |
 | `odoodev config edit` | Open the global config file in $EDITOR (creates defaults if missing). | — |
 | `odoodev config paths` | Show editable config file locations per version (.env, docker-compose.yml, requirements.txt, repos.yaml, postgresql.conf, odoo.conf template + latest generated). | [VERSION], --json |
-| `odoodev config set` | Set a global configuration value. | KEY, VALUE (keys: base_dir, language, db.user, db.password, active_versions, **container_runtime** docker\|apple) |
+| `odoodev config set` | Set a global configuration value. | KEY, VALUE (keys: base_dir, language, db.user, db.password, odoo_login.username, odoo_login.password, active_versions, **container_runtime** docker\|apple) |
 | `odoodev config show` | Show current platform, global config, and environment information. | — |
 | `odoodev config versions` | List all available Odoo versions with their configuration. | --plain, --json |
 | `odoodev db backup` | Create a database backup (SQL dump, ZIP or tar.zst with filestore). | [VERSION], -n/--name TEXT, -t/--type sql\|zip\|tar.zst, -l/--level INT (1-22, tar.zst only, default 5), -o/--output PATH |
@@ -73,6 +73,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev env dir` | Print the native environment directory path. | [VERSION] |
 | `odoodev env setup` | Create or update .env file for a version. | [VERSION], --non-interactive |
 | `odoodev env show` | Display current .env configuration. | [VERSION] |
+| `odoodev export modules` | Export the module list as Releasemanager-compatible CSV via XML-RPC (needs a RUNNING Odoo; shares its core with the TUI `x` export). Empty result → `count: 0`, exit 0. | [VERSION], -d/--database TEXT (interactive picker when omitted), --user TEXT, --password TEXT (precedence: flags > `ODOODEV_ODOO_USER`/`ODOODEV_ODOO_PASSWORD` > stored `odoo_login` config > admin/admin), --scope all\|no-enterprise\|installed, --update-list, --cleanup, --output PATH, --host TEXT, --port INT (default: effective ODOO_PORT), --json (single-line result: version, database, scope, path, count, updated, cleaned), -y/--yes |
 | `odoodev init` | Initialize a new Odoo development environment. | [VERSION], --non-interactive, --skip-repos, --skip-docker |
 | `odoodev migrate activate` | Activate a migration group. | NAME |
 | `odoodev migrate create` | Create a new migration group. | --from TEXT, --to TEXT, --name TEXT, --pg-version TEXT |
@@ -88,7 +89,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --steps, --var/-D TEXT |
 | `odoodev setup` | Interactive setup wizard for odoodev configuration. | --non-interactive, --reset |
 | `odoodev shell-setup` | Install odoodev shell wrapper function. | --shell fish\|bash\|zsh\|auto |
-| `odoodev start` | Start Odoo server for the given version. | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, -y/--yes (alias for --no-confirm), [EXTRA_ARGS] |
+| `odoodev start` | Start Odoo server for the given version. Since v0.59.0: instance-info table (ports, database, config, dirs) prints FIRST, then ONE confirmation, then the side-effecting preflight checks — `-y/--yes` skips only the prompt (info still prints). | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, -y/--yes (alias for --no-confirm), [EXTRA_ARGS] |
 | `odoodev stop` | Stop Odoo server and Docker services for the given version. | [VERSION], --keep-docker, --force |
 | `odoodev venv activate` | Print the venv activation command for current shell. | [VERSION] |
 | `odoodev venv check` | Check venv status and requirements freshness. | [VERSION], --json |

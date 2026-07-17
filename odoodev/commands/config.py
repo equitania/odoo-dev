@@ -12,7 +12,17 @@ from odoodev.core.environment import detect_arch, detect_docker_platform, detect
 from odoodev.core.version_registry import available_versions, load_versions
 from odoodev.output import print_header, print_info, print_success, print_table, print_version_table, print_warning
 
-_SETTABLE_KEYS = ("base_dir", "language", "db.user", "db.password", "active_versions", "container_runtime")
+_SETTABLE_KEYS = (
+    "base_dir",
+    "language",
+    "db.user",
+    "db.password",
+    "odoo_login.username",
+    "odoo_login.password",
+    "active_versions",
+    "container_runtime",
+)
+_SECRET_KEYS = ("db.password", "odoo_login.password")
 
 
 def _parse_and_validate(key: str, raw_value: str) -> str | list[str]:
@@ -47,10 +57,10 @@ def _parse_and_validate(key: str, raw_value: str) -> str | list[str]:
                 "until it is used on one."
             )
         return raw_value
-    if key in ("base_dir", "db.user", "db.password"):
+    if key in ("base_dir", "db.user", "db.password", "odoo_login.username", "odoo_login.password"):
         if not raw_value.strip():
             raise click.UsageError(f"Value for '{key}' must not be empty")
-        if key == "db.password" and ("\n" in raw_value or "\r" in raw_value):
+        if key in _SECRET_KEYS and ("\n" in raw_value or "\r" in raw_value):
             raise click.UsageError("Password must not contain newlines")
         return raw_value
     raise click.UsageError(f"Unknown key '{key}'. Valid keys: {', '.join(_SETTABLE_KEYS)}")
@@ -62,28 +72,15 @@ def config() -> None:
 
 
 def _effective_ports(cfg) -> dict:
-    """Resolve the ports a version actually uses at runtime.
+    """Delegate to the shared resolver in core/odoo_config.py.
 
-    Multi-user hosts override the registry defaults per user via the
-    version's ``.env`` (``DB_PORT``/``ODOO_PORT``/``GEVENT_PORT``/
-    ``MAILPIT_PORT``, e.g. user 2 gets 28069/28432). Consumers such as the
-    GUI must match containers and build URLs against these values, not the
-    registry defaults.
+    Kept as a thin alias so existing imports/tests stay valid — the
+    implementation moved to ``odoodev.core.odoo_config.effective_ports``
+    so ``export modules`` can reuse it.
     """
-    from odoodev.core.container_backend import read_env_file
+    from odoodev.core.odoo_config import effective_ports
 
-    env = read_env_file(cfg.paths.native_dir)
-
-    def pick(key: str, default: int) -> int:
-        raw = (env.get(key) or "").strip()
-        return int(raw) if raw.isdigit() else default
-
-    return {
-        "db": pick("DB_PORT", cfg.ports.db),
-        "odoo": pick("ODOO_PORT", cfg.ports.odoo),
-        "gevent": pick("GEVENT_PORT", cfg.ports.gevent),
-        "mailpit": pick("MAILPIT_PORT", cfg.ports.mailpit),
-    }
+    return effective_ports(cfg)
 
 
 @config.command("versions")
@@ -216,6 +213,8 @@ def config_set(key: str, value: str) -> None:
         language         CLI language (en, de)
         db.user          PostgreSQL user
         db.password      PostgreSQL password
+        odoo_login.username  Odoo XML-RPC login for module actions (export etc.)
+        odoo_login.password  Odoo XML-RPC password
         active_versions  Comma-separated list, e.g. 16,17,18,19
         container_runtime  Container runtime for PostgreSQL (docker, apple)
     """
@@ -232,6 +231,10 @@ def config_set(key: str, value: str) -> None:
         updated = dataclasses.replace(cfg, database=dataclasses.replace(cfg.database, user=str(parsed)))
     elif key == "db.password":
         updated = dataclasses.replace(cfg, database=dataclasses.replace(cfg.database, password=str(parsed)))
+    elif key == "odoo_login.username":
+        updated = dataclasses.replace(cfg, odoo_login=dataclasses.replace(cfg.odoo_login, username=str(parsed)))
+    elif key == "odoo_login.password":
+        updated = dataclasses.replace(cfg, odoo_login=dataclasses.replace(cfg.odoo_login, password=str(parsed)))
     elif key == "container_runtime":
         updated = dataclasses.replace(cfg, container_runtime=str(parsed))
     else:  # active_versions — _parse_and_validate already rejected unknown keys
@@ -239,7 +242,7 @@ def config_set(key: str, value: str) -> None:
 
     path = save_global_config(updated)
 
-    display = "********" if key == "db.password" else parsed
+    display = "********" if key in _SECRET_KEYS else parsed
     print_success(f"Set {key} = {display}")
     print_info(f"Config file: {path}")
 
@@ -284,6 +287,7 @@ def config_show() -> None:
         "Base Directory": global_cfg.base_dir,
         "Active Versions": ", ".join(f"v{v}" for v in global_cfg.active_versions),
         "DB User": global_cfg.database.user,
+        "Odoo Login User": global_cfg.odoo_login.username,
         "Container Runtime": global_cfg.container_runtime,
     }
     print_table("Global Configuration", config_info)

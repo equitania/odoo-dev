@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sys
+from dataclasses import dataclass, field
 
 import click
 import yaml
@@ -28,6 +29,21 @@ logger = logging.getLogger(__name__)
 
 # Equitania convention: enterprise addon repos are named v16e, v17e, v18e, v19e, ...
 _ENTERPRISE_PATH_RE = re.compile(r"^v\d+e$", re.IGNORECASE)
+
+
+@dataclass
+class RepoOpSummary:
+    """Outcome of one _process_repos run — surfaced as a summary table.
+
+    ``skipped`` holds repos intentionally excluded via ``use: false``;
+    ``failed`` holds (key, error) pairs for clone/update failures that were
+    previously swallowed silently.
+    """
+
+    cloned: list[str] = field(default_factory=list)
+    updated: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
 
 
 def _find_repos_config(version_cfg) -> str | None:
@@ -220,7 +236,7 @@ def _process_repos(
     accessible_paths: set[str],
     *,
     skip_git: bool = False,
-) -> tuple[dict[str, list[str]], dict[str, dict]]:
+) -> tuple[dict[str, list[str]], dict[str, dict], RepoOpSummary]:
     """Process all repositories: clone/update and collect paths.
 
     Args:
@@ -228,10 +244,11 @@ def _process_repos(
             Used by the pull command which already performed git ops separately.
 
     Returns:
-        Tuple of (all_paths, repo_metadata).
+        Tuple of (all_paths, repo_metadata, summary).
     """
     all_paths: dict[str, list[str]] = {}
     repo_metadata: dict[str, dict] = {}
+    summary = RepoOpSummary()
 
     # Base addons
     if "base_addons" in config:
@@ -264,6 +281,7 @@ def _process_repos(
 
             if not use:
                 # Still collect paths for unused repos (shown as comments in config)
+                summary.skipped.append(key)
                 if os.path.isdir(full_path):
                     paths = get_module_paths(full_path, is_oca)
                     if suffix:
@@ -277,21 +295,28 @@ def _process_repos(
                     paths = get_module_paths(full_path, is_oca)
                 else:
                     paths = []
-            elif repo_path in accessible_paths or not accessible_paths:
-                # Check if accessible — always update existing or clone new
-                paths = switch_branch_and_update(full_path, git_url, branch, base_path, is_oca)
-            elif os.path.isdir(full_path):
-                # Not accessible but exists locally — use existing paths
-                paths = get_module_paths(full_path, is_oca)
             else:
-                print_warning(f"Skipping {key} — not accessible and not found locally")
-                paths = []
+                # Always attempt clone/update — the batch SSH access check is
+                # diagnostic only. Blocking on it silently skipped brand-new
+                # repos.yaml entries whose access probe failed transiently.
+                if accessible_paths and repo_path not in accessible_paths:
+                    print_warning(f"{key}: SSH access check failed — attempting anyway")
+                existed_before = os.path.isdir(full_path)
+                paths, error = switch_branch_and_update(full_path, git_url, branch, base_path, is_oca)
+                if error:
+                    print_error(f"{key}: {error}")
+                    summary.failed.append((key, error))
+                elif existed_before:
+                    summary.updated.append(key)
+                else:
+                    print_success(f"{key}: cloned to {full_path}")
+                    summary.cloned.append(key)
 
             if suffix:
                 paths = [f"{p}{suffix}" for p in paths]
             all_paths[key] = paths
 
-    return all_paths, repo_metadata
+    return all_paths, repo_metadata, summary
 
 
 @click.command()
@@ -367,7 +392,8 @@ def repos(
     # Config-only mode: scan local repos and generate config
     if config_only:
         print_info("Config-only mode — scanning local repositories...")
-        all_paths, repo_metadata = _process_repos(config, base_path, branch, set())
+        # skip_git=True — this mode is documented as "no git operations".
+        all_paths, repo_metadata, _summary = _process_repos(config, base_path, branch, set(), skip_git=True)
         if select_addons:
             if sys.stdin.isatty():
                 repo_metadata = _interactive_addon_selector(config, repo_metadata)
@@ -387,7 +413,10 @@ def repos(
             accessible, inaccessible = verify_all_repo_access(all_repos)
             accessible_paths = {r.get("path", "") for r in accessible}
             if inaccessible:
-                print_warning(f"{len(inaccessible)} repositories inaccessible")
+                print_warning(f"{len(inaccessible)} repositories inaccessible:")
+                for repo in inaccessible:
+                    repo_key = repo.get("key", repo.get("path", "unknown"))
+                    print_warning(f"  - {repo_key} ({repo.get('git_url', '')})")
         else:
             print_info("No custom repositories configured — skipping access check")
     else:
@@ -421,7 +450,7 @@ def repos(
 
     # Process all repositories
     print_info("Processing repositories...")
-    all_paths, repo_metadata = _process_repos(config, base_path, branch, accessible_paths)
+    all_paths, repo_metadata, summary = _process_repos(config, base_path, branch, accessible_paths)
 
     # Interactive addon selector
     if select_addons:
@@ -432,14 +461,44 @@ def repos(
     elif not no_enterprise_prompt:
         repo_metadata = _prompt_enterprise_inclusion(repo_metadata)
 
-    # Generate config
+    # Generate config — best-effort even with failed repos, so a partial
+    # environment stays usable; the exit code below still signals the failure.
     _generate_config(config, version_cfg, all_paths, repo_metadata)
+
+    _print_repo_summary(summary)
+
+    if summary.failed:
+        print_error(f"Odoo v{version}: {len(summary.failed)} repositories failed — see errors above")
+        raise SystemExit(1)
 
     print_success(f"Odoo v{version} repositories processed successfully")
 
     # Code/config changed → remind the user to (re)start Odoo and update modules.
     console.print()
     print_start_hint(version)
+
+
+def _print_repo_summary(summary: RepoOpSummary) -> None:
+    """Print a cloned/updated/skipped/failed summary table (mirrors pull)."""
+    from rich.table import Table
+
+    table = Table(title="Repository Summary", title_style="bold cyan")
+    table.add_column("Result", style="bold")
+    table.add_column("Count", justify="right")
+    table.add_column("Repositories")
+
+    def _join(keys: list[str]) -> str:
+        return ", ".join(keys) if keys else "—"
+
+    table.add_row("Cloned", str(len(summary.cloned)), _join(summary.cloned))
+    table.add_row("Updated", str(len(summary.updated)), _join(summary.updated))
+    table.add_row("Skipped (use: false)", str(len(summary.skipped)), _join(summary.skipped))
+    failed_keys = [key for key, _ in summary.failed]
+    table.add_row("Failed", str(len(summary.failed)), _join(failed_keys), style="red" if failed_keys else None)
+    console.print(table)
+
+    for key, error in summary.failed:
+        print_error(f"{key}: {error}")
 
 
 def _parse_env_file(env_path: str) -> dict[str, str]:

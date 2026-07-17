@@ -82,7 +82,9 @@ class TestPullExecution:
             lambda v, vers=None: _make_version_cfg(str(tmp_path)),
         )
         monkeypatch.setattr("odoodev.commands.pull.update_repo", lambda path, branch: (True, ""))
-        monkeypatch.setattr("odoodev.commands.pull._process_repos", lambda *a, **kw: ({}, {}))
+        from odoodev.commands.repos import RepoOpSummary
+
+        monkeypatch.setattr("odoodev.commands.pull._process_repos", lambda *a, **kw: ({}, {}, RepoOpSummary()))
         monkeypatch.setattr("odoodev.commands.pull._generate_config", lambda *a, **kw: None)
 
         runner = CliRunner()
@@ -110,8 +112,10 @@ class TestPullExecution:
         process_repos_calls = []
 
         def capture_process_repos(*args, **kwargs):
+            from odoodev.commands.repos import RepoOpSummary
+
             process_repos_calls.append(kwargs)
-            return {}, {}
+            return {}, {}, RepoOpSummary()
 
         monkeypatch.setattr("odoodev.commands.pull._process_repos", capture_process_repos)
 

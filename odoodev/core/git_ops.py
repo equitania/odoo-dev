@@ -186,7 +186,7 @@ def clone_repo_with_progress(git_url: str, target_dir: str, branch: str) -> bool
         return False
 
 
-def clone_repo(git_url: str, target_dir: str, branch: str) -> bool:
+def clone_repo(git_url: str, target_dir: str, branch: str) -> tuple[bool, str]:
     """Clone a git repository.
 
     Args:
@@ -195,12 +195,17 @@ def clone_repo(git_url: str, target_dir: str, branch: str) -> bool:
         branch: Branch to checkout
 
     Returns:
-        True if successful.
+        Tuple of (success, error_message). Error is empty on success.
     """
     parent_dir = os.path.dirname(target_dir)
     repo_name = os.path.basename(target_dir)
-    success, _ = run_git_command(["git", "clone", "-b", branch, git_url, repo_name], cwd=parent_dir)
-    return success
+    # The clone runs with cwd=parent_dir — subprocess raises FileNotFoundError
+    # if that directory does not exist yet (new repo in a fresh subdirectory).
+    os.makedirs(parent_dir, exist_ok=True)
+    success, output = run_git_command(["git", "clone", "-b", branch, git_url, repo_name], cwd=parent_dir)
+    if success:
+        return True, ""
+    return False, f"clone {git_url} (branch {branch}): {output.strip()}"
 
 
 def clone_repo_fresh(git_url: str, target_dir: str, branch: str) -> bool:
@@ -273,12 +278,13 @@ def get_module_paths(repo_dir: str, is_oca: bool = False) -> list[str]:
                 if os.path.isdir(entry_path) and not entry.startswith("."):
                     subdirs.append(entry_path)
         return subdirs
-    return [repo_dir]
+    # A failed clone must not produce a phantom addons_path entry.
+    return [repo_dir] if os.path.isdir(repo_dir) else []
 
 
 def switch_branch_and_update(
     repo_dir: str, git_url: str, branch: str, base_dir: str, is_oca: bool = False
-) -> list[str]:
+) -> tuple[list[str], str]:
     """Switch branch and update a repo, or clone if not exists.
 
     Args:
@@ -289,11 +295,13 @@ def switch_branch_and_update(
         is_oca: Whether this is an OCA repository
 
     Returns:
-        List of module paths.
+        Tuple of (module paths, error_message). Error is empty on success —
+        callers must surface it; a silently swallowed clone failure previously
+        meant new repos.yaml entries were never cloned without any hint.
     """
     if os.path.isdir(repo_dir):
-        update_repo(repo_dir, branch)
+        success, error = update_repo(repo_dir, branch)
     else:
-        clone_repo(git_url, repo_dir, branch)
+        success, error = clone_repo(git_url, repo_dir, branch)
 
-    return get_module_paths(repo_dir, is_oca)
+    return get_module_paths(repo_dir, is_oca), ("" if success else error)

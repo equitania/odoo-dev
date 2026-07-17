@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 
@@ -22,15 +21,6 @@ def _get_venv_dir(version_cfg) -> str:
 def _get_requirements_path(version_cfg) -> str:
     """Get the requirements.txt path for the version."""
     return os.path.join(version_cfg.paths.native_dir, "requirements.txt")
-
-
-def _hash_file(path: str) -> str:
-    """Calculate SHA256 hash of a file."""
-    sha256 = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest()
 
 
 @click.group()
@@ -125,17 +115,14 @@ def venv_setup(ctx: click.Context, version: str | None, force: bool, python_ver:
 
     # Install requirements if available
     if os.path.exists(requirements):
-        from odoodev.core.venv_manager import install_requirements
+        from odoodev.core.venv_manager import install_requirements, store_requirements_hash
 
         print_info(f"Installing requirements from {requirements}...")
         if not install_requirements(venv_dir, requirements, capture=False, cwd=native_dir):
             print_error("Failed to install requirements")
             raise SystemExit(1)
 
-        # Store requirements hash
-        hash_file = os.path.join(venv_dir, ".requirements.sha256")
-        with open(hash_file, "w") as f:
-            f.write(_hash_file(requirements))
+        store_requirements_hash(venv_dir, requirements)
         print_success("Requirements installed and hash stored")
     else:
         print_warning(f"No requirements.txt found at {requirements}")
@@ -158,7 +145,7 @@ def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
         import json
         import sys
 
-        from odoodev.core.venv_manager import check_venv_python_matches, get_full_python_version
+        from odoodev.core.venv_manager import check_venv_python_matches, get_full_python_version, hash_requirements
 
         exists = os.path.isdir(venv_dir)
         python_bin = os.path.join(venv_dir, "bin", "python3")
@@ -167,7 +154,7 @@ def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
             hash_file = os.path.join(venv_dir, ".requirements.sha256")
             if os.path.exists(hash_file):
                 with open(hash_file) as f:
-                    requirements_current = f.read().strip() == _hash_file(requirements)
+                    requirements_current = f.read().strip() == hash_requirements(requirements)
         payload = {
             "version": version,
             "venv_dir": venv_dir,
@@ -223,8 +210,10 @@ def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
 
     # Check requirements hash
     if os.path.exists(requirements):
+        from odoodev.core.venv_manager import hash_requirements
+
         hash_file = os.path.join(venv_dir, ".requirements.sha256")
-        current_hash = _hash_file(requirements)
+        current_hash = hash_requirements(requirements)
         if os.path.exists(hash_file):
             with open(hash_file) as f:
                 stored_hash = f.read().strip()

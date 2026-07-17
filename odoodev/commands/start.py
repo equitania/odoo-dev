@@ -21,6 +21,7 @@ from odoodev.core.venv_manager import (
     get_venv_python,
     get_venv_python_version,
     install_requirements,
+    store_requirements_hash,
 )
 from odoodev.core.version_registry import VersionConfigProtocol, get_version, load_versions
 from odoodev.output import confirm, print_error, print_header, print_info, print_success, print_table, print_warning
@@ -754,7 +755,13 @@ def _check_services(
     if os.path.exists(requirements) and check_requirements_changed(venv_dir, requirements):
         print_warning("requirements.txt has changed since last install")
         if not no_confirm and confirm("Update packages now?"):
-            install_requirements(venv_dir, requirements, capture=False)
+            if install_requirements(venv_dir, requirements, capture=False):
+                # Persist the hash so the next start doesn't re-prompt for
+                # an update that already happened.
+                store_requirements_hash(venv_dir, requirements)
+                print_success("Requirements installed and hash stored")
+            else:
+                print_error("Failed to install requirements — will re-prompt on next start")
 
     # Check if Odoo port is already in use
     odoo_port = int(env_vars.get("ODOO_PORT", str(ports.odoo)))
@@ -876,6 +883,83 @@ def _build_odoo_extra_args(
     return tuple(merged)
 
 
+def _print_start_info(
+    version: str,
+    version_cfg: VersionConfigProtocol,
+    env_vars: dict[str, str],
+    mode: str,
+    database: str | None,
+    extra_args: tuple[str, ...],
+    native_dir: str,
+    odoo_dir: str,
+    myconfs_dir: str,
+    config_override: str | None,
+) -> None:
+    """Print the instance-info table BEFORE any preflight side effects.
+
+    The config path is a best-effort preview (``_find_odoo_config``, no
+    prompts) — the authoritative resolution/generation still happens in
+    preflight, after the user confirmed the start.
+    """
+    from odoodev.core.migration_config import resolve_db_port
+
+    db = database or _extract_db_from_args(extra_args) or "(not specified)"
+    config_preview = config_override or _find_odoo_config(myconfs_dir) or "(not generated yet)"
+    db_host = "localhost"
+    if os.path.isfile(config_preview):
+        db_host = _get_config_value(config_preview, "db_host") or "localhost"
+    ports = version_cfg.ports
+    print_table(
+        f"Odoo v{version} — Start Configuration",
+        {
+            "Mode": mode,
+            "Database": db,
+            "Odoo Port": env_vars.get("ODOO_PORT", str(ports.odoo)),
+            "DB Host": db_host,
+            "DB Port": str(resolve_db_port(version, ports.db, env_vars)),
+            "Gevent Port": env_vars.get("GEVENT_PORT", str(ports.gevent)),
+            "Mailpit Port": env_vars.get("MAILPIT_PORT", str(ports.mailpit)),
+            "Config": config_preview,
+            "Native Dir": native_dir,
+            "Server Dir": odoo_dir,
+        },
+    )
+
+
+def _run_preflight(
+    ctx: click.Context,
+    version: str,
+    version_cfg: VersionConfigProtocol,
+    native_dir: str,
+    odoo_dir: str,
+    venv_dir: str,
+    myconfs_dir: str,
+    env_vars: dict[str, str],
+    bind_host: str,
+    config_override: str | None,
+    clean_sessions: bool,
+    no_confirm: bool,
+    runtime: str | None,
+    allow_default_credentials: bool,
+) -> tuple[str, dict[str, str]]:
+    """Run all side-effecting checks (password, venv, source, config, sessions, services).
+
+    Extracted so it runs AFTER the start confirmation — declining the start
+    no longer writes ~/.pgpass, starts containers, or triggers setup prompts.
+
+    Returns:
+        Tuple of (config_path, process environment).
+    """
+    _check_placeholder_password(env_vars, version, native_dir, allow_default_credentials)
+    env = _set_environment(env_vars, bind_host=bind_host, version=version)
+    _check_venv(ctx, version, version_cfg, venv_dir)
+    _check_odoo_source(ctx, version, odoo_dir)
+    config_path = _check_odoo_config(ctx, version, myconfs_dir, config_override)
+    _clean_sessions(config_path, version, clean_sessions, no_confirm)
+    _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm, runtime=runtime)
+    return config_path, env
+
+
 @click.command()
 @click.argument("version", required=False)
 @click.option("--dev", "mode", flag_value="dev", help="Start in development mode (--dev=all)")
@@ -883,7 +967,7 @@ def _build_odoo_extra_args(
 @click.option("--test", "mode", flag_value="test", help="Run tests (--test-enable --stop-after-init)")
 @click.option("--prepare", is_flag=True, help="Open interactive shell with venv (don't start Odoo)")
 @click.option("--no-confirm", is_flag=True, help="Skip confirmation prompt")
-@click.option("--yes", "-y", "yes_flag", is_flag=True, hidden=True, help="Alias for --no-confirm")
+@click.option("--yes", "-y", "yes_flag", is_flag=True, help="Skip confirmation prompt (alias for --no-confirm)")
 @click.option("--tui", is_flag=True, help="Start with Terminal UI (log viewer, filtering, module update)")
 @click.option("--load-language", default=None, help="Load language (e.g. 'de_DE', 'fr_FR', 'all')")
 @click.option("--i18n-overwrite", is_flag=True, help="Overwrite existing translations when loading language")
@@ -978,45 +1062,85 @@ def start(
     myconfs_dir = version_cfg.paths.myconfs_dir
     venv_dir = os.path.join(native_dir, ".venv")
 
-    # Preflight checks
-    env_vars = _check_env_file(ctx, version, native_dir)
-    _check_placeholder_password(env_vars, version, native_dir, allow_default_credentials)
-    env = _set_environment(env_vars, bind_host=bind_host, version=version)
-    _check_venv(ctx, version, version_cfg, venv_dir)
-    _check_odoo_source(ctx, version, odoo_dir)
-    config_path = _check_odoo_config(ctx, version, myconfs_dir, config_override)
-    _clean_sessions(config_path, version, clean_sessions, no_confirm)
-    _check_services(env_vars, version_cfg, version, native_dir, venv_dir, no_confirm, runtime=runtime)
-
-    # Show config info
-    from odoodev.core.migration_config import resolve_db_port
-
-    db_port = resolve_db_port(version, version_cfg.ports.db, env_vars)
-    if not no_confirm and not prepare:
-        print_table(
-            "Configuration",
-            {
-                "Version": f"v{version}",
-                "Config": config_path,
-                "DB Host": _get_config_value(config_path, "db_host") or "localhost",
-                "DB Port": str(db_port),
-                "Odoo Port": env_vars.get("ODOO_PORT", str(version_cfg.ports.odoo)),
-            },
-        )
-
-    # Route based on mode
     if mode is None:
         mode = "normal"
 
+    # --tui compatibility is cheap to validate — fail before any prompt/side effect
+    if tui and mode not in ("normal", "dev"):
+        print_error("--tui is only available for normal and dev modes")
+        raise SystemExit(1)
+
+    # Load .env (may prompt to create it — nothing is knowable without it)
+    env_vars = _check_env_file(ctx, version, native_dir)
+
+    # Instance info FIRST, then one confirmation, then the side-effecting
+    # preflight checks. --yes / --no-confirm skips only the prompt.
+    if not prepare:
+        _print_start_info(
+            version,
+            version_cfg,
+            env_vars,
+            mode,
+            database,
+            extra_args,
+            native_dir,
+            odoo_dir,
+            myconfs_dir,
+            config_override,
+        )
+
+    def run_preflight() -> tuple[str, dict[str, str]]:
+        return _run_preflight(
+            ctx,
+            version,
+            version_cfg,
+            native_dir,
+            odoo_dir,
+            venv_dir,
+            myconfs_dir,
+            env_vars,
+            bind_host,
+            config_override,
+            clean_sessions,
+            no_confirm,
+            runtime,
+            allow_default_credentials,
+        )
+
     if prepare:
+        config_path, env = run_preflight()
         _start_interactive_shell(odoo_dir, venv_dir, config_path, env)
         return
 
-    # TUI mode — available for normal and dev modes only
+    if not no_confirm:
+        if mode == "normal":
+            prompt = f"Start Odoo v{version} server?"
+        else:
+            mode_descriptions = {
+                "dev": "development mode (hot-reload)",
+                "shell": "interactive shell",
+                "test": "test mode (--test-enable)",
+            }
+            mode_label = mode_descriptions.get(mode, f"{mode} mode")
+            prompt = f"Start Odoo v{version} in {mode_label}?"
+
+        if not confirm(prompt):
+            print_info("Alternative start modes:")
+            print_info("  odoodev start --dev      Development mode (hot-reload)")
+            print_info("  odoodev start --shell    Odoo interactive shell")
+            print_info("  odoodev start --test     Run tests (--test-enable)")
+            print_info("  odoodev start --prepare  Open shell with venv activated")
+            if confirm("Open interactive shell with venv instead?"):
+                config_path, env = run_preflight()
+                _start_interactive_shell(odoo_dir, venv_dir, config_path, env)
+            else:
+                print_info("Aborted.")
+            return
+
+    config_path, env = run_preflight()
+
+    # TUI mode — available for normal and dev modes only (validated above)
     if tui:
-        if mode not in ("normal", "dev"):
-            print_error("--tui is only available for normal and dev modes")
-            raise SystemExit(1)
         _launch_tui(
             version,
             mode,
@@ -1033,51 +1157,15 @@ def start(
         )
         return
 
-    if no_confirm:
-        _start_odoo(
-            odoo_dir,
-            config_path,
-            mode,
-            extra_args,
-            env,
-            venv_dir,
-            version=version,
-            version_cfg=version_cfg,
-            load_language=load_language,
-            i18n_overwrite=i18n_overwrite,
-        )
-    else:
-        if mode == "normal":
-            prompt = f"Start Odoo v{version} server?"
-        else:
-            mode_descriptions = {
-                "dev": "development mode (hot-reload)",
-                "shell": "interactive shell",
-                "test": "test mode (--test-enable)",
-            }
-            mode_label = mode_descriptions.get(mode, f"{mode} mode")
-            prompt = f"Start Odoo v{version} in {mode_label}?"
-
-        if confirm(prompt):
-            _start_odoo(
-                odoo_dir,
-                config_path,
-                mode,
-                extra_args,
-                env,
-                venv_dir,
-                version=version,
-                version_cfg=version_cfg,
-                load_language=load_language,
-                i18n_overwrite=i18n_overwrite,
-            )
-        else:
-            print_info("Alternative start modes:")
-            print_info("  odoodev start --dev      Development mode (hot-reload)")
-            print_info("  odoodev start --shell    Odoo interactive shell")
-            print_info("  odoodev start --test     Run tests (--test-enable)")
-            print_info("  odoodev start --prepare  Open shell with venv activated")
-            if confirm("Open interactive shell with venv instead?"):
-                _start_interactive_shell(odoo_dir, venv_dir, config_path, env)
-            else:
-                print_info("Aborted.")
+    _start_odoo(
+        odoo_dir,
+        config_path,
+        mode,
+        extra_args,
+        env,
+        venv_dir,
+        version=version,
+        version_cfg=version_cfg,
+        load_language=load_language,
+        i18n_overwrite=i18n_overwrite,
+    )

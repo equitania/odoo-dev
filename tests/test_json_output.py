@@ -129,7 +129,9 @@ class TestVenvCheckJson:
         requirements = tmp_path / "requirements.txt"
         requirements.write_text("click\n")
         monkeypatch.setattr(venv_cmd, "_get_requirements_path", lambda c: str(requirements))
-        (venv_dir / ".requirements.sha256").write_text(venv_cmd._hash_file(str(requirements)))
+        from odoodev.core.venv_manager import hash_requirements
+
+        (venv_dir / ".requirements.sha256").write_text(hash_requirements(str(requirements)))
         monkeypatch.setattr("odoodev.core.venv_manager.get_full_python_version", lambda d: "3.13.2")
         result = CliRunner().invoke(cli, ["venv", "check", "18", "--json"])
         assert result.exit_code == 0

@@ -73,6 +73,19 @@ class OdooXmlRpcClient:
                 "XML-RPC connection to %s uses plaintext HTTP — credentials are not encrypted", host
             )
 
+    @classmethod
+    def from_stored_credentials(cls, *, port: int, database: str, host: str = "localhost") -> OdooXmlRpcClient:
+        """Build a client using the ``odoo_login`` section of the global config.
+
+        Falls back to the admin/admin dev default when nothing is stored.
+        Single seam for every TUI XML-RPC call site (update-list, cleanup,
+        hot module update) so the same account works everywhere.
+        """
+        from odoodev.core.global_config import get_odoo_login_credentials
+
+        username, password = get_odoo_login_credentials()
+        return cls(host=host, port=port, database=database, username=username, password=password)
+
     def _get_proxy(self, service: str) -> xmlrpc.client.ServerProxy:
         """Create an XML-RPC proxy for the given service."""
         return xmlrpc.client.ServerProxy(
@@ -99,11 +112,12 @@ class OdooXmlRpcClient:
             finally:
                 socket.setdefaulttimeout(old_timeout)
 
-            if not uid:
+            # Odoo returns the numeric uid on success, False on bad credentials.
+            if not isinstance(uid, int) or not uid:
                 msg = f"Authentication failed for {self._username}@{self._database}"
                 raise ValueError(msg)
 
-            self._uid = int(uid)
+            self._uid = uid
             return self._uid
         except (ConnectionRefusedError, OSError, TimeoutError) as e:
             msg = f"Cannot connect to Odoo at {self._base_url}: {e}"
@@ -167,7 +181,7 @@ class OdooXmlRpcClient:
         Returns:
             List of dicts with 'id', 'name', 'installed_version', 'display_name'.
         """
-        from odoodev.tui.module_export import EXPORT_FIELDS, is_exportable_module
+        from odoodev.core.module_export import EXPORT_FIELDS, is_exportable_module
 
         domain: list[list[object]]
         if installed_only:

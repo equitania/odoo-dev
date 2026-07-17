@@ -88,6 +88,7 @@ odoodev start 18 --dev
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Schneller `git pull` aller Repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
+| `odoodev export modules [VERSION]` | Modulliste als Releasemanager-CSV per XML-RPC exportieren (`--json` für GUIs) | [export.md](usage/export.md) |
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Lokale Container-Services steuern (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -176,6 +177,15 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.59.0:**
+- **Neu:** `odoodev export modules` — der Releasemanager-CSV-Export ist jetzt ein eigenständiger CLI-Befehl mit demselben Kern wie der TUI-Export (`x`). Für GUIs/Agenten: `--json` liefert ein einzeiliges Ergebnis (`path`, `count`, `updated`, `cleaned`); Zugangsdaten per Flags, `ODOODEV_ODOO_USER`/`ODOODEV_ODOO_PASSWORD` oder der neuen `odoo_login`-Sektion der globalen Config (`config set odoo_login.username/password`). Der TUI-Export-Dialog hat jetzt Benutzer/Passwort-Felder (vorbelegt aus der Config, optional speicherbar), läuft in einem Worker-Thread und zeigt einen Fortschritts-Overlay statt die Oberfläche zu blockieren.
+- **Geändert:** `odoodev start` zeigt die Instanz-Informationen (Ports, Datenbank, Config, Verzeichnisse) ZUERST, gefolgt von genau einer Bestätigungsfrage; erst danach laufen die Preflight-Checks mit Seiteneffekten. `--yes/-y` ist dokumentiert und überspringt nur die Frage. Wer den Start ablehnt, hinterlässt keine Spuren mehr (kein `.pgpass`-Write, kein Container-Start).
+- **Behoben:** Neue Einträge in `repos.yaml` wurden nie geklont, wenn der SSH-Access-Check fehlschlug oder der Klon scheiterte — Fehler wurden verschluckt. `odoodev repos` versucht den Klon jetzt immer, meldet Fehler pro Repo, zeigt eine Cloned/Updated/Skipped/Failed-Tabelle und beendet mit Exit-Code 1 bei Fehlern. `--config-only` führt wirklich keine Git-Operationen mehr aus.
+- **Behoben:** Die von `odoodev start` angebotene `requirements.txt`-Aktualisierung speicherte den Hash nicht — die Frage kam bei jedem Start erneut. Der Hash wird jetzt nach erfolgreicher Installation gespeichert.
+
+**Version 0.58.0:**
+- **Neu:** `effective_ports` in `config versions --json` — jede Version meldet zusätzlich die zur Laufzeit wirksamen Ports (Registry-Defaults überschrieben durch die `.env` der Version); GUIs und Agenten matchen Container und bauen URLs gegen diese Werte.
 
 **Version 0.57.0:**
 - **Neu:** `backup_source.mode: from_backup_step` — der Playbook-Runner reicht die vom `server.backup`-Step erzeugte Datei jetzt direkt an `server.restore` im selben Lauf weiter. Kein Pattern-Raten mehr zwischen Backup und Restore; `file` und `newest_in_dir` bleiben voll unterstützt.
@@ -404,6 +414,7 @@ odoodev start 18 --dev
 | `odoodev repos [VERSION]` | Clone/update repositories | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Quick `git pull` across all repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
+| `odoodev export modules [VERSION]` | Export the module list as Releasemanager CSV via XML-RPC (`--json` for GUIs) | [export.md](usage/export.md) |
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Local container service control (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -492,6 +503,15 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.59.0:**
+- **Added:** `odoodev export modules` — the Releasemanager CSV export is now a standalone CLI command sharing its core with the TUI export (`x`). For GUIs/agents: `--json` returns a single-line result (`path`, `count`, `updated`, `cleaned`); credentials via flags, `ODOODEV_ODOO_USER`/`ODOODEV_ODOO_PASSWORD`, or the new `odoo_login` section of the global config (`config set odoo_login.username/password`). The TUI export dialog gains username/password fields (pre-filled from the config, optionally persisted), runs in a worker thread, and shows a progress overlay instead of freezing the UI.
+- **Changed:** `odoodev start` prints the instance information (ports, database, config, directories) FIRST, followed by exactly one confirmation prompt; the side-effecting preflight checks only run afterwards. `--yes/-y` is documented and skips only the prompt. Declining the start leaves the system untouched (no `.pgpass` write, no container start).
+- **Fixed:** New `repos.yaml` entries were never cloned when the SSH access check failed or the clone errored — failures were swallowed. `odoodev repos` now always attempts the clone, reports per-repo errors, prints a Cloned/Updated/Skipped/Failed summary table, and exits 1 on failures. `--config-only` really performs no git operations anymore.
+- **Fixed:** The `requirements.txt` update offered by `odoodev start` never stored the hash — the prompt reappeared on every start. The hash is now stored after a successful install.
+
+**Version 0.58.0:**
+- **Added:** `effective_ports` in `config versions --json` — each version additionally reports the ports effective at runtime (registry defaults overridden by the version's `.env`); GUIs and agents match containers and build URLs against these values.
 
 **Version 0.57.0:**
 - **Added:** `backup_source.mode: from_backup_step` — the playbook runner now hands the file created by the `server.backup` step directly to `server.restore` in the same run. No more pattern guessing between backup and restore; `file` and `newest_in_dir` remain fully supported.

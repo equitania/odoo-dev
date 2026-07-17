@@ -25,6 +25,14 @@ odoodev repos 18 -c /pfad/zu/repos.yaml
 odoodev repos 18 --select
 ```
 
+Seit v0.59.0 ist der SSH-Access-Check rein diagnostisch: Ein fehlgeschlagener
+Zugriffstest blockiert den Klon-Versuch nicht mehr (vorher wurden brandneue
+`repos.yaml`-Eintraege dadurch still uebersprungen). Klon-/Update-Fehler werden
+pro Repository angezeigt, am Ende erscheint eine Zusammenfassungstabelle
+(Cloned/Updated/Skipped/Failed) und der Befehl endet mit Exit-Code 1, wenn ein
+Repository fehlschlug — die Config wird vorher noch best-effort generiert.
+Nicht erreichbare Repos werden mit Name und URL aufgelistet (kein `-v` noetig).
+
 ### Schneller Pull aller Repos
 
 ```bash
@@ -142,6 +150,14 @@ odoodev repos 18 -c /path/to/repos.yaml
 # Interactive addon selector — toggle individual addons before config generation
 odoodev repos 18 --select
 ```
+
+Since v0.59.0 the SSH access check is purely diagnostic: a failed probe no
+longer blocks the clone attempt (previously brand-new `repos.yaml` entries were
+silently skipped because of it). Clone/update errors are reported per
+repository, a Cloned/Updated/Skipped/Failed summary table is printed at the
+end, and the command exits with code 1 when any repository failed — the config
+is still generated best-effort first. Inaccessible repos are listed by name and
+URL (no `-v` required).
 
 ### Quick Pull All Repos
 

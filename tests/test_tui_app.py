@@ -850,6 +850,23 @@ class TestHelpScreen:
             assert normalized.lower() in documented, f"Binding '{key}' missing from HELP_SECTIONS"
 
 
+def _export_choice(scope: str = "all", db_name: str = "v18_exam", **overrides):
+    """Build an ExportModulesChoice with test defaults."""
+    from odoodev.tui.screens import ExportModulesChoice
+
+    kwargs = {
+        "scope": scope,
+        "db_name": db_name,
+        "do_update": False,
+        "do_cleanup": False,
+        "username": "admin",
+        "password": "admin",
+        "remember_credentials": False,
+    }
+    kwargs.update(overrides)
+    return ExportModulesChoice(**kwargs)
+
+
 class TestExportModulesScreen:
     """Test the 'x' module CSV export dialog and action."""
 
@@ -904,7 +921,7 @@ class TestExportModulesScreen:
             {"id": 1, "name": "base", "installed_version": "18.0", "display_name": "Base"},
             {"id": 2, "name": "sale", "installed_version": "18.0", "display_name": "Sales"},
         ]
-        with patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
             mock_common = MagicMock()
             mock_common.authenticate.return_value = 2
             mock_object = MagicMock()
@@ -914,7 +931,8 @@ class TestExportModulesScreen:
             app = make_app(mock_cmd, tmp_path)
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause(0.3)
-                app._handle_export_modules(("installed", "v18_exam", False, False))
+                app._handle_export_modules(_export_choice(scope="installed"))
+                await app.workers.wait_for_complete()
                 await pilot.pause(0.1)
 
         files = list((home / "Downloads").glob("modules_v18_exam_installed_*.csv"))
@@ -932,7 +950,7 @@ class TestExportModulesScreen:
         home.mkdir()
         monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
 
-        with patch("odoodev.tui.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
             mock_common = MagicMock()
             mock_common.authenticate.return_value = 2
             mock_object = MagicMock()
@@ -942,7 +960,8 @@ class TestExportModulesScreen:
             app = make_app(mock_cmd, tmp_path)
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause(0.3)
-                app._handle_export_modules(("all", "v18_exam", False, False))
+                app._handle_export_modules(_export_choice(scope="all"))
+                await app.workers.wait_for_complete()
                 await pilot.pause(0.1)
 
         assert not (home / "Downloads").exists()
@@ -990,6 +1009,166 @@ class TestExportModulesScreen:
             screen.query_one("#btn-export").press()
             await pilot.pause(0.1)
             assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+    async def test_export_screen_has_credential_fields(self, mock_cmd, tmp_path, monkeypatch):
+        """The dialog offers editable username/password inputs pre-filled from config."""
+        from textual.widgets import Checkbox, Input
+
+        monkeypatch.setattr(
+            "odoodev.core.global_config.get_odoo_login_credentials", lambda: ("stored_user", "stored_pw")
+        )
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            screen = app.screen_stack[-1]
+            username = screen.query_one("#export-username", Input)
+            password = screen.query_one("#export-password", Input)
+            assert username.value == "stored_user"
+            assert password.value == "stored_pw"
+            assert password.password is True  # masked input
+            assert screen.query_one("#export-chk-remember", Checkbox) is not None
+
+    async def test_export_empty_username_keeps_dialog_open(self, mock_cmd, tmp_path):
+        from textual.widgets import Input
+
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.6)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            screen = app.screen_stack[-1]
+            screen.query_one("#export-username", Input).value = ""
+            screen.query_one("#btn-export").press()
+            await pilot.pause(0.1)
+            assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+    async def test_export_escape_dismisses(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("x")
+            await pilot.pause(0.1)
+            assert any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+            assert not any(isinstance(s, ExportModulesScreen) for s in app.screen_stack)
+
+    async def test_export_uses_dialog_credentials(self, mock_cmd, tmp_path, monkeypatch):
+        """The worker authenticates with the dialog's credentials, not stored ones."""
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            mock_common = MagicMock()
+            mock_common.authenticate.return_value = 2
+            mock_object = MagicMock()
+            mock_object.execute_kw.return_value = []
+            mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+            app = make_app(mock_cmd, tmp_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules(_export_choice(username="custom_user", password="custom_pw"))
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.1)
+
+            auth_call = mock_common.authenticate.call_args
+            assert auth_call.args[1] == "custom_user"
+            assert auth_call.args[2] == "custom_pw"
+
+    async def test_export_remember_saves_credentials(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+        saved = {}
+        monkeypatch.setattr(
+            "odoodev.core.global_config.save_odoo_login_credentials",
+            lambda username, password: saved.update(username=username, password=password),
+        )
+
+        fake_modules = [{"id": 1, "name": "base", "installed_version": "18.0", "display_name": "Base"}]
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            mock_common = MagicMock()
+            mock_common.authenticate.return_value = 2
+            mock_object = MagicMock()
+            mock_object.execute_kw.return_value = fake_modules
+            mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+            app = make_app(mock_cmd, tmp_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules(
+                    _export_choice(username="keep_me", password="secret", remember_credentials=True)
+                )
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.1)
+
+        assert saved == {"username": "keep_me", "password": "secret"}
+
+    async def test_export_no_remember_does_not_save(self, mock_cmd, tmp_path, monkeypatch):
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        import pytest as _pytest
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+        monkeypatch.setattr(
+            "odoodev.core.global_config.save_odoo_login_credentials",
+            lambda *a, **k: _pytest.fail("credentials must not be saved without the remember checkbox"),
+        )
+
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            mock_common = MagicMock()
+            mock_common.authenticate.return_value = 2
+            mock_object = MagicMock()
+            mock_object.execute_kw.return_value = []
+            mock_proxy_cls.side_effect = lambda url: mock_common if "common" in url else mock_object
+
+            app = make_app(mock_cmd, tmp_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules(_export_choice())
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.1)
+
+    async def test_export_progress_screen_dismissed_on_error(self, mock_cmd, tmp_path, monkeypatch):
+        """The progress overlay must never survive a failed export."""
+        import pathlib
+        from unittest.mock import MagicMock, patch
+
+        from odoodev.tui.screens import ExportProgressScreen
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            mock_common = MagicMock()
+            mock_common.authenticate.side_effect = ConnectionRefusedError("no server")
+            mock_proxy_cls.side_effect = lambda url: mock_common
+
+            app = make_app(mock_cmd, tmp_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules(_export_choice())
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.2)
+                assert not any(isinstance(s, ExportProgressScreen) for s in app.screen_stack)
 
 
 class TestQuickMenu:
@@ -1231,11 +1410,13 @@ class TestModuleMaintenanceActions:
     async def test_update_apps_list_calls_client(self, mock_cmd, tmp_path, monkeypatch):
         from unittest.mock import MagicMock
 
-        import odoodev.tui.xmlrpc_client as xmlrpc_mod
+        import odoodev.core.xmlrpc_client as xmlrpc_mod
 
         instance = MagicMock()
         instance.update_module_list.return_value = 4
-        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", MagicMock(return_value=instance))
+        mock_cls = MagicMock(return_value=instance)
+        mock_cls.from_stored_credentials.return_value = instance
+        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", mock_cls)
 
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:
@@ -1248,11 +1429,13 @@ class TestModuleMaintenanceActions:
     async def test_cleanup_modules_calls_client(self, mock_cmd, tmp_path, monkeypatch):
         from unittest.mock import MagicMock
 
-        import odoodev.tui.xmlrpc_client as xmlrpc_mod
+        import odoodev.core.xmlrpc_client as xmlrpc_mod
 
         instance = MagicMock()
         instance.cleanup_uninstalled_modules.return_value = 7
-        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", MagicMock(return_value=instance))
+        mock_cls = MagicMock(return_value=instance)
+        mock_cls.from_stored_credentials.return_value = instance
+        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", mock_cls)
 
         app = make_app(mock_cmd, tmp_path)
         async with app.run_test(size=(120, 30)) as pilot:

@@ -423,51 +423,83 @@ class OdooTuiApp(App):
 
         self.push_screen(ExportModulesScreen(self._db_name), self._handle_export_modules)
 
-    def _handle_export_modules(self, result: tuple[str, str, bool, bool] | None) -> None:
-        """Query modules via XML-RPC and write the CSV after the dialog choice.
+    def _handle_export_modules(self, result) -> None:
+        """Launch the export worker after the dialog choice.
 
-        ``result`` is ``(scope, db_name, do_update, do_cleanup)`` from the
-        dialog, or ``None`` on cancel. If requested, non-installed modules are
-        removed and the apps list refreshed (cleanup first, then update — so the
-        catalog reflects the current system) before the modules are listed.
+        ``result`` is an :class:`ExportModulesChoice` from the dialog or
+        ``None`` on cancel. The XML-RPC round-trips (cleanup, apps-list update,
+        module listing) block, so they run off the UI thread with a progress
+        overlay — previously the export ran synchronously and froze the TUI.
         """
         if result is None:
             return  # cancelled
 
-        scope, db_name, do_update, do_cleanup = result
+        self.run_worker(lambda: self._do_export_modules(result), thread=True, exclusive=False)
 
+    def _do_export_modules(self, choice) -> None:
+        """Query modules via XML-RPC and write the CSV (runs in a worker thread).
+
+        If requested, non-installed modules are removed and the apps list
+        refreshed (cleanup first, then update — so the catalog reflects the
+        current system) before the modules are listed.
+        """
         import datetime
 
+        from odoodev.core.module_export import EXPORT_SCOPES, build_export_path, write_modules_csv
+        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
         from odoodev.i18n import t
-        from odoodev.tui.module_export import EXPORT_SCOPES, build_export_path, write_modules_csv
-        from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
+        from odoodev.tui.screens import ExportProgressScreen
 
-        installed_only, exclude_enterprise = EXPORT_SCOPES.get(scope, (False, False))
+        progress = ExportProgressScreen()
+        self.call_from_thread(self.push_screen, progress)
+
+        installed_only, exclude_enterprise = EXPORT_SCOPES.get(choice.scope, (False, False))
         try:
-            client = OdooXmlRpcClient(port=self._odoo_port, database=db_name)
-            if do_cleanup:
+            # Credentials come from the dialog (per-export override), never
+            # logged — they only flow into the client and the optional save.
+            client = OdooXmlRpcClient(
+                port=self._odoo_port,
+                database=choice.db_name,
+                username=choice.username,
+                password=choice.password,
+            )
+            self.call_from_thread(progress.set_status, t("tui.export_connecting"))
+            if choice.do_cleanup:
+                self.call_from_thread(progress.set_status, t("tui.export_progress_cleanup"))
                 removed = client.cleanup_uninstalled_modules()
-                self.notify(t("tui.modules_cleaned", count=removed), severity="information")
-            if do_update:
+                self.call_from_thread(self.notify, t("tui.modules_cleaned", count=removed), severity="information")
+            if choice.do_update:
+                self.call_from_thread(progress.set_status, t("tui.export_progress_update"))
                 added = client.update_module_list()
-                self.notify(t("tui.modules_updated", count=added), severity="information")
+                self.call_from_thread(self.notify, t("tui.modules_updated", count=added), severity="information")
+            self.call_from_thread(progress.set_status, t("tui.export_progress_listing"))
             records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
         except Exception as e:  # surface any RPC/auth failure to the user
-            self.notify(t("tui.export_error", error=str(e)), severity="error")
+            self.call_from_thread(self.notify, t("tui.export_error", error=str(e)), severity="error")
             return
+        finally:
+            # Never leave the progress overlay stuck — also on error paths.
+            self.call_from_thread(progress.dismiss)
+
+        if choice.remember_credentials:
+            from odoodev.core.global_config import save_odoo_login_credentials
+
+            save_odoo_login_credentials(choice.username, choice.password)
 
         if not records:
-            self.notify(t("tui.export_empty"), severity="warning")
+            self.call_from_thread(self.notify, t("tui.export_empty"), severity="warning")
             return
 
-        path = build_export_path(db_name, scope, datetime.datetime.now())
+        path = build_export_path(choice.db_name, choice.scope, datetime.datetime.now())
         try:
             write_modules_csv(records, path)
         except OSError as e:
-            self.notify(t("tui.export_error", error=str(e)), severity="error")
+            self.call_from_thread(self.notify, t("tui.export_error", error=str(e)), severity="error")
             return
 
-        self.notify(t("tui.export_saved", count=len(records), path=str(path)), severity="information")
+        self.call_from_thread(
+            self.notify, t("tui.export_saved", count=len(records), path=str(path)), severity="information"
+        )
 
     # --- Database backup / switch + module maintenance ---
 
@@ -571,12 +603,12 @@ class OdooTuiApp(App):
 
     def _do_update_apps_list(self) -> None:
         """Call ir.module.module.update_list via XML-RPC (worker thread)."""
+        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
         from odoodev.i18n import t
-        from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
 
         self.call_from_thread(self.notify, t("tui.modules_updating"))
         try:
-            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
             added = client.update_module_list()
         except Exception as e:
             self.call_from_thread(self.notify, t("tui.modules_update_error", error=str(e)), severity="error")
@@ -589,12 +621,12 @@ class OdooTuiApp(App):
 
     def _do_cleanup_modules(self) -> None:
         """Delete ir.module.module rows where state != installed (worker thread)."""
+        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
         from odoodev.i18n import t
-        from odoodev.tui.xmlrpc_client import OdooXmlRpcClient
 
         self.call_from_thread(self.notify, t("tui.modules_cleaning"))
         try:
-            client = OdooXmlRpcClient(port=self._odoo_port, database=self._db_name)
+            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
             removed = client.cleanup_uninstalled_modules()
         except Exception as e:
             self.call_from_thread(self.notify, t("tui.modules_clean_error", error=str(e)), severity="error")

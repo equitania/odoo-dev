@@ -1,5 +1,74 @@
 # Release Notes
 
+## Version 0.59.0 (17.07.2026)
+
+### Added
+- **`odoodev export modules` CLI command.** The Releasemanager CSV export is
+  now a standalone command sharing its core with the TUI's `x` dialog
+  (`core/xmlrpc_client.py` + `core/module_export.py`), so the GUI can shell
+  out to it instead of reimplementing the RPC logic. Flags: `-d/--database`
+  (interactive picker when omitted), `--user`/`--password` (precedence:
+  flags > `ODOODEV_ODOO_USER`/`ODOODEV_ODOO_PASSWORD` env vars > stored
+  config > admin/admin), `--scope all|no-enterprise|installed`,
+  `--update-list`, `--cleanup`, `--output`, `--host`, `--port` (defaults to
+  the version's effective `ODOO_PORT`), `--json` (single-line machine result:
+  `version`, `database`, `scope`, `path`, `count`, `updated`, `cleaned`) and
+  `--yes`. An empty module list is a soft outcome (`count: 0`, exit 0).
+- **`odoo_login` section in the global config.** The Odoo XML-RPC login
+  (res.users) used by module actions is configurable via
+  `odoodev config set odoo_login.username|odoo_login.password` (masked in
+  output, stored 0600) and shown (username only) in `config show`. Every
+  XML-RPC call site (TUI export/update-list/cleanup/hot-update, CLI export)
+  now uses these credentials instead of hardcoded admin/admin.
+- **TUI export dialog: credential fields + progress.** The `x` dialog gains
+  editable username/password inputs (pre-filled from the stored config),
+  a "save credentials" checkbox and an Escape binding. The export itself now
+  runs in a worker thread with a progress overlay (connect → cleanup →
+  update → listing) — previously it ran synchronously and froze the TUI.
+
+### Changed
+- **`odoodev start` shows the instance info FIRST.** Ports (Odoo/DB/Gevent/
+  Mailpit), database, mode, config preview and directories are printed
+  directly after `.env` loading, followed by ONE confirmation prompt; the
+  side-effecting preflight checks (pgpass write, venv/source/config checks,
+  container start) only run after confirmation. Declining both the start and
+  the shell fallback now leaves the system untouched. `--yes/-y` (previously
+  hidden) is documented and skips only the prompt — the info table still
+  prints for CI logs.
+- **`odoodev repos` surfaces git failures.** Clone/update errors per repo are
+  printed (previously swallowed — a failed clone of a new repos.yaml entry
+  looked like success), a Cloned/Updated/Skipped/Failed summary table is
+  shown (mirroring `pull`), inaccessible repos are listed by name at normal
+  verbosity, and the command exits 1 when any repo failed (config generation
+  still runs best-effort first). Playbook `repos` steps report failures too.
+- **`xmlrpc_client.py`/`module_export.py` moved to `core/`.** They are shared
+  by the TUI and the new CLI export; imports updated, no shims.
+
+### Fixed
+- **`odoodev start` re-prompted for requirements updates forever.** The
+  start-triggered `requirements.txt` update installed the packages but never
+  stored the SHA256 hash (`store_requirements_hash`), so every subsequent
+  start asked again. Only `odoodev venv setup` wrote the hash. The hash is
+  now stored right after a successful install; `venv.py`'s duplicate
+  `_hash_file` helper was deduplicated into `core/venv_manager.py`.
+- **New repos.yaml entries were never cloned.** Three root causes: (1) the
+  batch SSH access check gated the clone attempt — a transiently failing
+  probe silently skipped brand-new repos (now diagnostic-only: a warning is
+  printed and the clone is attempted anyway); (2) `clone_repo` errors were
+  discarded by `switch_branch_and_update`; (3) `clone_repo` crashed with an
+  uncaught `FileNotFoundError` when the parent directory didn't exist yet
+  (now `os.makedirs` first, like `clone_repo_with_progress`).
+- **Failed clones produced phantom `addons_path` entries.** `get_module_paths`
+  returned the repo dir unconditionally; it now returns `[]` when the
+  directory doesn't exist, so generated configs no longer point at missing
+  paths.
+- **`odoodev repos --config-only` performed git operations** despite being
+  documented as "no git operations" — it now passes `skip_git=True`
+  (CLI and playbook handler).
+- **Playbook `pull` steps misreported failures as success.** `update_repo`
+  returns a `(success, error)` tuple; `handle_pull` treated the always-truthy
+  tuple as success, so failed pulls counted as updated.
+
 ## Version 0.58.0 (16.07.2026)
 
 ### Added

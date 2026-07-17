@@ -799,3 +799,190 @@ class TestCheckServicesReadiness:
         with pytest.raises(SystemExit) as exc:
             self._run_with_service_up(monkeypatch, tmp_path, wait_results=[False, False])
         assert exc.value.code == 1
+
+
+class TestRequirementsHashAfterStartUpdate:
+    """Regression: the start-triggered requirements update must persist the hash.
+
+    Previously ``_check_services`` called ``install_requirements`` after the
+    user confirmed the update but never ``store_requirements_hash`` — so every
+    subsequent ``odoodev start`` re-prompted for the same update. Only
+    ``odoodev venv setup`` wrote the hash file.
+    """
+
+    def _version_cfg(self, tmp_path):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            ports=SimpleNamespace(db=18432, odoo=18069),
+            paths=SimpleNamespace(native_dir=str(tmp_path)),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _stub(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("odoodev.core.migration_config.get_active_group", lambda: None)
+        monkeypatch.setattr("odoodev.commands.start.check_port", lambda host, port: False)
+        monkeypatch.setattr("odoodev.commands.start.wait_for_postgres_ready", lambda *a, **k: True)
+        monkeypatch.setattr("odoodev.commands.start.check_requirements_changed", lambda *a, **k: True)
+        monkeypatch.setattr("odoodev.commands.start.confirm", lambda *a, **k: True)
+        (tmp_path / "requirements.txt").write_text("click\n")
+
+    def test_hash_stored_after_successful_install(self, monkeypatch, tmp_path):
+        stored = {}
+        monkeypatch.setattr("odoodev.commands.start.install_requirements", lambda *a, **k: True)
+        monkeypatch.setattr(
+            "odoodev.commands.start.store_requirements_hash",
+            lambda venv_dir, requirements: stored.update(venv_dir=venv_dir, requirements=requirements),
+        )
+        _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=False)
+        assert stored["venv_dir"] == str(tmp_path)
+        assert stored["requirements"] == str(tmp_path / "requirements.txt")
+
+    def test_hash_not_stored_when_install_fails(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("odoodev.commands.start.install_requirements", lambda *a, **k: False)
+        monkeypatch.setattr(
+            "odoodev.commands.start.store_requirements_hash",
+            lambda *a, **k: pytest.fail("store_requirements_hash must not be called after a failed install"),
+        )
+        _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=False)
+
+    def test_no_confirm_skips_install_and_hash(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "odoodev.commands.start.install_requirements",
+            lambda *a, **k: pytest.fail("install_requirements must not run under --no-confirm"),
+        )
+        monkeypatch.setattr(
+            "odoodev.commands.start.store_requirements_hash",
+            lambda *a, **k: pytest.fail("store_requirements_hash must not run under --no-confirm"),
+        )
+        _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=True)
+
+
+from click.testing import CliRunner  # noqa: E402
+
+from odoodev.commands.start import start  # noqa: E402
+
+
+class TestStartInfoOrdering:
+    """v0.59.0 flow: instance info → confirmation → preflight → launch.
+
+    Declining the start must not trigger any side-effecting preflight check
+    (no ~/.pgpass write, no container start, no setup prompts).
+    """
+
+    def _setup(self, monkeypatch, tmp_path, confirm_answers=None):
+        import types
+
+        import odoodev.commands.start as start_cmd
+
+        calls: list[str] = []
+
+        monkeypatch.setattr(start_cmd, "resolve_version", lambda ctx, v: "18")
+        monkeypatch.setattr(start_cmd, "load_versions", lambda: {})
+        monkeypatch.setattr(
+            start_cmd,
+            "get_version",
+            lambda v, versions=None: types.SimpleNamespace(
+                version="18",
+                python="3.13",
+                postgres="16",
+                ports=types.SimpleNamespace(db=18432, odoo=18069, gevent=18072, mailpit=18025, smtp=1025),
+                paths=types.SimpleNamespace(
+                    native_dir=str(tmp_path),
+                    server_dir=str(tmp_path),
+                    myconfs_dir=str(tmp_path / "myconfs"),
+                ),
+            ),
+        )
+        monkeypatch.setattr(start_cmd, "_check_env_file", lambda ctx, v, d: calls.append("env") or {})
+        monkeypatch.setattr(
+            start_cmd,
+            "_print_start_info",
+            lambda *a, **k: calls.append("info"),
+        )
+        monkeypatch.setattr(
+            start_cmd,
+            "_run_preflight",
+            lambda *a, **k: calls.append("preflight") or ("/tmp/odoo.conf", {}),
+        )
+        monkeypatch.setattr(start_cmd, "_start_odoo", lambda *a, **k: calls.append("start_odoo"))
+        monkeypatch.setattr(start_cmd, "_start_interactive_shell", lambda *a, **k: calls.append("shell"))
+
+        answers = list(confirm_answers or [])
+
+        def fake_confirm(message, default=True):
+            calls.append(f"confirm:{message}")
+            return answers.pop(0) if answers else True
+
+        monkeypatch.setattr(start_cmd, "confirm", fake_confirm)
+        return calls
+
+    def test_confirmed_start_order(self, monkeypatch, tmp_path):
+        calls = self._setup(monkeypatch, tmp_path, confirm_answers=[True])
+        result = CliRunner().invoke(start, ["18"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        confirm_idx = next(i for i, c in enumerate(calls) if c.startswith("confirm:"))
+        assert calls.index("info") < confirm_idx < calls.index("preflight") < calls.index("start_odoo")
+
+    def test_yes_skips_confirm_but_prints_info(self, monkeypatch, tmp_path):
+        calls = self._setup(monkeypatch, tmp_path)
+        result = CliRunner().invoke(start, ["18", "--yes"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert "info" in calls
+        assert not any(c.startswith("confirm:") for c in calls)
+        assert calls.index("preflight") < calls.index("start_odoo")
+
+    def test_declined_start_runs_no_preflight(self, monkeypatch, tmp_path):
+        """No to start, no to the shell fallback → zero side effects."""
+        calls = self._setup(monkeypatch, tmp_path, confirm_answers=[False, False])
+        result = CliRunner().invoke(start, ["18"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert "preflight" not in calls
+        assert "start_odoo" not in calls
+        assert "shell" not in calls
+
+    def test_declined_start_accepted_shell_runs_preflight(self, monkeypatch, tmp_path):
+        calls = self._setup(monkeypatch, tmp_path, confirm_answers=[False, True])
+        result = CliRunner().invoke(start, ["18"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert calls.index("preflight") < calls.index("shell")
+        assert "start_odoo" not in calls
+
+    def test_prepare_skips_info_and_confirm(self, monkeypatch, tmp_path):
+        calls = self._setup(monkeypatch, tmp_path)
+        result = CliRunner().invoke(start, ["18", "--prepare"], catch_exceptions=False)
+        assert result.exit_code == 0, result.output
+        assert "info" not in calls
+        assert not any(c.startswith("confirm:") for c in calls)
+        assert calls.index("preflight") < calls.index("shell")
+
+    def test_yes_flag_visible_in_help(self):
+        result = CliRunner().invoke(start, ["--help"])
+        assert result.exit_code == 0
+        assert "--yes" in result.output
+
+    def test_print_start_info_shows_missing_config_hint(self, monkeypatch, tmp_path, capsys):
+        import types
+
+        from odoodev.commands.start import _print_start_info
+
+        cfg = types.SimpleNamespace(
+            ports=types.SimpleNamespace(db=18432, odoo=18069, gevent=18072, mailpit=18025),
+        )
+        monkeypatch.setattr("odoodev.core.migration_config.resolve_db_port", lambda v, d, e: d)
+        _print_start_info(
+            "18",
+            cfg,
+            {},
+            "normal",
+            None,
+            (),
+            str(tmp_path),
+            str(tmp_path),
+            str(tmp_path / "myconfs"),
+            None,
+        )
+        out = capsys.readouterr().out
+        assert "not generated yet" in out
+        assert "18069" in out
+        assert "18432" in out
