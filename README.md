@@ -178,6 +178,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.61.0:**
+- **Neu:** `odoodev db restore --dry-run` — Restore-Preflight ohne jede Änderung: prüft Backup-Datei (Pfad + Größe), Ziel-Datenbank (würde mit `--drop` überschrieben, harter Fehler mit `--no-drop`) und freien Speicherplatz, und listet die geplanten Post-Restore-Schritte aus den gesetzten Sanitize-Flags auf. Exit-Code 0 = Restore würde durchlaufen, 1 = würde fehlschlagen; garantiert ohne Drop/Create/Extract/Restore. Grundlage des Dry-Run-Buttons im Restore-Wizard der GUI.
+
 **Version 0.60.0:**
 - **Neu:** `odoodev db cleanup` — Filestore↔Datenbank-Konsistenzcheck pro Version: verwaiste Filestores (Verzeichnis ohne Datenbank, mit Größenangabe) und Datenbanken ohne Filestore werden gemeldet. Standardmäßig nur Bericht; `--delete-orphans` löscht verwaiste Filestores nach y/N-Rückfrage (`-y` für Skripte), `--json` liefert den GUI/Agent-Kontrakt (löscht nie). Ein aktiver Migrations-Modus (geteilter Filestore) wird berücksichtigt.
 - **Neu:** Runtime-bewusste Container-Diagnose. Ist PostgreSQL nicht erreichbar, prüft odoodev die konfigurierte Runtime (Docker oder Apple Container) — CLI installiert? Daemon bzw. `container-apiserver` läuft? — und nennt die konkrete Abhilfe (`container system start`, `open -a Docker`, Installations-/Umschalt-Hinweise) statt eines pauschalen Docker-Verweises. `odoodev docker up` ist selbstheilend: Ein gestoppter Apple-Container-API-Server wird automatisch mitgestartet; `docker status` meldet eine nicht bereite Runtime samt Abhilfe, ohne Zustand zu verändern.
@@ -510,6 +513,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.61.0:**
+- **Added:** `odoodev db restore --dry-run` — restore preflight that changes nothing: validates the backup file (path + size), the target database (would be overwritten with `--drop`, hard failure with `--no-drop`) and free disk space, and lists the planned post-restore steps derived from the given sanitize flags. Exit code 0 = the restore would proceed, 1 = it would fail; guaranteed no drop/create/extract/restore. This backs the Dry-Run button in the GUI restore wizard.
 
 **Version 0.60.0:**
 - **Added:** `odoodev db cleanup` — per-version filestore↔database consistency check: orphaned filestores (directory without a database, listed with size) and databases without a filestore are reported. Report-only by default; `--delete-orphans` removes orphaned filestores after a y/N confirmation (`-y` for scripts), `--json` provides the GUI/agent contract (never deletes). An active migration group (shared filestore) is honored.

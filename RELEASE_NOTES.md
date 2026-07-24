@@ -1,5 +1,20 @@
 # Release Notes
 
+## Version 0.61.0 (24.07.2026)
+
+### Added
+- **`odoodev db restore --dry-run` — restore preflight.** Validates the restore
+  without changing anything: backup file exists (path + size reported), target
+  database collision (would be dropped with `--drop`, hard failure with
+  `--no-drop`), free disk space (`check_restore_space`, honors
+  `--no-check-space`), and lists the planned post-restore steps derived from
+  the given sanitize flags (uninstall-modules, deactivate-cron, neutralize,
+  anonymize, wipe, purge-transactions, purge-master-data, anonymize-users,
+  recompute). Exits 0 when the restore would proceed, 1 when it would fail;
+  nothing is dropped, created, extracted, or restored. This implements the
+  contract behind the GUI restore wizard's Dry-Run button, which previously
+  sent a `--dry-run` flag the CLI did not have.
+
 ## Version 0.60.0 (24.07.2026)
 
 ### Added

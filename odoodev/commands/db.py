@@ -872,6 +872,69 @@ class RestorePipeline:
             )
 
 
+def _restore_dry_run(
+    version: str,
+    name: str,
+    backup_file: str,
+    drop: bool,
+    check_space: bool,
+    params: dict,
+    planned_steps: list[str],
+) -> None:
+    """Validate a restore without executing it (GUI restore-wizard preflight).
+
+    Checks the backup file, target-database collision, and free disk space,
+    then lists the planned post-restore steps. Exits 0 when the restore would
+    proceed, 1 when it would fail. Nothing is dropped, created, extracted, or
+    restored.
+    """
+    ok = True
+
+    backup_file = os.path.abspath(backup_file)
+    if os.path.isfile(backup_file):
+        print_info(f"Backup file: {backup_file} ({format_size(os.path.getsize(backup_file))})")
+    else:
+        print_error(f"Backup file not found: {backup_file}")
+        ok = False
+
+    if database_exists(name, **params):
+        if drop:
+            print_warning(f"Existing database '{name}' would be dropped")
+        else:
+            print_error(f"Database '{name}' already exists and --no-drop is set — the restore would fail")
+            ok = False
+    else:
+        print_info(f"Database '{name}' would be created")
+
+    filestore_dest = get_filestore_path(version, name)
+    print_info(f"Filestore destination: {filestore_dest}")
+
+    if ok and check_space:
+        # check_restore_space measures free space on the extraction filesystem,
+        # so the temp dir must exist; it is removed again right after the check.
+        extract_path = get_restore_temp_dir(backup_file)
+        try:
+            enough, space_msg, _ = check_restore_space(backup_file, extract_path, filestore_dest)
+        finally:
+            cleanup_restore_temp(extract_path)
+        if not enough:
+            print_error(space_msg or "Not enough free disk space for the restore")
+        elif space_msg:
+            print_info(space_msg)
+        ok = ok and enough
+
+    if planned_steps:
+        print_info(f"Post-restore steps: {', '.join(planned_steps)}")
+    else:
+        print_info("No post-restore steps selected — database would be left untouched")
+
+    if ok:
+        print_success("Dry run passed — nothing was changed")
+        return
+    print_error("Dry run failed — nothing was changed")
+    raise SystemExit(1)
+
+
 @db.command("restore")
 @click.argument("version", required=False)
 @click.option("-n", "--name", help="New database name (prompted if omitted)")
@@ -962,6 +1025,12 @@ class RestorePipeline:
     is_flag=True,
     help="Never delete or ask about the original backup file (for scripts)",
 )
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Validate the restore (backup file, target DB, disk space) and list the planned "
+    "post-restore steps without changing anything",
+)
 @click.pass_context
 def db_restore(
     ctx: click.Context,
@@ -985,6 +1054,7 @@ def db_restore(
     check_space: bool,
     delete_backup: bool,
     keep_backup: bool,
+    dry_run: bool,
 ) -> None:
     """Restore a database from backup file.
 
@@ -1038,6 +1108,26 @@ def db_restore(
     # steps). Asked up front so all interactive questions precede the
     # destructive work.
     uninstall_modules = parse_module_names(uninstall_modules_raw)
+
+    if dry_run:
+        planned_steps = [
+            label
+            for enabled, label in (
+                (bool(uninstall_modules), "uninstall-modules"),
+                (deactivate_cron, "deactivate-cron"),
+                (neutralize, "neutralize"),
+                (anonymize, "anonymize"),
+                (wipe, "wipe"),
+                (purge_transactions, "purge-transactions"),
+                (purge_master_data, "purge-master-data"),
+                (anon_users, "anonymize-users"),
+                (recompute and anonymize, "recompute"),
+            )
+            if enabled
+        ]
+        _restore_dry_run(version, name, backup_file, drop, check_space, params, planned_steps)
+        return
+
     if (
         uninstall_modules_raw is None
         and not yes_flag

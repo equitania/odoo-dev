@@ -129,6 +129,11 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
    nie automatisch geloescht). Steuerbar per `--delete-backup` (loeschen ohne Frage) und
    `--keep-backup` (nie fragen/loeschen, fuer Skripte).
 
+**Dry-Run** (`--dry-run`, seit v0.61.0): fuehrt nichts davon aus. odoodev prueft nur
+Backup-Datei, Ziel-Datenbank (Kollision bzw. Drop) und Speicherplatz, listet die geplanten
+Post-Restore-Schritte auf und beendet sich mit Exit-Code 0 (Restore wuerde durchlaufen)
+bzw. 1 (wuerde fehlschlagen). Grundlage des Dry-Run-Buttons im Restore-Wizard der GUI.
+
 ### Filestore-Konsistenz-Check (`db cleanup`, seit v0.60.0)
 
 Vergleicht das Filestore-Verzeichnis der Version (`~/odoo-share/vXX/filestore/`)
@@ -509,6 +514,11 @@ During `odoodev db restore`, the filestore is managed automatically:
 5. Optionally at the end: a `Delete original backup file?` prompt (default no — a backup is never
    removed automatically). Controlled via `--delete-backup` (delete without prompting) and
    `--keep-backup` (never ask/delete, for scripts).
+
+**Dry run** (`--dry-run`, since v0.61.0): executes none of the above. odoodev only validates
+the backup file, the target database (collision or drop) and the disk space, lists the planned
+post-restore steps, and exits 0 (restore would proceed) or 1 (it would fail). This backs the
+Dry-Run button in the GUI restore wizard.
 
 ### Filestore consistency check (`db cleanup`, since v0.60.0)
 
