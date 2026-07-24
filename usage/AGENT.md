@@ -56,6 +56,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db copy` | Copy a database (incl. filestore) under a new name. | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
 | `odoodev db drop` | Drop one or more databases (bulk/multi-select). | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --terminate-connections, --yes/-y |
 | `odoodev db list` | List all databases. | [VERSION], --json |
+| `odoodev db cleanup` | Filestore <-> database consistency check: reports orphaned filestores (directory without DB) and DBs without filestore; report-only by default. | [VERSION], --delete-orphans, --json, -y/--yes |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db purge` | Delete transactional/movement data for a clean stress-test DB (keeps products, pricelists, partners, users, config). | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
 | `odoodev db purge-master-data` | Full template-DB reset: delete movement + CRM/HR/helpdesk/mail data + customer/vendor/contact partners + their attachments; keep products, pricelists, users, companies, config. Superuser role required. | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |

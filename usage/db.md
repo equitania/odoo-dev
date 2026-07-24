@@ -129,6 +129,26 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
    nie automatisch geloescht). Steuerbar per `--delete-backup` (loeschen ohne Frage) und
    `--keep-backup` (nie fragen/loeschen, fuer Skripte).
 
+### Filestore-Konsistenz-Check (`db cleanup`, seit v0.60.0)
+
+Vergleicht das Filestore-Verzeichnis der Version (`~/odoo-share/vXX/filestore/`)
+mit den Datenbanken auf ihrer PostgreSQL-Instanz — in beide Richtungen:
+
+```bash
+odoodev db cleanup 18                     # Nur Bericht (loescht nichts)
+odoodev db cleanup 18 --delete-orphans    # Verwaiste Filestores loeschen (y/N-Rueckfrage)
+odoodev db cleanup 18 --delete-orphans -y # ... ohne Rueckfrage (Skripte)
+odoodev db cleanup 18 --json              # Maschinenlesbar (GUI/Agent, nie loeschend)
+```
+
+- **Verwaiste Filestores** (Verzeichnis ohne zugehoerige Datenbank): werden mit
+  Groesse gelistet; Loeschung nur mit explizitem `--delete-orphans` nach einer
+  y/N-Bestaetigung (Default Nein).
+- **Datenbanken ohne Filestore**: werden nur gemeldet — eine frische Datenbank
+  oder eine ohne Anhaenge hat legitimerweise keinen Filestore.
+- Ein aktiver Migrations-Modus wird beruecksichtigt (geteiltes Filestore-Verzeichnis
+  via `get_filestore_path`).
+
 ### Post-Restore-Verarbeitung: alles Opt-in (seit v0.43.0)
 
 **Standardmaessig laesst `db restore` die wiederhergestellte Datenbank komplett unangetastet** —
@@ -489,6 +509,26 @@ During `odoodev db restore`, the filestore is managed automatically:
 5. Optionally at the end: a `Delete original backup file?` prompt (default no — a backup is never
    removed automatically). Controlled via `--delete-backup` (delete without prompting) and
    `--keep-backup` (never ask/delete, for scripts).
+
+### Filestore consistency check (`db cleanup`, since v0.60.0)
+
+Compares the version's filestore directory (`~/odoo-share/vXX/filestore/`)
+against the databases on its PostgreSQL instance — in both directions:
+
+```bash
+odoodev db cleanup 18                     # report only (deletes nothing)
+odoodev db cleanup 18 --delete-orphans    # delete orphaned filestores (y/N confirmation)
+odoodev db cleanup 18 --delete-orphans -y # ... without confirmation (scripts)
+odoodev db cleanup 18 --json              # machine-readable (GUI/agent, never deletes)
+```
+
+- **Orphaned filestores** (directory without a matching database) are listed
+  with their size; deletion only via explicit `--delete-orphans` after a y/N
+  confirmation (default No).
+- **Databases without a filestore** are report-only — a fresh or
+  attachment-free database legitimately has none.
+- An active migration group is honored (shared filestore base via
+  `get_filestore_path`).
 
 ### Post-restore processing: everything opt-in (since v0.43.0)
 

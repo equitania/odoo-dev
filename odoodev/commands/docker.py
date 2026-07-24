@@ -16,6 +16,7 @@ from odoodev.core.container_backend import (
     RUNTIME_APPLE,
     RUNTIME_DOCKER,
     build_dev_spec,
+    diagnose_runtime,
     get_backend,
     read_env_file,
     resolve_runtime,
@@ -146,6 +147,16 @@ def docker_status(ctx: click.Context, version: str | None, runtime: str | None) 
     if rt == RUNTIME_DOCKER and not _has_compose_file(version_cfg):
         print_warning(f"No docker-compose.yml found in {version_cfg.paths.native_dir}")
         return
+
+    # Status must not mutate state (no API-server auto-start) — report a
+    # non-ready runtime with its concrete remedy instead of a raw CLI error.
+    diag = diagnose_runtime(version=version, runtime=rt)
+    if not diag.ready:
+        if diag.problem:
+            print_warning(diag.problem)
+        for hint in diag.hints:
+            print_info(hint)
+        raise SystemExit(1)
 
     backend = get_backend(rt)
     env = read_env_file(version_cfg.paths.native_dir)

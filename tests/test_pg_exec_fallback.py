@@ -329,15 +329,62 @@ def test_db_list_port_unreachable_clean_exit(monkeypatch):
     from click.testing import CliRunner
 
     from odoodev.cli import cli
+    from odoodev.core.container_backend import DockerBackend
 
     _stub_db_cmd(monkeypatch)
     monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda h, p: False)
+    monkeypatch.setattr("odoodev.core.container_backend.resolve_runtime", lambda override=None: "docker")
+    monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+    monkeypatch.setattr(DockerBackend, "daemon_running", lambda self: True)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["db", "list", "16"])
     assert result.exit_code == 1
     assert "not accessible" in result.output
     assert "odoodev docker up" in result.output
+
+
+def test_db_list_port_unreachable_apple_api_server_hint(monkeypatch):
+    """Apple runtime + stopped container-apiserver → 'container system start', not a Docker reference."""
+    from click.testing import CliRunner
+
+    from odoodev.cli import cli
+    from odoodev.core.container_backend import AppleContainerBackend
+
+    _stub_db_cmd(monkeypatch)
+    monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda h, p: False)
+    monkeypatch.setattr("odoodev.core.container_backend.resolve_runtime", lambda override=None: "apple")
+    monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: True)
+    monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+    monkeypatch.setattr(AppleContainerBackend, "daemon_running", lambda self: False)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["db", "list", "16"])
+    assert result.exit_code == 1
+    assert "container-apiserver" in result.output
+    assert "container system start" in result.output
+    assert "odoodev docker up 16" in result.output
+
+
+def test_db_list_port_unreachable_apple_ready_no_docker_wording(monkeypatch):
+    """Apple runtime ready → the hint names Apple Container, not Docker Desktop."""
+    from click.testing import CliRunner
+
+    from odoodev.cli import cli
+    from odoodev.core.container_backend import AppleContainerBackend
+
+    _stub_db_cmd(monkeypatch)
+    monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda h, p: False)
+    monkeypatch.setattr("odoodev.core.container_backend.resolve_runtime", lambda override=None: "apple")
+    monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: True)
+    monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+    monkeypatch.setattr(AppleContainerBackend, "daemon_running", lambda self: True)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["db", "list", "16"])
+    assert result.exit_code == 1
+    assert "Apple Container" in result.output
+    assert "odoodev docker up 16" in result.output
 
 
 def test_db_list_container_fallback_lists_databases(monkeypatch):

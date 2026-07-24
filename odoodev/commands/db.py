@@ -149,6 +149,28 @@ def _print_migration_hint(version: str) -> None:
         pass
 
 
+def _print_runtime_start_hints(version: str) -> None:
+    """Runtime-aware guidance when the PostgreSQL port is closed.
+
+    The configured runtime may be Docker or Apple Container; diagnose its
+    actual state (CLI installed? daemon / API server running?) so e.g. a
+    stopped container-apiserver surfaces 'container system start' instead of
+    a misleading Docker reference. Any diagnosis failure must not replace the
+    primary error with a traceback — fall back to the generic hint.
+    """
+    try:
+        from odoodev.core.container_backend import diagnose_runtime
+
+        diag = diagnose_runtime(version=version)
+    except Exception:
+        print_info(f"Start the database service: odoodev docker up {version}")
+        return
+    if diag.problem:
+        print_warning(diag.problem)
+    for hint in diag.hints:
+        print_info(hint)
+
+
 def _ensure_pg_reachable(version: str, params: dict) -> None:
     """Fail fast with an actionable message if PostgreSQL cannot be used at all.
 
@@ -161,7 +183,7 @@ def _ensure_pg_reachable(version: str, params: dict) -> None:
 
     if not check_port(params["host"], params["port"]):
         print_error(f"PostgreSQL not accessible on {params['host']}:{params['port']}")
-        print_info(f"Start Docker services: odoodev docker up {version}")
+        _print_runtime_start_hints(version)
         raise SystemExit(1)
 
     if not check_pg_exec_available(params["port"]):
@@ -209,6 +231,135 @@ def db_list(ctx: click.Context, version: str | None, as_json: bool) -> None:
             console.print(f"  {db_name}")
     else:
         print_warning("No databases found (or PostgreSQL not accessible)")
+
+
+def _filestore_root(version: str) -> str:
+    """Filestore base directory for a version (~/odoo-share/vXX/filestore/).
+
+    Derived from get_filestore_path so an active migration group's shared
+    filestore base is honored automatically.
+    """
+    return os.path.dirname(get_filestore_path(version, "_"))
+
+
+def _dir_size(path: str) -> int:
+    """Total size in bytes of a directory tree (best-effort, broken links skipped)."""
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for name in filenames:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, name))
+            except OSError:
+                continue
+    return total
+
+
+@dataclass(frozen=True)
+class _OrphanFilestore:
+    """A filestore directory without a matching database (db cleanup)."""
+
+    name: str
+    path: str
+    size_bytes: int
+
+
+@db.command("cleanup")
+@click.argument("version", required=False)
+@click.option("--delete-orphans", is_flag=True, help="Delete orphaned filestore directories (asks unless -y)")
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON report (never deletes)")
+@click.option("-y", "--yes", is_flag=True, help="Skip the deletion confirmation")
+@click.pass_context
+def db_cleanup(ctx: click.Context, version: str | None, delete_orphans: bool, as_json: bool, yes: bool) -> None:
+    """Check filestore <-> database consistency for a version.
+
+    Compares the version's filestore directory (~/odoo-share/vXX/filestore/)
+    against the databases on its PostgreSQL instance and reports both
+    directions: orphaned filestores (directory without a database) and
+    databases without a filestore directory.
+
+    Report-only by default. Orphaned filestores can be removed with
+    --delete-orphans (one y/N confirmation, -y skips it). Databases without
+    a filestore are only reported — a fresh or attachment-free database
+    legitimately has none.
+
+    \b
+    Examples:
+        odoodev db cleanup 18                     # report only
+        odoodev db cleanup 18 --delete-orphans    # remove orphaned filestores
+        odoodev db cleanup 18 --json              # GUI/agent contract
+    """
+    if as_json and delete_orphans:
+        raise click.UsageError("--json is report-only and cannot be combined with --delete-orphans")
+
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    databases = set(list_databases(host=params["host"], port=params["port"], user=params["user"]))
+    root = _filestore_root(version)
+    if os.path.isdir(root):
+        filestores = {name for name in os.listdir(root) if os.path.isdir(os.path.join(root, name))}
+    else:
+        filestores = set()
+
+    orphaned = sorted(filestores - databases)
+    missing = sorted(databases - filestores)
+    orphan_infos = [
+        _OrphanFilestore(name=name, path=os.path.join(root, name), size_bytes=_dir_size(os.path.join(root, name)))
+        for name in orphaned
+    ]
+
+    if as_json:
+        import json
+        import sys
+
+        payload = {
+            "version": version,
+            "filestore_root": root,
+            "orphaned_filestores": [vars(info) for info in orphan_infos],
+            "databases_without_filestore": missing,
+        }
+        sys.stdout.write(json.dumps(payload) + "\n")
+        return
+
+    _print_migration_hint(version)
+    print_info(f"Filestore root: {root}")
+    print_info(f"Databases on {params['host']}:{params['port']}: {len(databases)}, filestores: {len(filestores)}")
+
+    if not orphaned and not missing:
+        print_success("Filestores and databases are consistent")
+        return
+
+    if orphaned:
+        print_warning(f"Orphaned filestores (no matching database): {len(orphaned)}")
+        for info in orphan_infos:
+            console.print(f"  {info.name}  ({format_size(info.size_bytes)})")
+    if missing:
+        print_info(f"Databases without a filestore directory: {len(missing)}")
+        for name in missing:
+            console.print(f"  {name}")
+        print_info("This can be legitimate (fresh database, attachments stored in-database) — nothing to do")
+
+    if not orphaned:
+        return
+    if not delete_orphans:
+        print_info(f"Remove orphaned filestores with: odoodev db cleanup {version} --delete-orphans")
+        return
+
+    total = sum(info.size_bytes for info in orphan_infos)
+    if not yes and not confirm(
+        f"Delete {len(orphaned)} orphaned filestore director{'y' if len(orphaned) == 1 else 'ies'} "
+        f"({format_size(total)})?",
+        default=False,
+    ):
+        print_info("Nothing deleted")
+        return
+    for info in orphan_infos:
+        shutil.rmtree(info.path, ignore_errors=False)
+        print_success(f"Deleted {info.path}")
+    print_success(f"Freed {format_size(total)}")
 
 
 # System databases that must never be dropped, even when named explicitly.

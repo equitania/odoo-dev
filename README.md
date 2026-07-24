@@ -178,6 +178,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.60.0:**
+- **Neu:** `odoodev db cleanup` — Filestore↔Datenbank-Konsistenzcheck pro Version: verwaiste Filestores (Verzeichnis ohne Datenbank, mit Größenangabe) und Datenbanken ohne Filestore werden gemeldet. Standardmäßig nur Bericht; `--delete-orphans` löscht verwaiste Filestores nach y/N-Rückfrage (`-y` für Skripte), `--json` liefert den GUI/Agent-Kontrakt (löscht nie). Ein aktiver Migrations-Modus (geteilter Filestore) wird berücksichtigt.
+- **Neu:** Runtime-bewusste Container-Diagnose. Ist PostgreSQL nicht erreichbar, prüft odoodev die konfigurierte Runtime (Docker oder Apple Container) — CLI installiert? Daemon bzw. `container-apiserver` läuft? — und nennt die konkrete Abhilfe (`container system start`, `open -a Docker`, Installations-/Umschalt-Hinweise) statt eines pauschalen Docker-Verweises. `odoodev docker up` ist selbstheilend: Ein gestoppter Apple-Container-API-Server wird automatisch mitgestartet; `docker status` meldet eine nicht bereite Runtime samt Abhilfe, ohne Zustand zu verändern.
+
 **Version 0.59.1:**
 - **Behoben:** Der Export-Button im TUI-Export-Dialog wurde auf üblichen Terminalhöhen unterhalb des sichtbaren Bereichs abgeschnitten. Das Layout ist jetzt kompakt (Login + Passwort nebeneinander), der Dialog scrollt bei sehr kleinen Terminals, und Enter in einem Eingabefeld startet den Export direkt. `odoodev export --help` liefert jetzt eine vollwertige Hilfeseite mit Beispielen und Credential-Reihenfolge.
 
@@ -506,6 +510,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.60.0:**
+- **Added:** `odoodev db cleanup` — per-version filestore↔database consistency check: orphaned filestores (directory without a database, listed with size) and databases without a filestore are reported. Report-only by default; `--delete-orphans` removes orphaned filestores after a y/N confirmation (`-y` for scripts), `--json` provides the GUI/agent contract (never deletes). An active migration group (shared filestore) is honored.
+- **Added:** Runtime-aware container diagnosis. When PostgreSQL is unreachable, odoodev probes the configured runtime (Docker or Apple Container) — CLI installed? daemon / `container-apiserver` running? — and surfaces the concrete remedy (`container system start`, `open -a Docker`, install/switch hints) instead of a blanket Docker reference. `odoodev docker up` is self-healing: a stopped Apple Container API server is started transparently; `docker status` reports a non-ready runtime with its remedy without mutating state.
 
 **Version 0.59.1:**
 - **Fixed:** The Export button in the TUI export dialog was clipped below the visible area on typical terminal heights. The layout is compact now (login + password side by side), the dialog scrolls on very short terminals, and Enter in any input field submits the export directly. `odoodev export --help` now provides a full help page with examples and the credential precedence chain.

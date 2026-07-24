@@ -1,5 +1,37 @@
 # Release Notes
 
+## Version 0.60.0 (24.07.2026)
+
+### Added
+- **`odoodev db cleanup` — filestore ↔ database consistency check.** Compares
+  the version's filestore directory (`~/odoo-share/vXX/filestore/`) against
+  the databases on its PostgreSQL instance and reports both directions:
+  orphaned filestores (directory without a database, listed with size) and
+  databases without a filestore directory (report-only — a fresh or
+  attachment-free database legitimately has none). Report-only by default;
+  `--delete-orphans` removes orphaned filestores after a y/N confirmation
+  (`-y` skips it), `--json` provides the GUI/agent contract (never deletes).
+  An active migration group's shared filestore base is honored.
+- **Runtime-aware container diagnosis (`diagnose_runtime`).** When PostgreSQL
+  is not reachable, `odoodev db …` no longer prints a blanket "Start Docker
+  services" hint. The configured runtime (Docker or Apple Container) is
+  probed — CLI installed? daemon / `container-apiserver` running? — and the
+  error path surfaces the concrete remedy: `container system start` for a
+  stopped Apple Container API server, `open -a Docker` for a stopped Docker
+  daemon, install/switch-runtime hints when the CLI is missing, and always
+  the closing `odoodev docker up <version>` step (which dispatches to the
+  configured runtime).
+- **Self-healing `service_up`.** Starting the dev PostgreSQL (via
+  `odoodev docker up` or the `start` preflight) now verifies the runtime
+  first: on Apple Container a stopped `container-apiserver` is started
+  transparently (`container system start`); on Docker a stopped daemon
+  produces a clear error with the start command instead of a raw compose
+  failure. A missing runtime CLI can no longer surface as a
+  `FileNotFoundError` traceback.
+- **`odoodev docker status` reports a non-ready runtime** (with its remedy)
+  instead of a raw CLI error — without mutating state (no API-server
+  auto-start on a status call).
+
 ## Version 0.59.1 (17.07.2026)
 
 ### Changed

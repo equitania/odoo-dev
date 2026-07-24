@@ -41,6 +41,35 @@ _DATA_MOUNT = "/var/lib/postgresql/data"
 _PGDATA = f"{_DATA_MOUNT}/pgdata"
 
 
+def _probe(argv: list[str], timeout: float = 15) -> bool:
+    """Run a short health-probe command; False on failure, absence or timeout."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+@dataclass(frozen=True)
+class RuntimeDiagnosis:
+    """Structured result of a container-runtime health probe.
+
+    Produced by :func:`diagnose_runtime` — pure inspection, no side effects.
+    ``problem`` describes what is wrong (None when the runtime is usable),
+    ``hints`` are actionable next steps in recommended order.
+    """
+
+    runtime: str
+    backend_name: str
+    cli_installed: bool
+    daemon_running: bool
+    problem: str | None
+    hints: tuple[str, ...]
+
+    @property
+    def ready(self) -> bool:
+        return self.cli_installed and self.daemon_running
+
+
 @dataclass(frozen=True)
 class PostgresSpec:
     """Everything needed to provision a single PostgreSQL container.
@@ -115,6 +144,23 @@ class ContainerBackend:
         """Return True if the runtime CLI exists and its daemon is reachable."""
         raise NotImplementedError
 
+    def cli_installed(self) -> bool:
+        """Return True if the runtime CLI binary is on PATH."""
+        return command_exists(self.cli)
+
+    def daemon_running(self) -> bool:
+        """Return True if the runtime's daemon / API server answers."""
+        raise NotImplementedError
+
+    def ensure_runtime_ready(self) -> bool:
+        """Verify the runtime can serve container commands; print concrete guidance if not.
+
+        Backends may self-heal where that is safe (Apple Container: start the
+        launchd API server). Returns False when the runtime stays unusable —
+        callers should treat that as a failed service operation.
+        """
+        raise NotImplementedError
+
     def pull_image(self, image: str) -> None:
         """Pre-pull an image so a later run measures boot, not download. Best-effort."""
         raise NotImplementedError
@@ -179,10 +225,28 @@ class DockerBackend(ContainerBackend):
     cli = "docker"
 
     def is_available(self) -> bool:
-        if not command_exists("docker"):
+        return self.cli_installed() and self.daemon_running()
+
+    def daemon_running(self) -> bool:
+        return _probe([self.cli, "info"])
+
+    def ensure_runtime_ready(self) -> bool:
+        from odoodev.output import print_error, print_info
+
+        if not self.cli_installed():
+            print_error("Docker CLI not found")
+            print_info("Install Docker Desktop (macOS) / Docker Engine (Linux)")
+            if apple_runtime_supported():
+                print_info("Or switch runtime: odoodev config set container_runtime apple")
             return False
-        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
-        return result.returncode == 0
+        if not self.daemon_running():
+            print_error("Docker is installed but the daemon is not running")
+            if is_macos():
+                print_info("Start Docker Desktop: open -a Docker")
+            else:
+                print_info("Start the daemon: sudo systemctl start docker")
+            return False
+        return True
 
     def pull_image(self, image: str) -> None:
         self._run(["pull", image], capture=True)
@@ -219,6 +283,8 @@ class DockerBackend(ContainerBackend):
 
     # Docker keeps using docker-compose for the dev service — unchanged behaviour.
     def service_up(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
+        if not self.ensure_runtime_ready():
+            return 1
         from odoodev.core.docker_compose import compose_up
 
         return compose_up(version_cfg.paths.native_dir)
@@ -250,15 +316,38 @@ class AppleContainerBackend(ContainerBackend):
     cli = "container"
 
     def is_available(self) -> bool:
-        if not command_exists("container"):
+        if not self.cli_installed():
             return False
-        # 'system status' reflects whether container-apiserver is running.
-        result = subprocess.run(["container", "system", "status"], capture_output=True, text=True)
-        if result.returncode == 0:
+        if self.daemon_running():
             return True
         # Fall back to a liveness probe that also starts the API server implicitly.
-        result = subprocess.run(["container", "ls"], capture_output=True, text=True)
-        return result.returncode == 0
+        return _probe([self.cli, "ls"])
+
+    def daemon_running(self) -> bool:
+        # 'system status' reflects whether container-apiserver is running.
+        return _probe([self.cli, "system", "status"])
+
+    def start_daemon(self) -> bool:
+        """Start the container-apiserver launchd agent (``container system start``)."""
+        self._run(["system", "start"], capture=True)
+        return self.daemon_running()
+
+    def ensure_runtime_ready(self) -> bool:
+        from odoodev.output import print_error, print_info, print_success
+
+        if not self.cli_installed():
+            print_error("Apple Container CLI ('container') not found")
+            print_info("Install: brew install container (requires macOS 26 on Apple silicon)")
+            print_info("Or switch runtime: odoodev config set container_runtime docker")
+            return False
+        if not self.daemon_running():
+            print_info("Apple Container API server is not running — starting it (container system start)...")
+            if not self.start_daemon():
+                print_error("Could not start the Apple Container API server")
+                print_info("Start it manually: container system start")
+                return False
+            print_success("Apple Container API server started")
+        return True
 
     def pull_image(self, image: str) -> None:
         self._run(["image", "pull", image], capture=True)
@@ -293,6 +382,8 @@ class AppleContainerBackend(ContainerBackend):
     # `container run`, mirroring the compose service (name/volume/port/conf), with
     # the persistent named volume kept across down/up (compose-like semantics).
     def service_up(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
+        if not self.ensure_runtime_ready():
+            return 1
         spec = build_dev_spec(version_cfg, env)
         # A stopped container with the same name would block 'run'; remove it
         # first (the named volume — i.e. the data — persists independently).
@@ -340,6 +431,83 @@ def _parse_apple_stats(raw: str) -> str | None:
 def apple_runtime_supported() -> bool:
     """Whether Apple Container is a viable runtime choice on this OS (macOS only)."""
     return is_macos()
+
+
+def diagnose_runtime(version: str | None = None, runtime: str | None = None) -> RuntimeDiagnosis:
+    """Probe the configured container runtime and derive actionable hints.
+
+    Pure inspection — never starts anything and never raises for an unusable
+    runtime, so error paths (e.g. "PostgreSQL not accessible") can surface a
+    runtime-specific diagnosis instead of a blanket Docker reference. Every
+    not-ready state still ends with the ``odoodev docker up`` hint because that
+    command dispatches to the configured runtime.
+    """
+    rt = resolve_runtime(runtime)
+    up_cmd = f"odoodev docker up {version}" if version else "odoodev docker up <version>"
+
+    if rt == RUNTIME_APPLE and not apple_runtime_supported():
+        return RuntimeDiagnosis(
+            runtime=rt,
+            backend_name="Apple Container",
+            cli_installed=False,
+            daemon_running=False,
+            problem=f"Apple Container is configured but only supported on macOS (detected: {detect_os()})",
+            hints=(
+                "Switch runtime: odoodev config set container_runtime docker",
+                f"Then start PostgreSQL: {up_cmd}",
+            ),
+        )
+
+    backend = get_backend(rt)
+    cli = backend.cli_installed()
+    daemon = backend.daemon_running() if cli else False
+
+    problem: str | None = None
+    hints: tuple[str, ...]
+    if rt == RUNTIME_APPLE:
+        if not cli:
+            problem = "Apple Container CLI ('container') not found"
+            hints = (
+                "Install: brew install container (requires macOS 26 on Apple silicon)",
+                "Or switch runtime: odoodev config set container_runtime docker",
+                f"Then start PostgreSQL: {up_cmd}",
+            )
+        elif not daemon:
+            problem = "Apple Container API server (container-apiserver) is not running"
+            hints = (
+                "Start it: container system start",
+                f"Then start PostgreSQL: {up_cmd}",
+            )
+        else:
+            hints = (
+                f"Start PostgreSQL (Apple Container): {up_cmd}",
+                "Inspect containers: container ls -a",
+            )
+    else:
+        if not cli:
+            problem = "Docker CLI not found"
+            install_hints = ["Install Docker Desktop (macOS) / Docker Engine (Linux)"]
+            if apple_runtime_supported():
+                install_hints.append("Or switch runtime: odoodev config set container_runtime apple")
+            hints = (*install_hints, f"Then start PostgreSQL: {up_cmd}")
+        elif not daemon:
+            problem = "Docker is installed but the daemon is not running"
+            if is_macos():
+                daemon_hint = "Start Docker Desktop: open -a Docker"
+            else:
+                daemon_hint = "Start it: sudo systemctl start docker"
+            hints = (daemon_hint, f"Then start PostgreSQL: {up_cmd}")
+        else:
+            hints = (f"Start PostgreSQL (Docker): {up_cmd}",)
+
+    return RuntimeDiagnosis(
+        runtime=rt,
+        backend_name=backend.name,
+        cli_installed=cli,
+        daemon_running=daemon,
+        problem=problem,
+        hints=hints,
+    )
 
 
 def get_backend(runtime: str) -> ContainerBackend:

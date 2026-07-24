@@ -16,6 +16,7 @@ from odoodev.core.container_backend import (
     _parse_apple_stats,
     _postgres_run_args,
     build_dev_spec,
+    diagnose_runtime,
     get_backend,
     read_env_file,
     resolve_runtime,
@@ -115,6 +116,7 @@ class TestServiceDispatch:
             return 0
 
         monkeypatch.setattr("odoodev.core.docker_compose.compose_up", fake_compose_up)
+        monkeypatch.setattr(DockerBackend, "ensure_runtime_ready", lambda self: True)
         rc = DockerBackend().service_up(_vcfg("/native"), {})
         assert rc == 0
         assert calls["dir"] == "/native"
@@ -125,6 +127,7 @@ class TestServiceDispatch:
             "odoodev.core.global_config.load_global_config",
             lambda: SimpleNamespace(database=SimpleNamespace(user="u", password="p")),
         )
+        monkeypatch.setattr(AppleContainerBackend, "ensure_runtime_ready", lambda self: True)
         mock_run.return_value = MagicMock(returncode=0)
         rc = AppleContainerBackend().service_up(_vcfg(str(tmp_path)), {"DEV_USER": "t"})
         assert rc == 0
@@ -133,6 +136,112 @@ class TestServiceDispatch:
         run_argv = next(a for a in argvs if a[:2] == ["container", "run"])
         assert "PGDATA=/var/lib/postgresql/data/pgdata" in run_argv
         assert "t-dev-db-18-native" in run_argv
+
+    def test_docker_service_up_fails_when_daemon_down(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+        monkeypatch.setattr(DockerBackend, "daemon_running", lambda self: False)
+        called = []
+        monkeypatch.setattr("odoodev.core.docker_compose.compose_up", lambda d: called.append(d) or 0)
+        rc = DockerBackend().service_up(_vcfg("/native"), {})
+        assert rc == 1
+        assert called == []
+
+    def test_apple_service_up_autostarts_api_server(self, tmp_path, monkeypatch):
+        """A stopped container-apiserver is started transparently before 'run'."""
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="u", password="p")),
+        )
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+        state = {"apiserver": False}
+        argvs: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            argvs.append(argv)
+            if argv[:3] == ["container", "system", "status"]:
+                return MagicMock(returncode=0 if state["apiserver"] else 1)
+            if argv[:3] == ["container", "system", "start"]:
+                state["apiserver"] = True
+            return MagicMock(returncode=0)
+
+        monkeypatch.setattr("odoodev.core.container_backend.subprocess.run", fake_run)
+        rc = AppleContainerBackend().service_up(_vcfg(str(tmp_path)), {"DEV_USER": "t"})
+        assert rc == 0
+        assert ["container", "system", "start"] in argvs
+        assert any(a[:2] == ["container", "run"] for a in argvs)
+
+    def test_apple_service_up_fails_when_cli_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: False)
+        argvs: list[list[str]] = []
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.subprocess.run",
+            lambda argv, **kwargs: argvs.append(argv) or MagicMock(returncode=0),
+        )
+        rc = AppleContainerBackend().service_up(_vcfg(str(tmp_path)), {"DEV_USER": "t"})
+        assert rc == 1
+        assert argvs == []
+
+
+class TestDiagnoseRuntime:
+    def test_apple_ready(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: True)
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+        monkeypatch.setattr(AppleContainerBackend, "daemon_running", lambda self: True)
+        diag = diagnose_runtime(version="19", runtime="apple")
+        assert diag.ready
+        assert diag.problem is None
+        assert any("odoodev docker up 19" in h for h in diag.hints)
+        assert any("container ls" in h for h in diag.hints)
+
+    def test_apple_api_server_down(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: True)
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+        monkeypatch.setattr(AppleContainerBackend, "daemon_running", lambda self: False)
+        diag = diagnose_runtime(version="19", runtime="apple")
+        assert not diag.ready
+        assert "container-apiserver" in diag.problem
+        assert any("container system start" in h for h in diag.hints)
+        assert any("odoodev docker up 19" in h for h in diag.hints)
+
+    def test_apple_cli_missing(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: True)
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: False)
+        diag = diagnose_runtime(version="19", runtime="apple")
+        assert not diag.ready
+        assert "not found" in diag.problem
+        assert any("brew install container" in h for h in diag.hints)
+        assert any("container_runtime docker" in h for h in diag.hints)
+
+    def test_apple_configured_on_linux(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: False)
+        diag = diagnose_runtime(version="18", runtime="apple")
+        assert not diag.ready
+        assert "only supported on macOS" in diag.problem
+        assert any("container_runtime docker" in h for h in diag.hints)
+
+    def test_docker_daemon_down(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+        monkeypatch.setattr(DockerBackend, "daemon_running", lambda self: False)
+        diag = diagnose_runtime(version="18", runtime="docker")
+        assert not diag.ready
+        assert "daemon is not running" in diag.problem
+        assert any("odoodev docker up 18" in h for h in diag.hints)
+
+    def test_docker_cli_missing_suggests_apple_on_macos(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.is_macos", lambda: True)
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: False)
+        diag = diagnose_runtime(runtime="docker")
+        assert not diag.ready
+        assert "Docker CLI not found" in diag.problem
+        assert any("container_runtime apple" in h for h in diag.hints)
+        assert any("odoodev docker up <version>" in h for h in diag.hints)
+
+    def test_docker_ready(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.container_backend.command_exists", lambda c: True)
+        monkeypatch.setattr(DockerBackend, "daemon_running", lambda self: True)
+        diag = diagnose_runtime(version="16", runtime="docker")
+        assert diag.ready
+        assert diag.hints == ("Start PostgreSQL (Docker): odoodev docker up 16",)
 
 
 class TestParseAppleStats:

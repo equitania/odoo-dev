@@ -27,6 +27,21 @@ odoodev docker logs 18 -f
 `docker up` meldet Erfolg erst, wenn PostgreSQL auf Protokollebene bereit ist
 (`pg_isready` bzw. Socket-Probe, bis zu 60 s Polling) — nicht schon beim Container-Start.
 
+### Runtime-Diagnose & Selbstheilung (seit v0.60.0)
+
+Vor jedem Service-Start wird die konfigurierte Runtime geprueft:
+
+- **Apple Container**: Ein gestoppter `container-apiserver` wird transparent
+  mitgestartet (`container system start`) — kein manueller Zwischenschritt mehr.
+- **Docker**: Ein gestoppter Daemon fuehrt zu einem klaren Fehler mit Startbefehl
+  (`open -a Docker` auf macOS, `sudo systemctl start docker` auf Linux) statt
+  eines rohen Compose-Fehlers.
+- **Fehlende CLI**: Installations- und Umschalt-Hinweise
+  (`odoodev config set container_runtime docker|apple`).
+
+`docker status` startet nichts automatisch, sondern meldet eine nicht bereite
+Runtime samt konkreter Abhilfe (Exit-Code 1).
+
 ### Services
 
 | Service | Image | Zweck |
@@ -75,6 +90,21 @@ odoodev docker logs 18 -f
 
 `docker up` only reports success once PostgreSQL is ready at the protocol level
 (`pg_isready` or a socket probe, polling up to 60s) — not merely when the container starts.
+
+### Runtime diagnosis & self-healing (since v0.60.0)
+
+The configured runtime is verified before every service start:
+
+- **Apple Container**: a stopped `container-apiserver` is started transparently
+  (`container system start`) — no manual intermediate step anymore.
+- **Docker**: a stopped daemon produces a clear error with the start command
+  (`open -a Docker` on macOS, `sudo systemctl start docker` on Linux) instead
+  of a raw compose failure.
+- **Missing CLI**: install and switch hints
+  (`odoodev config set container_runtime docker|apple`).
+
+`docker status` never starts anything — it reports a non-ready runtime with
+its concrete remedy (exit code 1).
 
 ### Services
 

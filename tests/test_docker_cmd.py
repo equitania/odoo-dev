@@ -42,3 +42,26 @@ class TestDockerUpReadiness:
         result = CliRunner().invoke(docker, ["up", "18"])
         assert result.exit_code == 1
         assert "did not become ready" in result.output
+
+
+class TestDockerStatusRuntimeDiagnosis:
+    """`docker status` reports a non-ready runtime with its remedy instead of a raw CLI error."""
+
+    def test_status_reports_stopped_apple_api_server(self, monkeypatch):
+        from odoodev.core.container_backend import RuntimeDiagnosis
+
+        monkeypatch.setattr("odoodev.commands.docker.resolve_runtime", lambda override=None: "apple")
+        monkeypatch.setattr(
+            "odoodev.commands.docker.diagnose_runtime",
+            lambda version=None, runtime=None: RuntimeDiagnosis(
+                runtime="apple",
+                backend_name="Apple Container",
+                cli_installed=True,
+                daemon_running=False,
+                problem="Apple Container API server (container-apiserver) is not running",
+                hints=("Start it: container system start",),
+            ),
+        )
+        result = CliRunner().invoke(docker, ["status", "18"])
+        assert result.exit_code == 1
+        assert "container system start" in result.output
