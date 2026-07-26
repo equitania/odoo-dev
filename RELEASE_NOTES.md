@@ -1,5 +1,33 @@
 # Release Notes
 
+## Version 0.61.1 (26.07.2026)
+
+### Fixed
+- **Command execution via `repos.yaml` `git_url` closed (HIGH).** A `git_url`
+  read from `repos.yaml` reached `git`'s argv unvalidated. Because these are
+  direct, top-level git invocations, git's default `protocol.ext.allow=user`
+  policy honored the `ext::` (and `fd::`) remote-helper transport, so a URL
+  such as `ext::sh -c '<command>'` executed an arbitrary shell command as the
+  user running `odoodev repos` / `odoodev init` — local RCE from a tampered or
+  supply-chain-compromised `repos.yaml`. A URL starting with `-` could also be
+  parsed as an option instead of the positional repository argument.
+  `_is_safe_git_url()` in `core/git_ops.py` now validates every URL at the
+  sink and guards all three call sites (`check_repo_access`,
+  `clone_repo_with_progress`, `clone_repo`; `clone_repo_fresh` and
+  `switch_branch_and_update` inherit it): anything starting with `-` or
+  containing `::` is rejected, and only `ssh://`, `https://`, `http://`,
+  `git://` and the SCP-like `user@host:path` shorthand are accepted — every
+  URL form the bundled `repos.yaml` examples and `versions.yaml` already use.
+- **Generated `odoo_YYMMDD.conf` no longer world-readable.** The config holds
+  `db_password` and `admin_passwd` (the Odoo master password) in plaintext but
+  was written with a plain `open()`, so it inherited the process umask — mode
+  `0644` on a typical host, readable by every other local account on a shared
+  development or CI machine. `create_odoo_config()` now writes it via
+  `os.open(..., 0o600)` plus an explicit `fchmod`, so the restriction also
+  applies when an earlier run left the file at looser permissions
+  (`O_CREAT`'s mode argument is a no-op on an existing file). The generated
+  content is unchanged.
+
 ## Version 0.61.0 (24.07.2026)
 
 ### Added

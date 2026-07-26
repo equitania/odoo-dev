@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,37 @@ import tempfile
 logger = logging.getLogger(__name__)
 
 _ssh_key_path: str | None = None
+
+# Explicit, safe git URL schemes plus the SCP-like SSH shorthand ("user@host:path").
+_ALLOWED_GIT_URL_SCHEMES = ("ssh://", "https://", "http://", "git://")
+_SCP_LIKE_GIT_URL_RE = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:.+$")
+
+
+def _is_safe_git_url(git_url: str) -> bool:
+    """Reject git_url values before they ever reach a `git` argv.
+
+    git_url comes verbatim from repos.yaml, which may be shared, templated,
+    or otherwise attacker-tampered. Passed straight to `git clone`/`git
+    ls-remote`, two things can go wrong:
+      - A URL using git's "remote helper" transport form ("name::address",
+        e.g. "ext::sh -c ...", "fd::...") runs an arbitrary local command
+        or opens raw file descriptors instead of talking to a remote.
+      - A URL starting with "-" can be parsed as a command-line option
+        (e.g. "--upload-pack=...") instead of the positional repository
+        argument, enabling further argument injection.
+
+    Only explicit ssh/https/http/git schemes and the SCP-like
+    "user@host:path" SSH shorthand are accepted; everything else, including
+    any "::" transport-helper form (regardless of a spoofed "user@" prefix),
+    is rejected.
+    """
+    if not git_url or git_url.startswith("-"):
+        return False
+    if "::" in git_url:
+        return False
+    if git_url.lower().startswith(_ALLOWED_GIT_URL_SCHEMES):
+        return True
+    return bool(_SCP_LIKE_GIT_URL_RE.match(git_url))
 
 
 def set_ssh_key(key_path: str) -> None:
@@ -116,6 +148,9 @@ def check_repo_access(git_url: str, timeout: int = 30) -> bool:
     Returns:
         True if repository is accessible.
     """
+    if not _is_safe_git_url(git_url):
+        logger.error("Refusing to check access for unsafe git_url: %r", git_url)
+        return False
     try:
         subprocess.run(
             ["git", "ls-remote", git_url, "HEAD"],
@@ -170,6 +205,9 @@ def clone_repo_with_progress(git_url: str, target_dir: str, branch: str) -> bool
     Returns:
         True if successful.
     """
+    if not _is_safe_git_url(git_url):
+        logger.error("Refusing to clone unsafe git_url: %r", git_url)
+        return False
     parent_dir = os.path.dirname(target_dir)
     repo_name = os.path.basename(target_dir)
     os.makedirs(parent_dir, exist_ok=True)
@@ -197,6 +235,10 @@ def clone_repo(git_url: str, target_dir: str, branch: str) -> tuple[bool, str]:
     Returns:
         Tuple of (success, error_message). Error is empty on success.
     """
+    if not _is_safe_git_url(git_url):
+        error = f"refusing to clone unsafe git_url: {git_url!r}"
+        logger.error(error)
+        return False, error
     parent_dir = os.path.dirname(target_dir)
     repo_name = os.path.basename(target_dir)
     # The clone runs with cwd=parent_dir — subprocess raises FileNotFoundError

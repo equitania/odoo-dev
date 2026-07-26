@@ -178,6 +178,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.61.1:**
+- **Behoben (Sicherheit):** Eine `git_url` aus `repos.yaml` ging ungeprüft an `git clone`. Gits Standard-Policy erlaubt beim direkten Aufruf den `ext::`-Transport, der einen beliebigen Shell-Befehl ausführt — eine manipulierte `repos.yaml` konnte damit Code unter deiner Kennung starten. Jede URL wird jetzt vor der Übergabe an git validiert: führendes `-` und alles mit `::` wird abgelehnt, erlaubt sind `ssh://`, `https://`, `http://`, `git://` und die Kurzform `user@host:pfad`.
+- **Behoben (Sicherheit):** Die generierte `odoo_YYMMDD.conf` enthält DB- und Odoo-Master-Passwort im Klartext, wurde aber mit den Standardrechten der umask geschrieben (typisch `0644`) — auf geteilten Entwicklungs- oder CI-Rechnern für jedes andere lokale Konto lesbar. Sie wird jetzt mit `0600` angelegt, auch wenn ein früherer Lauf die Datei mit weiteren Rechten hinterlassen hat.
+
 **Version 0.61.0:**
 - **Neu:** `odoodev db restore --dry-run` — Restore-Preflight ohne jede Änderung: prüft Backup-Datei (Pfad + Größe), Ziel-Datenbank (würde mit `--drop` überschrieben, harter Fehler mit `--no-drop`) und freien Speicherplatz, und listet die geplanten Post-Restore-Schritte aus den gesetzten Sanitize-Flags auf. Exit-Code 0 = Restore würde durchlaufen, 1 = würde fehlschlagen; garantiert ohne Drop/Create/Extract/Restore. Grundlage des Dry-Run-Buttons im Restore-Wizard der GUI.
 
@@ -513,6 +517,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.61.1:**
+- **Fixed (security):** A `git_url` from `repos.yaml` reached `git clone` unvalidated. On a direct git invocation git's default policy honors the `ext::` transport, which runs an arbitrary shell command — a tampered `repos.yaml` could therefore execute code under your account. Every URL is now validated before it reaches git: a leading `-` and anything containing `::` are rejected; `ssh://`, `https://`, `http://`, `git://` and the `user@host:path` shorthand are accepted.
+- **Fixed (security):** The generated `odoo_YYMMDD.conf` holds the database and Odoo master password in plaintext but was written with the process umask (typically `0644`) — readable by every other local account on a shared development or CI host. It is now created with `0600`, including when an earlier run left the file with looser permissions.
 
 **Version 0.61.0:**
 - **Added:** `odoodev db restore --dry-run` — restore preflight that changes nothing: validates the backup file (path + size), the target database (would be overwritten with `--drop`, hard failure with `--no-drop`) and free disk space, and lists the planned post-restore steps derived from the given sanitize flags. Exit code 0 = the restore would proceed, 1 = it would fail; guaranteed no drop/create/extract/restore. This backs the Dry-Run button in the GUI restore wizard.

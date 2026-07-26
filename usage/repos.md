@@ -104,10 +104,24 @@ customers:
 | `base_addons` | Ja | Odoo Core- und Standard-Addon-Pfade |
 | `addons[].key` | Ja | Eindeutiger Identifier fuer das Repository |
 | `addons[].path` | Ja | Zielverzeichnis (relativ zu paths.base) |
-| `addons[].git_url` | Ja | Git-Repository-URL |
+| `addons[].git_url` | Ja | Git-Repository-URL (validiert, siehe unten) |
 | `addons[].section` | Nein | Gruppierung in odoo.conf (Standard: "Other") |
 | `addons[].use` | Nein | `true` = aktiv, `false` = als Kommentar in odoo.conf (Standard: `true`) |
 | `addons[].suffix` | Nein | Unterverzeichnis-Suffix fuer addons_path |
+
+### Erlaubte git_url-Formen (seit 0.61.1)
+
+Jede `git_url` wird geprueft, bevor sie an `git` uebergeben wird:
+
+- **Erlaubt:** `ssh://`, `https://`, `http://`, `git://` sowie die SCP-Kurzform `user@host:pfad`
+  (z. B. `git@gitlab.ownerp.io:v18/v18-addons.git`).
+- **Abgelehnt:** alles mit fuehrendem `-` (wuerde als git-Option statt als Repository gelesen) und
+  alles, was `::` enthaelt — das sind gits Remote-Helper-Transporte `ext::`/`fd::`, die einen
+  beliebigen Shell-Befehl ausfuehren. Eine praeparierte `repos.yaml` konnte darueber Code unter der
+  eigenen Kennung starten.
+
+Ein abgelehnter Eintrag schlaegt mit einer Fehlermeldung fehl und wird nicht geklont; die uebrigen
+Repos laufen weiter.
 
 ### Sektionen im addons_path
 
@@ -123,6 +137,10 @@ Reihenfolge in generierter odoo.conf:
 8. Other
 
 **Repository-Abschnitte in repos.yaml:** `addons`, `additional`, `special`, `customers` — alle werden identisch verarbeitet.
+
+**Dateirechte:** Die generierte `odoo_YYMMDD.conf` enthaelt `db_password` und `admin_passwd` (das
+Odoo-Master-Passwort) im Klartext und wird deshalb seit 0.61.1 mit Modus `0600` angelegt — auch dann,
+wenn ein frueherer Lauf die Datei mit weiteren Rechten hinterlassen hat.
 
 ### Fehlende repos.yaml
 
@@ -230,10 +248,23 @@ customers:
 | `base_addons` | Yes | Odoo core and standard addon paths |
 | `addons[].key` | Yes | Unique identifier for the repository |
 | `addons[].path` | Yes | Target directory (relative to paths.base) |
-| `addons[].git_url` | Yes | Git repository URL |
+| `addons[].git_url` | Yes | Git repository URL (validated, see below) |
 | `addons[].section` | No | Grouping in odoo.conf (default: "Other") |
 | `addons[].use` | No | `true` = active, `false` = as comment in odoo.conf (default: `true`) |
 | `addons[].suffix` | No | Subdirectory suffix for addons_path |
+
+### Accepted git_url forms (since 0.61.1)
+
+Every `git_url` is validated before it is handed to `git`:
+
+- **Accepted:** `ssh://`, `https://`, `http://`, `git://` and the SCP shorthand `user@host:path`
+  (e.g. `git@gitlab.ownerp.io:v18/v18-addons.git`).
+- **Rejected:** anything starting with `-` (would be read as a git option instead of the repository)
+  and anything containing `::` — those are git's `ext::`/`fd::` remote-helper transports, which
+  execute an arbitrary shell command. A crafted `repos.yaml` could otherwise run code under your
+  own account.
+
+A rejected entry fails with an error and is not cloned; the remaining repositories continue.
 
 ### Sections in addons_path
 
@@ -249,6 +280,10 @@ Order in generated odoo.conf:
 8. Other
 
 **Repository sections in repos.yaml:** `addons`, `additional`, `special`, `customers` — all processed identically.
+
+**File permissions:** the generated `odoo_YYMMDD.conf` holds `db_password` and `admin_passwd` (the
+Odoo master password) in plaintext, so since 0.61.1 it is created with mode `0600` — including when
+an earlier run left the file with looser permissions.
 
 ### Missing repos.yaml
 

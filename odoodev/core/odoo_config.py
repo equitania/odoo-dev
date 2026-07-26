@@ -224,7 +224,16 @@ def create_odoo_config(
     output_path = os.path.join(config_dir, f"odoo_{date_suffix}.conf")
 
     try:
-        with open(output_path, "w", encoding="utf-8") as f:
+        # Config contains plaintext db_password/admin_passwd: restrict to owner-only
+        # (0o600) instead of the default open() mode, which honors the process umask
+        # (typically 0644, world/group-readable).
+        fd = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:
+            os.close(fd)
+            raise
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
         logger.info("Config generated: %s", output_path)
         return output_path

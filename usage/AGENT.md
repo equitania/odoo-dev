@@ -276,6 +276,11 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   before extracting if space is tight. The filestore is **moved** into `~/odoo-share/` (instant rename
   on the same filesystem) — `--keep-temp` copies instead so the extracted temp survives. The original
   backup is never auto-deleted; you are asked at the end (`--delete-backup` / `--keep-backup` for scripts).
+- **`repos` URL validation (v0.61.1):** every `git_url` from `repos.yaml` is checked before it reaches
+  `git`. Accepted: `ssh://`, `https://`, `http://`, `git://` and the SCP shorthand `user@host:path`.
+  Rejected: anything starting with `-` (option injection) or containing `::` (git's `ext::`/`fd::`
+  remote-helper transports, which execute a shell command). A rejected entry fails that repo with an
+  error instead of being cloned — if a clone suddenly fails, check the URL's shape first.
 - **Version resolution:** auto-detected from CWD; outside a `vXX` directory the `[VERSION]` argument
   is mandatory or the command errors.
 - **psql/pg_dump not required on the host:** all `db` commands fall back to `docker exec` into the
