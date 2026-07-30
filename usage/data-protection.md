@@ -379,7 +379,10 @@ beachten:
 - **Quell-Backups enthalten weiterhin Originaldaten.** Die ZIP-/SQL-Datei,
   aus der wiederhergestellt wurde, muss nach dem Restore sicher abgelegt
   oder geloescht werden — die Anonymisierung wirkt nur in der
-  Ziel-Datenbank.
+  Ziel-Datenbank. Von `odoodev db backup` erzeugte Dateien (SQL, ZIP,
+  `.tar.zst`) werden seit v0.61.2 mit `0600` angelegt, sind also nur fuer
+  den eigenen Benutzer lesbar; von anderen Werkzeugen erzeugte oder per
+  Netzwerk kopierte Backups tragen diesen Schutz nicht automatisch.
 - **Volltext-Suche ueber alte Anhaenge** funktioniert nach dem Leeren von
   `ir_attachment.index_content` nicht mehr. Bei Bedarf laesst sich der
   Index per Odoo neu aufbauen.
@@ -749,7 +752,10 @@ Please consider the following points when judging the data-protection level:
 - **Source backups still contain original data.** The ZIP/SQL file the
   restore came from must be stored securely or deleted after the
   restore — the anonymization only takes effect inside the target
-  database.
+  database. Files produced by `odoodev db backup` (SQL, ZIP, `.tar.zst`)
+  are created with mode `0600` as of v0.61.2, so only your own user can
+  read them; backups produced by other tools or copied over the network
+  do not carry that protection automatically.
 - **Full-text search over old attachments** no longer works after clearing
   `ir_attachment.index_content`. If needed, the index can be rebuilt by
   Odoo.

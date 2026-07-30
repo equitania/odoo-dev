@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from faker import Faker
@@ -852,6 +852,33 @@ def get_filestore_path(odoo_version: str, db_name: str) -> str:
     )
 
 
+def _open_private(output_path: str, mode: str = "w") -> IO[Any]:
+    """Open a file for writing, restricted to the owner (0o600).
+
+    Backups contain the complete database — including res_users password
+    hashes — so they must never inherit the process umask (typically 0644,
+    i.e. readable by every account on a shared developer host). Mirrors the
+    pattern used for the generated odoo.conf in :mod:`odoodev.core.odoo_config`:
+    the creation mode only applies to a *new* file, so an existing one is
+    additionally tightened via ``os.fchmod``.
+
+    Args:
+        output_path: File to create or truncate
+        mode: ``"w"`` for text, ``"wb"`` for binary
+
+    Returns:
+        An open file object; the caller owns closing it.
+    """
+    fd = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        os.close(fd)
+        raise
+    encoding = None if "b" in mode else "utf-8"
+    return os.fdopen(fd, mode, encoding=encoding)
+
+
 def backup_database_sql(
     db_name: str,
     output_path: str,
@@ -876,7 +903,7 @@ def backup_database_sql(
         cmd = _pg_base_cmd("pg_dump", mode, user, host, port) + [db_name]
         # stdout redirection works transparently in container mode too — the
         # exec'd pg_dump's stdout is forwarded to the host process.
-        with open(output_path, "w", encoding="utf-8") as outfile:
+        with _open_private(output_path, "w") as outfile:
             subprocess.run(
                 cmd,
                 check=True,
@@ -912,7 +939,7 @@ def create_backup_zip(
         True if ZIP was created successfully.
     """
     try:
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with _open_private(output_path, "wb") as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(sql_path, "dump.sql")
 
             if filestore_path and os.path.isdir(filestore_path):
@@ -962,26 +989,31 @@ def create_backup_tar_zst(
 
     try:
         # zstd reads the tar stream from stdin and writes the compressed archive
-        # directly to output_path. -T0 uses all CPU cores, -f overwrites partials.
-        proc = subprocess.Popen(
-            [zstd_bin, "-T0", f"-{level}", "-f", "-o", output_path],
-            stdin=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        try:
-            # Stream mode "w|": single pass, no seeking — matches restore's "r|".
-            with tarfile.open(fileobj=proc.stdin, mode="w|") as tf:
-                tf.add(sql_path, arcname="dump.sql")
-                if filestore_path and os.path.isdir(filestore_path):
-                    for root, _dirs, files in os.walk(filestore_path):
-                        for fname in files:
-                            full_path = os.path.join(root, fname)
-                            arcname = os.path.join("filestore", os.path.relpath(full_path, filestore_path))
-                            tf.add(full_path, arcname=arcname)
-        finally:
-            if proc.stdin:
-                proc.stdin.close()
-            ret = proc.wait()
+        # to its stdout, which we point at an owner-only (0o600) file. Writing
+        # via "-c" instead of "-o path" keeps the permissions under our control —
+        # the archive carries the full database including password hashes.
+        # -T0 uses all CPU cores.
+        with _open_private(output_path, "wb") as outfile:
+            proc = subprocess.Popen(
+                [zstd_bin, "-T0", f"-{level}", "-c"],
+                stdin=subprocess.PIPE,
+                stdout=outfile,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                # Stream mode "w|": single pass, no seeking — matches restore's "r|".
+                with tarfile.open(fileobj=proc.stdin, mode="w|") as tf:
+                    tf.add(sql_path, arcname="dump.sql")
+                    if filestore_path and os.path.isdir(filestore_path):
+                        for root, _dirs, files in os.walk(filestore_path):
+                            for fname in files:
+                                full_path = os.path.join(root, fname)
+                                arcname = os.path.join("filestore", os.path.relpath(full_path, filestore_path))
+                                tf.add(full_path, arcname=arcname)
+            finally:
+                if proc.stdin:
+                    proc.stdin.close()
+                ret = proc.wait()
         if ret != 0:
             stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
             logger.error("zstd compression failed: %s", stderr)

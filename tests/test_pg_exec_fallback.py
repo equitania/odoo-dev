@@ -305,6 +305,7 @@ def _stub_db_cmd(monkeypatch, port=16432):
     return db_cmd
 
 
+@pytest.mark.real_pg_precheck
 def test_db_list_no_tools_no_container_clean_exit(monkeypatch):
     """Full regression for the migration-server crash: clean exit 1, no traceback."""
     from click.testing import CliRunner
@@ -325,6 +326,7 @@ def test_db_list_no_tools_no_container_clean_exit(monkeypatch):
     assert "odoodev docker up" in result.output
 
 
+@pytest.mark.real_pg_precheck
 def test_db_list_port_unreachable_clean_exit(monkeypatch):
     from click.testing import CliRunner
 
@@ -344,6 +346,7 @@ def test_db_list_port_unreachable_clean_exit(monkeypatch):
     assert "odoodev docker up" in result.output
 
 
+@pytest.mark.real_pg_precheck
 def test_db_list_port_unreachable_apple_api_server_hint(monkeypatch):
     """Apple runtime + stopped container-apiserver → 'container system start', not a Docker reference."""
     from click.testing import CliRunner
@@ -366,6 +369,7 @@ def test_db_list_port_unreachable_apple_api_server_hint(monkeypatch):
     assert "odoodev docker up 16" in result.output
 
 
+@pytest.mark.real_pg_precheck
 def test_db_list_port_unreachable_apple_ready_no_docker_wording(monkeypatch):
     """Apple runtime ready → the hint names Apple Container, not Docker Desktop."""
     from click.testing import CliRunner
@@ -387,6 +391,7 @@ def test_db_list_port_unreachable_apple_ready_no_docker_wording(monkeypatch):
     assert "odoodev docker up 16" in result.output
 
 
+@pytest.mark.real_pg_precheck
 def test_db_list_container_fallback_lists_databases(monkeypatch):
     from click.testing import CliRunner
 

@@ -178,6 +178,11 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.61.2:**
+- **Behoben (Sicherheit):** Datenbank-Backups wurden mit den Standardrechten der umask angelegt (typisch `0644`) — obwohl ein Backup die komplette Datenbank inklusive der Passwort-Hashes aus `res_users` enthält, war es damit für jedes andere lokale Konto lesbar. SQL-Dump, ZIP und `.tar.zst` werden jetzt alle mit `0600` geschrieben, auch wenn ein früherer Lauf die Datei mit weiteren Rechten hinterlassen hat. Das Archivformat ist unverändert.
+- **Behoben:** Die Mindestversionen von `textual`, `Faker` und `rich` lagen weit unter den tatsächlich verwendeten Versionen. Da `uv.lock` nicht im Wheel mitgeliefert wird, konnte eine Neuinstallation per `pip` ein inkompatibles `textual` 1.x auflösen und die TUI zur Laufzeit lahmlegen. Die Untergrenzen sind jetzt `textual>=8.0.0`, `Faker>=40.0.0`, `rich>=15.0.0`.
+- **Geändert:** Die Testsuite braucht keine laufende Container-Runtime mehr. 47 von 1464 Tests scheiterten auf jedem Rechner ohne gestartetes Docker bzw. Apple Container, weil sie `db`-Befehle über den echten PostgreSQL-Preflight laufen ließen. Der Preflight wird jetzt zentral in `tests/conftest.py` neutralisiert — ein neu hinzugefügter `db`-Test kann die Abhängigkeit nicht mehr versehentlich wieder einbauen.
+
 **Version 0.61.1:**
 - **Behoben (Sicherheit):** Eine `git_url` aus `repos.yaml` ging ungeprüft an `git clone`. Gits Standard-Policy erlaubt beim direkten Aufruf den `ext::`-Transport, der einen beliebigen Shell-Befehl ausführt — eine manipulierte `repos.yaml` konnte damit Code unter deiner Kennung starten. Jede URL wird jetzt vor der Übergabe an git validiert: führendes `-` und alles mit `::` wird abgelehnt, erlaubt sind `ssh://`, `https://`, `http://`, `git://` und die Kurzform `user@host:pfad`.
 - **Behoben (Sicherheit):** Die generierte `odoo_YYMMDD.conf` enthält DB- und Odoo-Master-Passwort im Klartext, wurde aber mit den Standardrechten der umask geschrieben (typisch `0644`) — auf geteilten Entwicklungs- oder CI-Rechnern für jedes andere lokale Konto lesbar. Sie wird jetzt mit `0600` angelegt, auch wenn ein früherer Lauf die Datei mit weiteren Rechten hinterlassen hat.
@@ -517,6 +522,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.61.2:**
+- **Fixed (security):** Database backups were created with the process umask (typically `0644`) — even though a backup holds the complete database including the password hashes from `res_users`, making it readable by every other local account. SQL dump, ZIP and `.tar.zst` are all written with `0600` now, including when an earlier run left the file with looser permissions. The archive format is unchanged.
+- **Fixed:** The minimum versions of `textual`, `Faker` and `rich` were far below the versions actually in use. Since `uv.lock` is not shipped inside the wheel, a fresh `pip` install could resolve an incompatible `textual` 1.x and break the TUI at runtime. The floors are now `textual>=8.0.0`, `Faker>=40.0.0`, `rich>=15.0.0`.
+- **Changed:** The test suite no longer requires a running container runtime. 47 of 1464 tests failed on any machine without Docker / Apple Container started, because they exercised `db` commands through the real PostgreSQL preflight. That preflight is now neutralized centrally in `tests/conftest.py` — a newly added `db` test can no longer reintroduce the dependency by accident.
 
 **Version 0.61.1:**
 - **Fixed (security):** A `git_url` from `repos.yaml` reached `git clone` unvalidated. On a direct git invocation git's default policy honors the `ext::` transport, which runs an arbitrary shell command — a tampered `repos.yaml` could therefore execute code under your account. Every URL is now validated before it reaches git: a leading `-` and anything containing `::` are rejected; `ssh://`, `https://`, `http://`, `git://` and the `user@host:path` shorthand are accepted.

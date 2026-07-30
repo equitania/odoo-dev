@@ -63,6 +63,31 @@ def _force_host_pg_tools(monkeypatch):
     clear_pg_exec_cache()
 
 
+@pytest.fixture(autouse=True)
+def _stub_pg_reachable_precheck(request, monkeypatch):
+    """Make every `db` CLI test independent of a live container runtime.
+
+    `_ensure_pg_reachable` is a fail-fast preflight: it probes the PostgreSQL
+    port and requires either host client tools or a matching DB container. Left
+    unpatched, every CliRunner test of a `db` subcommand silently depends on
+    Docker / Apple Container running on the developer machine and fails
+    wherever it isn't (CI, a colleague's laptop, a stopped daemon).
+
+    Stubbing it here rather than per test class means a newly added `db` test
+    cannot reintroduce that dependency by forgetting the patch. Tests that
+    assert the preflight's *own* behavior opt out with
+    ``@pytest.mark.real_pg_precheck``.
+    """
+    if "real_pg_precheck" in request.keywords:
+        yield
+        return
+
+    from odoodev.commands import db as db_cmd
+
+    monkeypatch.setattr(db_cmd, "_ensure_pg_reachable", lambda version, params: None)
+    yield
+
+
 @pytest.fixture
 def versions_yaml(tmp_dir):
     """Create a minimal versions.yaml for testing."""

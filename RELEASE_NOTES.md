@@ -1,5 +1,44 @@
 # Release Notes
 
+## Version 0.61.2 (30.07.2026)
+
+### Fixed
+- **Database backups no longer world-readable.** A backup contains the complete
+  database — including the `res_users` password hashes — but
+  `backup_database_sql()`, `create_backup_zip()` and `create_backup_tar_zst()`
+  created their output with a plain `open()` / `zipfile.ZipFile(path)` /
+  `zstd -o path`, so the file inherited the process umask (mode `0644` on a
+  typical host) and was readable by every other local account on a shared
+  development or CI machine. All three now write through the new
+  `_open_private()` helper in `core/database.py` (`os.open(..., 0o600)` plus an
+  explicit `fchmod`, so an existing file left at looser permissions is tightened
+  too — `O_CREAT`'s mode argument is a no-op on an existing file). The
+  `.tar.zst` writer switched from `zstd -o <path>` to `zstd -c` with its stdout
+  pointed at the private file handle, which keeps the permissions under
+  odoodev's control rather than zstd's; the archive format is unchanged and
+  still restores through `extract_backup()`.
+- **Dependency floors raised to the versions actually tested against.**
+  `textual>=1.0.0`, `Faker>=20.0.0` and `rich>=13.7.0` were far below the
+  locked versions in use (textual 8.2.4, Faker 40.19.1, rich 15.0.0). Since
+  `uv.lock` is not shipped inside the wheel, a fresh `pip install
+  odoodev-equitania` could legally resolve textual 1.x and break the TUI at
+  runtime. Floors are now `textual>=8.0.0`, `Faker>=40.0.0`, `rich>=15.0.0`.
+
+### Changed
+- **Test suite no longer depends on a running container runtime.** 47 of 1464
+  tests failed on any machine without Docker / Apple Container running: they
+  invoke `db` subcommands through `CliRunner`, and the real
+  `_ensure_pg_reachable()` preflight probes the PostgreSQL port and requires
+  host client tools or a matching DB container. Three test classes stubbed it
+  locally, five others (`TestRestoreCliFlags`, `TestRestoreBackupHandling`,
+  `TestDbCopyRenameCommands`, `TestDbUninstallCommand`, `TestDbUsersCommand`,
+  `TestDbListJson`) did not. Replaced the per-class patching with an autouse
+  fixture in `tests/conftest.py`, so a newly added `db` test cannot reintroduce
+  the dependency by forgetting it; the five tests that assert the preflight's
+  own behavior opt out via the new `@pytest.mark.real_pg_precheck` marker.
+  Suite is now 1464 passed / 0 failed at 76% coverage, independent of the local
+  container runtime.
+
 ## Version 0.61.1 (26.07.2026)
 
 ### Fixed
