@@ -799,9 +799,12 @@ class RestorePipeline:
     def _wipe_step(self) -> None:
         if not self.opts.wipe:
             return
-        print_info("Wiping message/attachment content...")
-        if wipe_database(self.name, **self.params):
-            print_success("Message and attachment content wiped")
+        print_info("Deleting chatter, attachments and their files...")
+        # Pass the filestore so the attachment FILES go too — deleting only the
+        # ir_attachment rows would leave every invoice PDF on disk.
+        filestore_path = get_filestore_path(self.version, db_name=self.name)
+        if wipe_database(self.name, filestore_path=filestore_path, **self.params):
+            print_success("Chatter and attachments deleted (database + filestore)")
         else:
             print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
 
@@ -966,7 +969,8 @@ def _restore_dry_run(
 @click.option(
     "--wipe/--no-wipe",
     default=None,
-    help="Delete/blank message and attachment content (mail_message, ir_attachment, linkage tables) — OFF by default",
+    help="Delete the whole chatter (messages, tracking values, followers, activities) plus all attachments "
+    "and their filestore files — keeps asset bundles and image fields. OFF by default",
 )
 @click.option(
     "--purge-transactions/--no-purge-transactions",

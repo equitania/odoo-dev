@@ -1489,9 +1489,41 @@ ANONYMIZE_TABLES: tuple[AnonTable, ...] = (
 )
 
 # Whole-table updates that need no per-row Faker values (often huge tables).
-ANONYMIZE_STATIC_QUERIES: tuple[str, ...] = (
-    "UPDATE mail_message SET email_from = NULL, subject = NULL, body = '<p>[anonymized]</p>';",
-    "UPDATE ir_attachment SET index_content = NULL;",
+# Chatter tables emptied by wipe_database. Until v0.62.0 the wipe only blanked
+# mail_message.body, which left the entire chatter readable: the field-change
+# history (mail_tracking_value), followers, activities and every attachment
+# survived. These are DELETEd instead, in child-before-parent order so the wipe
+# also works where a foreign key is NO ACTION rather than ON DELETE CASCADE.
+# Every table is existence-guarded, so one tuple covers v16/v18/v19.
+WIPE_DELETE_TABLES: tuple[str, ...] = (
+    "mail_tracking_value",
+    "mail_notification",
+    "mail_message_res_partner_rel",
+    "mail_message_res_partner_needaction_rel",
+    "mail_message_res_partner_starred_rel",
+    "mail_message_reaction",
+    "mail_message_link_preview",
+    "mail_link_preview",
+    "mail_message_schedule",
+    "mail_mail",
+    "mail_activity",
+    "mail_followers_mail_message_subtype_rel",
+    "mail_followers",
+    "mail_message",
+)
+
+# Attachment deletion. Two categories are deliberately kept:
+#   - res_field IS NOT NULL — Binary/Image field storage (product images, avatars).
+#     Odoo stores fields.Image in ir_attachment, so deleting these would strip
+#     every product picture from the database, which is not what a wipe is for.
+#   - ir.ui.view / ir.ui.menu — compiled asset bundles (JS/CSS), no user content.
+# Everything else goes: invoice PDFs, chatter uploads and attachments whose
+# res_model is NULL (which a plain NOT IN would silently keep, since NULL NOT IN
+# (...) is NULL, not true).
+WIPE_ATTACHMENT_DELETE_SQL: str = (
+    "DELETE FROM ir_attachment "
+    "WHERE res_field IS NULL "
+    "  AND (res_model IS NULL OR res_model NOT IN ('ir.ui.view', 'ir.ui.menu'));"
 )
 
 # HR PII wiped with constant values. One spec per table covers v16/v18/v19 because
@@ -1824,37 +1856,119 @@ def anonymize_database(
     return success
 
 
+def gc_filestore(
+    db_name: str,
+    filestore_path: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, int]:
+    """Delete filestore files no longer referenced by ``ir_attachment.store_fname``.
+
+    The attachment DELETE only removes database rows; without this pass the actual
+    files (invoice PDFs, chatter uploads) stay on disk and the wipe is not GDPR-
+    complete. Mirrors Odoo's own ``ir.attachment._gc_file_store``: everything under
+    ``filestore_path`` that no surviving attachment points at is removed. Because
+    Odoo deduplicates by checksum, the surviving set is read AFTER the delete —
+    a file shared by a kept attachment is therefore kept.
+
+    Safety: the query result is only trusted when the query succeeded (a failed
+    query must never be read as "nothing is referenced"), and the directory must
+    be named after the database, so a wrong path can never empty an unrelated tree.
+
+    Returns:
+        (success, number_of_deleted_files)
+    """
+    if not os.path.isdir(filestore_path):
+        return True, 0
+
+    if os.path.basename(os.path.normpath(filestore_path)) != db_name:
+        logger.warning(
+            "Filestore GC skipped: %s is not named after database %r",
+            filestore_path,
+            db_name,
+        )
+        return False, 0
+
+    ok, out = _run_psql(
+        "SELECT DISTINCT store_fname FROM ir_attachment WHERE store_fname IS NOT NULL;",
+        db=db_name,
+        host=host,
+        port=port,
+        user=user,
+    )
+    if not ok:
+        logger.warning("Filestore GC skipped: could not read surviving attachments")
+        return False, 0
+
+    keep = set(_parse_psql_column(out, "store_fname"))
+
+    deleted = 0
+    success = True
+    for root, _dirs, files in os.walk(filestore_path):
+        for name in files:
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, filestore_path)
+            if rel in keep:
+                continue
+            try:
+                os.remove(full)
+                deleted += 1
+            except OSError as e:
+                logger.warning("Could not remove filestore file %s: %s", full, e)
+                success = False
+
+    return success, deleted
+
+
 def wipe_database(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
+    filestore_path: str | None = None,
 ) -> bool:
-    """Delete/blank message and attachment content after a restore (opt-in).
+    """Delete message and attachment content after a restore (opt-in).
 
     Split out of :func:`anonymize_database` in v0.43.0 so deletion is a separate,
-    explicit decision: DELETEs the linkage tables (``ANONYMIZE_DELETE_TABLES``)
-    and runs the whole-table content wipes (``ANONYMIZE_STATIC_QUERIES`` —
-    mail_message bodies/subjects, ir_attachment index content). Non-fatal:
-    missing tables are skipped.
+    explicit decision. Since v0.62.0 it really deletes rather than blanks: the
+    chatter tables (``WIPE_DELETE_TABLES``), the attachments
+    (``WIPE_ATTACHMENT_DELETE_SQL``) and the linkage tables
+    (``ANONYMIZE_DELETE_TABLES``) are DELETEd, and — when ``filestore_path`` is
+    given — the orphaned files are removed from disk afterwards.
+
+    Non-fatal by design: tables missing in this Odoo version are skipped.
+
+    Args:
+        filestore_path: Filestore directory of this database. Pass it to also
+            remove the attachment files from disk; omit it for a DB-only wipe.
 
     Returns:
         True if every applicable statement succeeded.
     """
     success = True
 
-    # 1. Linkage / M2M tables wiped entirely (guarded against missing tables).
-    for table in ANONYMIZE_DELETE_TABLES:
-        if _existing_columns(table, db_name, host=host, port=port, user=user):
-            ok, _ = _run_psql(f"DELETE FROM {table};", db=db_name, host=host, port=port, user=user)
-            if not ok:
-                success = False
-
-    # 2. Whole-table static content wipes.
-    for query in ANONYMIZE_STATIC_QUERIES:
-        ok, _ = _run_psql(query, db=db_name, host=host, port=port, user=user)
+    # 1. Chatter + linkage tables, child-before-parent.
+    for table in WIPE_DELETE_TABLES + ANONYMIZE_DELETE_TABLES:
+        if not _existing_columns(table, db_name, host=host, port=port, user=user):
+            continue
+        ok, _ = _run_psql(f"DELETE FROM {_check_identifier(table)};", db=db_name, host=host, port=port, user=user)
         if not ok:
             success = False
+
+    # 2. Attachments (rows), keeping asset bundles and Binary-field storage.
+    if _existing_columns("ir_attachment", db_name, host=host, port=port, user=user):
+        ok, _ = _run_psql(WIPE_ATTACHMENT_DELETE_SQL, db=db_name, host=host, port=port, user=user)
+        if not ok:
+            success = False
+
+        # 3. Attachment files on disk — only meaningful once the rows are gone.
+        if filestore_path:
+            fs_ok, removed = gc_filestore(db_name, filestore_path, host=host, port=port, user=user)
+            if removed:
+                logger.info("Removed %d orphaned filestore file(s)", removed)
+            if not fs_ok:
+                success = False
 
     return success
 

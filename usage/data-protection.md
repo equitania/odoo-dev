@@ -270,7 +270,10 @@ dieser Reihenfolge aus:
 2. `run_neutralize()` — natives `odoo-bin neutralize` (Schicht 1b, `--neutralize`)
 3. `neutralize_bank_sync()` — Bank-Sync-Bereinigung (Schicht 1c, unter `--neutralize`)
 4. `anonymize_database()` — Faker-Anonymisierung inkl. HR (Schicht 2, `--anonymize`)
-5. `wipe_database()` — Inhalte loeschen (Schicht 2b, `--wipe`)
+5. `wipe_database()` — Chatter + Anhaenge loeschen (Schicht 2b, `--wipe`); seit v0.62.0
+   echtes DELETE der Chatter-Tabellen und Anhang-Zeilen plus `gc_filestore()` fuer die
+   Dateien auf der Platte (vorher wurde nur der Nachrichten-Body maskiert, wodurch
+   Tracking-Historie, Follower und saemtliche Anhang-Dateien erhalten blieben)
 6. `purge_master_data()` — Template-DB-Reset (Schicht 3, `--purge-master-data`, in
    `--sanitize` enthalten seit v0.48.0): loescht Bewegungsdaten + CRM/HR/Helpdesk/Mail
    + Kunden-Partner + deren Anhaenge in EINER Superuser-Transaktion; ersetzt in diesem
@@ -294,7 +297,7 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 | `--deactivate-cron` / `--no-deactivate-cron` | **aus** | Schicht 1a (Cron/Mail/Fetchmail stilllegen) |
 | `--neutralize` / `--no-neutralize` | **aus** | Schicht 1b + 1c (`odoo-bin neutralize` + Bank-Sync) |
 | `--anonymize` / `--no-anonymize` | **aus** | Schicht 2 (Faker-Anonymisierung inkl. HR — nur Ersatzwerte) |
-| `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen) |
+| `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Chatter + Anhaenge loeschen: mail_message samt Tracking/Followern/Aktivitaeten, ir_attachment-Zeilen, Filestore-Dateien; Bild-/Binaerfelder und Asset-Bundles bleiben) |
 | `--purge-master-data` / `--no-purge-master-data` | **aus (an in `--sanitize`)** | Schicht 3 (seit v0.48.0): Template-DB-Reset — LOESCHT Bewegungsdaten + CRM/HR/Helpdesk/Mail + Kunden-/Lieferanten-/Kontakt-Partner + deren Anhaenge; behaelt Produkte, Preislisten, Benutzer, Firmen, Config. Superuser noetig; Bestaetigung per Partner-Anzahl (mit `-y` uebersprungen) |
 | `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort); NICHT in `--sanitize` enthalten |
 | `--purge-transactions` / `--no-purge-transactions` | **aus** | Nur Bewegungsdaten loeschen (Partner behalten); NICHT in `--sanitize` enthalten |
@@ -666,7 +669,10 @@ requires `--anonymize`.
 2. `run_neutralize()` — native `odoo-bin neutralize` (layer 1b, `--neutralize`)
 3. `neutralize_bank_sync()` — bank-sync cleanup (layer 1c, under `--neutralize`)
 4. `anonymize_database()` — Faker anonymization incl. HR (layer 2, `--anonymize`)
-5. `wipe_database()` — content deletion (layer 2b, `--wipe`)
+5. `wipe_database()` — chatter + attachment deletion (layer 2b, `--wipe`); since v0.62.0 a
+   real DELETE of the chatter tables and attachment rows plus `gc_filestore()` for the files
+   on disk (before that only the message body was masked, so the tracking history, followers
+   and every attachment file survived)
 6. `purge_transactional_data()` — delete transactional data (`--purge-transactions`,
    standalone, since v0.44.0, see [db.md](db.md))
 7. `anonymize_users()` — only with `--anonymize-users` (optional)
@@ -686,7 +692,7 @@ the restore still ends with "Database restore complete".
 | `--deactivate-cron` / `--no-deactivate-cron` | **off** | Layer 1a (quiet cron / mail / fetchmail) |
 | `--neutralize` / `--no-neutralize` | **off** | Layer 1b + 1c (`odoo-bin neutralize` + bank sync) |
 | `--anonymize` / `--no-anonymize` | **off** | Layer 2 (Faker anonymization incl. HR — replacement values only) |
-| `--wipe` / `--no-wipe` | **off** | Layer 2b (content deletion: mail_message, ir_attachment index, linkage tables) |
+| `--wipe` / `--no-wipe` | **off** | Layer 2b (chatter + attachment deletion: mail_message incl. tracking/followers/activities, ir_attachment rows, filestore files; image/binary fields and asset bundles are kept) |
 | `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password); NOT included in `--sanitize` |
 | `--user-password TEXT` | `ownerp` | Dev password set on anonymized users |
 | `--recompute` / `--no-recompute` | **on after `--anonymize`** | Recompute stored computed fields (e.g. `complete_name`), since v0.44.0 |

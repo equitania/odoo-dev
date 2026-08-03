@@ -619,7 +619,8 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
                     logger.warning("Neutralize failed (non-fatal): %s", msg.strip())
         if anonymize_flag and not anonymize_database(name, **params):
             logger.warning("Anonymization partially failed (non-fatal)")
-        if wipe_flag and not wipe_database(name, **params):
+        # filestore_dest: delete the attachment files too, not just their rows.
+        if wipe_flag and not wipe_database(name, filestore_path=filestore_dest, **params):
             logger.warning("Content wipe partially failed (non-fatal)")
         if purge_flag:
             ok, msg = purge_transactional_data(name, **params)

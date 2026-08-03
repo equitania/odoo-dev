@@ -456,7 +456,15 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
             ok = anonymize_database(db_name, host=_UNUSED_HOST, port=_UNUSED_PORT, user=owner)
             (sanitize_done if ok else sanitize_failed).append("anonymize")
         if flag("wipe"):
-            ok = wipe_database(db_name, host=_UNUSED_HOST, port=_UNUSED_PORT, user=owner)
+            # filestore_dest is the freshly swapped-in filestore of this database,
+            # so the attachment files are deleted along with their rows.
+            ok = wipe_database(
+                db_name,
+                host=_UNUSED_HOST,
+                port=_UNUSED_PORT,
+                user=owner,
+                filestore_path=filestore_dest,
+            )
             (sanitize_done if ok else sanitize_failed).append("wipe")
         if _as_bool(args.get("purge_transactions"), default=False):
             ok, msg = purge_transactional_data(db_name, host=_UNUSED_HOST, port=_UNUSED_PORT, user=owner)

@@ -296,7 +296,7 @@ MESSAGES: dict[str, dict[str, str]] = {
             "only the psql part runs; the odoo-bin neutralize step is skipped."
         ),
         "playbook.server.restore.flag.anonymize": "anonymize — replace personal data with fake data",
-        "playbook.server.restore.flag.wipe": "wipe — delete messages & attachments",
+        "playbook.server.restore.flag.wipe": "wipe — delete chatter & attachments (incl. files)",
         "playbook.server.restore.flag.purge_transactions": (
             "purge_transactions — delete transactional data (orders, postings, stock)"
         ),
@@ -646,7 +646,7 @@ MESSAGES: dict[str, dict[str, str]] = {
             "läuft nur der psql-Teil; der odoo-bin-neutralize-Schritt entfällt."
         ),
         "playbook.server.restore.flag.anonymize": "anonymize — Personendaten durch Fake-Daten ersetzen",
-        "playbook.server.restore.flag.wipe": "wipe — Nachrichten & Anhänge löschen",
+        "playbook.server.restore.flag.wipe": "wipe — Chatter & Anhänge löschen (inkl. Dateien)",
         "playbook.server.restore.flag.purge_transactions": (
             "purge_transactions — Bewegungsdaten löschen (Aufträge, Buchungen, Lager)"
         ),

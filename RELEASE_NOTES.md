@@ -1,5 +1,59 @@
 # Release Notes
 
+## Version 0.62.0 (03.08.2026)
+
+### Fixed
+- **`--wipe` did not actually wipe anything.** `wipe_database()` ran exactly two
+  statements — `UPDATE mail_message SET email_from = NULL, subject = NULL,
+  body = '<p>[anonymized]</p>'` and `UPDATE ir_attachment SET index_content =
+  NULL` — while its help text promised "delete messages & attachments". The
+  consequences on a restored production database:
+  - **The chatter stayed fully readable.** Only the message body was
+    overwritten. `mail_tracking_value` (the field-change history rendered in the
+    chatter), `record_name`, `mail_followers`, `mail_activity` and
+    `mail_notification` were never touched, so every tracked value, follower and
+    activity remained visible in the UI.
+  - **Attachments were not deleted at all.** Nulling `index_content` only clears
+    the full-text search index; `datas` / `store_fname` and the files in the
+    filestore survived intact, so invoice PDFs stayed both in the database and
+    on disk.
+
+  `--wipe` now performs real deletions: the chatter tables in
+  `WIPE_DELETE_TABLES` are DELETEd child-before-parent (so the wipe also works
+  where a foreign key is `NO ACTION` instead of `ON DELETE CASCADE`), followed
+  by the attachment rows and — new — the orphaned files in the filestore via the
+  new `gc_filestore()`.
+
+  Two categories are deliberately **kept**, because a wipe should empty content,
+  not break the database: attachments with `res_field IS NOT NULL` (Odoo stores
+  `fields.Image` in `ir_attachment`, so deleting these would strip every product
+  image and avatar) and the compiled asset bundles on `ir.ui.view` / `ir.ui.menu`.
+  Attachments with `res_model IS NULL` are now included in the delete — a plain
+  `NOT IN (...)` would have silently kept them, since `NULL NOT IN (...)`
+  evaluates to `NULL` rather than true.
+
+### Added
+- **`gc_filestore(db_name, filestore_path)`** in `core/database.py` — removes
+  filestore files no longer referenced by any surviving `ir_attachment.store_fname`,
+  mirroring Odoo's own `ir.attachment._gc_file_store`. The surviving set is read
+  *after* the delete, so a file shared by a kept attachment (Odoo deduplicates by
+  checksum) is preserved. Two guards keep it from ever deleting the wrong tree: a
+  failed query aborts the pass instead of being read as "nothing is referenced",
+  and the directory must be named after the database.
+- **`wipe_database(..., filestore_path=...)`** — the new optional argument that
+  triggers the filestore pass. All three callers pass it: `db restore`
+  (`RestorePipeline._wipe_step`), the local playbook runner (`core/automation.py`)
+  and the server playbook runner (`core/server_automation.py`, using the
+  freshly swapped-in filestore of the restored database).
+
+### Changed
+- `--wipe` help text and the playbook wizard label now describe what the flag
+  really does ("delete chatter & attachments (incl. files)" / "Chatter & Anhänge
+  löschen (inkl. Dateien)"), and the restore step reports
+  "Chatter and attachments deleted (database + filestore)".
+- `ANONYMIZE_STATIC_QUERIES` is replaced by `WIPE_DELETE_TABLES` and
+  `WIPE_ATTACHMENT_DELETE_SQL`.
+
 ## Version 0.61.2 (30.07.2026)
 
 ### Fixed

@@ -164,7 +164,7 @@ jede Nachbehandlung muss explizit per Flag angefordert werden:
 | `--deactivate-cron` | Cron-Jobs, Mail- und Fetchmail-Server deaktivieren (psql-Baseline) |
 | `--neutralize` | Natives `odoo-bin neutralize` + Bank-Sync-Bereinigung |
 | `--anonymize` | DSGVO-Anonymisierung mit Faker (nur Ersatzwerte, keine Loeschung) |
-| `--wipe` | Inhalte loeschen: mail_message, ir_attachment-Index, Verknuepfungstabellen |
+| `--wipe` | Chatter + Anhaenge loeschen: mail_message samt Tracking/Followern/Aktivitaeten, ir_attachment-Zeilen UND die zugehoerigen Filestore-Dateien (seit v0.62.0 echtes DELETE) |
 | `--sanitize` | Sammel-Flag: aktiviert alle vier obigen auf einmal; explizite `--no-*` gewinnen |
 | `--anonymize-users` | `res_users` anonymisieren — eigenstaendig, NICHT in `--sanitize` enthalten |
 | `--purge-transactions` | Transaktionsdaten loeschen (Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS) fuer eine saubere Stresstest-DB — eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.44.0) |
@@ -227,8 +227,17 @@ Transaktion, tabellen-geprueft (No-Op ohne Buchhaltungs-/Bank-Sync-Module).
 
 Mit `--anonymize` anonymisiert `odoodev db restore` personenbezogene Daten direkt nach dem
 Import (DSGVO Art. 5 Datenminimierung). Seit v0.43.0 ist die **Loeschung von Inhalten ein
-eigenes Flag `--wipe`** (mail_message-Inhalte, ir_attachment-Volltextindex,
-Verknuepfungstabellen) — `--anonymize` ersetzt nur noch Werte, loescht aber nichts.
+eigenes Flag `--wipe`** — `--anonymize` ersetzt nur noch Werte, loescht aber nichts.
+
+**Seit v0.62.0 loescht `--wipe` wirklich.** Vorher wurden nur `mail_message.body` durch einen
+Platzhalter ersetzt und `ir_attachment.index_content` geleert — der Chatter blieb dadurch
+komplett lesbar (Tracking-Historie, Follower, Aktivitaeten unberuehrt) und saemtliche
+Anhaenge blieben in DB und Filestore erhalten. Jetzt werden die Chatter-Tabellen und die
+Anhang-Zeilen geloescht und die verwaisten Dateien aus dem Filestore entfernt.
+
+Bewusst **erhalten** bleiben: Anhaenge mit `res_field IS NOT NULL` (Odoo speichert
+`fields.Image` in `ir_attachment` — ein pauschales Loeschen wuerde alle Produktbilder und
+Avatare entfernen) sowie die kompilierten Asset-Bundles auf `ir.ui.view` / `ir.ui.menu`.
 
 Die Ersatzwerte werden mit **Faker** (`de_DE`, pro Datensatz-ID geseedet → reproduzierbar)
 erzeugt. E-Mail- und Login-Felder werden bewusst **nicht** aus Faker generiert, sondern auf
@@ -242,8 +251,9 @@ reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}
 | `hr_employee` | `--anonymize` | Name, Work-E-Mail, Telefon, Privatadresse, Ausweis-/Pass-/SV-Nummern, Geburtsdaten, Ehepartner-/Notfalldaten, PIN/Barcode, Notizen, Bild-/Scan-Felder; Gehalt-/km-Felder → 0 |
 | `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | Gehalt (`wage` → 0), sensible Personaldaten (v19) |
 | `employee_bank_account_rel` (v19) | `--wipe` | M2M-Verknuepfung komplett geloescht |
-| `mail_message` | `--wipe` | `email_from`, Betreff (geleert), Body (Platzhalter) |
-| `ir_attachment` | `--wipe` | `index_content` (Volltext-Index geleert) |
+| `mail_message` + `mail_tracking_value`, `mail_notification`, `mail_followers`, `mail_activity`, rel-Tabellen | `--wipe` | Zeilen komplett geloescht (Kind vor Eltern) — der Chatter ist danach leer |
+| `ir_attachment` | `--wipe` | Zeilen geloescht, ausser `res_field IS NOT NULL` (Bild-/Binaerfelder) und Asset-Bundles (`ir.ui.view`/`ir.ui.menu`) |
+| Filestore | `--wipe` | Verwaiste Dateien werden von der Platte entfernt (`gc_filestore`) |
 
 > **`res_users` wird per Default NICHT anonymisiert** — Logins bleiben testbar. Opt-in via
 > `--anonymize-users` (Login → `user{id}`, Passwort → Dev-Passwort `--user-password`, Default
@@ -550,7 +560,7 @@ post-processing step must be requested explicitly:
 | `--deactivate-cron` | Deactivate cron jobs, mail and fetchmail servers (psql baseline) |
 | `--neutralize` | Native `odoo-bin neutralize` + bank-sync cleanup |
 | `--anonymize` | GDPR anonymization with Faker (replacement values only, no deletion) |
-| `--wipe` | Delete content: mail_message, ir_attachment index, linkage tables |
+| `--wipe` | Delete chatter + attachments: mail_message incl. tracking/followers/activities, ir_attachment rows AND their filestore files (a real DELETE since v0.62.0) |
 | `--sanitize` | Convenience flag: enables all four above at once; explicit `--no-*` flags win |
 | `--anonymize-users` | Anonymize `res_users` — standalone, NOT included in `--sanitize` |
 | `--purge-transactions` | Delete transactional data (stock/sales/purchase/accounting/MRP/POS) for a clean stress-test DB — standalone, NOT included in `--sanitize` (since v0.44.0) |
@@ -608,8 +618,17 @@ the accounting / bank-sync modules are absent).
 
 With `--anonymize`, `odoodev db restore` anonymizes personal data right after the import
 (GDPR Art. 5 data minimization). Since v0.43.0 **content deletion is a separate `--wipe`
-flag** (mail_message content, ir_attachment full-text index, linkage tables) — `--anonymize`
-only replaces values and deletes nothing.
+flag** — `--anonymize` only replaces values and deletes nothing.
+
+**Since v0.62.0 `--wipe` really deletes.** Before that it only replaced `mail_message.body`
+with a placeholder and cleared `ir_attachment.index_content`, which left the whole chatter
+readable (tracking history, followers and activities untouched) and kept every attachment in
+both the database and the filestore. It now deletes the chatter tables and the attachment
+rows, and removes the orphaned files from the filestore.
+
+Two categories are deliberately **kept**: attachments with `res_field IS NOT NULL` (Odoo
+stores `fields.Image` in `ir_attachment`, so a blanket delete would strip every product image
+and avatar) and the compiled asset bundles on `ir.ui.view` / `ir.ui.menu`.
 
 Replacement values are generated with **Faker** (`de_DE`, seeded per row id → reproducible).
 E-mail and login columns are deliberately **not** taken from Faker but forced onto reserved,
@@ -623,8 +642,9 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 | `hr_employee` | `--anonymize` | name, work email, phones, private address, ID/passport/SSN numbers, birth data, spouse/emergency data, PIN/barcode, notes, image/scan fields; salary/distance fields → 0 |
 | `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | wage → 0, sensitive personnel data (v19) |
 | `employee_bank_account_rel` (v19) | `--wipe` | M2M link deleted entirely |
-| `mail_message` | `--wipe` | `email_from`, subject (cleared), body (placeholder) |
-| `ir_attachment` | `--wipe` | `index_content` (full-text index cleared) |
+| `mail_message` + `mail_tracking_value`, `mail_notification`, `mail_followers`, `mail_activity`, rel tables | `--wipe` | rows deleted entirely (child before parent) — the chatter is empty afterwards |
+| `ir_attachment` | `--wipe` | rows deleted, except `res_field IS NOT NULL` (image/binary fields) and asset bundles (`ir.ui.view`/`ir.ui.menu`) |
+| Filestore | `--wipe` | orphaned files removed from disk (`gc_filestore`) |
 
 > **`res_users` is NOT anonymized by default** — logins stay testable. Opt in via
 > `--anonymize-users` (login → `user{id}`, password → dev password `--user-password`, default

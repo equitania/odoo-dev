@@ -13,12 +13,12 @@ from faker import Faker
 
 from odoodev.cli import cli
 from odoodev.core.database import (
-    ANONYMIZE_DELETE_TABLES,
-    ANONYMIZE_STATIC_QUERIES,
     ANONYMIZE_STATIC_TABLES,
     ANONYMIZE_TABLES,
     PURGE_TABLES,
     RESTORE_COMPRESSION_FACTOR,
+    WIPE_ATTACHMENT_DELETE_SQL,
+    WIPE_DELETE_TABLES,
     AnonTable,
     _build_anonymize_sql,
     _build_recompute_script,
@@ -475,10 +475,16 @@ class TestAnonymizeSpecs:
         cols = [f.column for f in spec.fields]
         assert "name" in cols and "work_email" in cols
 
-    def test_static_queries_cover_mail_and_attachments(self):
-        joined = " ".join(ANONYMIZE_STATIC_QUERIES)
-        assert "mail_message" in joined
-        assert "ir_attachment" in joined
+    def test_wipe_targets_cover_mail_and_attachments(self):
+        assert "mail_message" in WIPE_DELETE_TABLES
+        assert "ir_attachment" in WIPE_ATTACHMENT_DELETE_SQL
+
+    def test_mail_message_is_deleted_after_its_children(self):
+        """Child-before-parent order keeps the wipe working under NO ACTION FKs."""
+        order = list(WIPE_DELETE_TABLES)
+        assert order.index("mail_tracking_value") < order.index("mail_message")
+        assert order.index("mail_notification") < order.index("mail_message")
+        assert order.index("mail_followers_mail_message_subtype_rel") < order.index("mail_followers")
 
     def test_res_partner_split_by_is_company(self):
         """res_partner is split into a company spec and a person spec."""
@@ -617,25 +623,63 @@ class TestAnonymizeDatabase:
 
 
 class TestWipeDatabase:
-    """Content deletion split out of anonymize_database (v0.43.0)."""
+    """Content deletion split out of anonymize_database (v0.43.0).
 
-    def test_runs_deletes_and_static_wipes(self, monkeypatch):
-        from odoodev.core.database import wipe_database
+    Since v0.62.0 ``--wipe`` really DELETEs chatter rows and attachments instead
+    of only blanking mail_message bodies (which left tracking values, followers,
+    activities and every attachment file in place).
+    """
 
+    def _capture(self, monkeypatch, ok=True):
         psql_queries: list[str] = []
         monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id"})
         monkeypatch.setattr(
             "odoodev.core.database._run_psql",
-            lambda query, **k: (psql_queries.append(query), (True, ""))[1],
+            lambda query, **k: (psql_queries.append(query), (ok, ""))[1],
         )
-        assert wipe_database("mydb") is True
-        assert len(psql_queries) == len(ANONYMIZE_DELETE_TABLES) + len(ANONYMIZE_STATIC_QUERIES)
-        joined = " ".join(psql_queries)
-        assert "DELETE FROM" in joined
-        assert "mail_message" in joined
-        assert "ir_attachment" in joined
+        return psql_queries
 
-    def test_skips_missing_linkage_tables(self, monkeypatch):
+    def test_deletes_chatter_rows_instead_of_blanking_them(self, monkeypatch):
+        """Regression: blanking mail_message.body left the whole chatter visible."""
+        from odoodev.core.database import wipe_database
+
+        psql_queries = self._capture(monkeypatch)
+        assert wipe_database("mydb") is True
+        joined = " ".join(psql_queries)
+
+        # The chatter is emptied, not masked.
+        assert "DELETE FROM mail_message" in joined
+        assert "DELETE FROM mail_tracking_value" in joined
+        assert "DELETE FROM mail_followers" in joined
+        assert "DELETE FROM mail_activity" in joined
+        # No masking UPDATE survives — that was the bug.
+        assert "[anonymized]" not in joined
+        assert "UPDATE mail_message" not in joined
+
+    def test_deletes_attachment_rows_not_just_the_search_index(self, monkeypatch):
+        """Regression: only index_content was nulled, so invoice PDFs stayed."""
+        from odoodev.core.database import wipe_database
+
+        psql_queries = self._capture(monkeypatch)
+        assert wipe_database("mydb") is True
+        joined = " ".join(psql_queries)
+
+        assert "DELETE FROM ir_attachment" in joined
+        assert "UPDATE ir_attachment" not in joined
+
+    def test_attachment_delete_keeps_assets_and_binary_field_storage(self, monkeypatch):
+        """Compiled assets and Binary/Image field storage must survive the wipe."""
+        from odoodev.core.database import wipe_database
+
+        psql_queries = self._capture(monkeypatch)
+        wipe_database("mydb")
+        stmt = next(q for q in psql_queries if q.startswith("DELETE FROM ir_attachment"))
+
+        # res_field IS NOT NULL == product images / avatars stored as attachments.
+        assert "res_field IS NULL" in stmt
+        assert "ir.ui.view" in stmt
+
+    def test_skips_missing_tables(self, monkeypatch):
         from odoodev.core.database import wipe_database
 
         psql_queries: list[str] = []
@@ -645,15 +689,109 @@ class TestWipeDatabase:
             lambda query, **k: (psql_queries.append(query), (True, ""))[1],
         )
         assert wipe_database("mydb") is True
-        # Only the static queries ran — no DELETE for missing tables.
-        assert len(psql_queries) == len(ANONYMIZE_STATIC_QUERIES)
+        assert psql_queries == []
 
     def test_returns_false_on_failure(self, monkeypatch):
         from odoodev.core.database import wipe_database
 
-        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id"})
-        monkeypatch.setattr("odoodev.core.database._run_psql", lambda query, **k: (False, "boom"))
+        psql_queries = self._capture(monkeypatch, ok=False)
         assert wipe_database("mydb") is False
+        assert psql_queries  # it did try
+
+    def test_runs_filestore_gc_when_path_given(self, monkeypatch, tmp_path):
+        from odoodev.core.database import wipe_database
+
+        self._capture(monkeypatch)
+        seen: dict = {}
+        monkeypatch.setattr(
+            "odoodev.core.database.gc_filestore",
+            lambda db, path, **k: (seen.update(db=db, path=path), (True, 3))[1],
+        )
+        fs = tmp_path / "mydb"
+        fs.mkdir()
+        assert wipe_database("mydb", filestore_path=str(fs)) is True
+        assert seen == {"db": "mydb", "path": str(fs)}
+
+    def test_skips_filestore_gc_without_path(self, monkeypatch):
+        from odoodev.core.database import wipe_database
+
+        self._capture(monkeypatch)
+        called: list = []
+        monkeypatch.setattr(
+            "odoodev.core.database.gc_filestore",
+            lambda db, path, **k: (called.append(path), (True, 0))[1],
+        )
+        assert wipe_database("mydb") is True
+        assert called == []
+
+
+class TestGcFilestore:
+    """Orphaned filestore files are removed after the attachment DELETE."""
+
+    def _make_filestore(self, tmp_path, names):
+        root = tmp_path / "v16_lager_a"
+        for name in names:
+            f = root / name
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("payload")
+        return root
+
+    def test_removes_unreferenced_files(self, monkeypatch, tmp_path):
+        from odoodev.core.database import gc_filestore
+
+        root = self._make_filestore(tmp_path, ["ab/keepme", "cd/orphan1", "ef/orphan2"])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (True, "store_fname\n-----------\nab/keepme\n(1 row)\n"),
+        )
+        ok, deleted = gc_filestore("v16_lager_a", str(root))
+        assert ok is True
+        assert deleted == 2
+        assert (root / "ab/keepme").exists()
+        assert not (root / "cd/orphan1").exists()
+        assert not (root / "ef/orphan2").exists()
+
+    def test_keeps_everything_when_all_referenced(self, monkeypatch, tmp_path):
+        from odoodev.core.database import gc_filestore
+
+        root = self._make_filestore(tmp_path, ["ab/one", "cd/two"])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (True, "store_fname\n-----------\nab/one\ncd/two\n(2 rows)\n"),
+        )
+        ok, deleted = gc_filestore("v16_lager_a", str(root))
+        assert (ok, deleted) == (True, 0)
+        assert (root / "ab/one").exists()
+        assert (root / "cd/two").exists()
+
+    def test_aborts_when_query_fails_so_nothing_is_deleted(self, monkeypatch, tmp_path):
+        """A failed query must never be read as 'no attachment references'."""
+        from odoodev.core.database import gc_filestore
+
+        root = self._make_filestore(tmp_path, ["ab/one"])
+        monkeypatch.setattr("odoodev.core.database._run_psql", lambda query, **k: (False, "boom"))
+        ok, deleted = gc_filestore("v16_lager_a", str(root))
+        assert (ok, deleted) == (False, 0)
+        assert (root / "ab/one").exists()
+
+    def test_refuses_path_not_matching_the_database(self, monkeypatch, tmp_path):
+        """Safety guard: only a directory named after the DB may be garbage-collected."""
+        from odoodev.core.database import gc_filestore
+
+        root = self._make_filestore(tmp_path, ["ab/one"])
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (True, "store_fname\n-----------\n(0 rows)\n"),
+        )
+        ok, deleted = gc_filestore("some_other_db", str(root))
+        assert (ok, deleted) == (False, 0)
+        assert (root / "ab/one").exists()
+
+    def test_missing_filestore_is_a_no_op(self, tmp_path):
+        from odoodev.core.database import gc_filestore
+
+        ok, deleted = gc_filestore("v16_lager_a", str(tmp_path / "v16_lager_a"))
+        assert (ok, deleted) == (True, 0)
 
 
 class TestPurgeTransactionalData:

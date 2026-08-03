@@ -145,8 +145,11 @@ odoodev db drop 18 --all --filter test_                          # bulk-drop all
 ```
 Restore post-processing is **OFF by default** (v0.43.0) — the restored database is left
 completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize`,
-`--anonymize` (Faker only), `--wipe` (content deletion: mail_message, ir_attachment,
-linkage tables), `--purge-master-data`, or `--sanitize` for all of them at once (explicit
+`--anonymize` (Faker only), `--wipe` (since v0.62.0 a REAL delete: the chatter tables —
+mail_message, mail_tracking_value, mail_notification, mail_followers, mail_activity, rel
+tables — plus the ir_attachment rows AND their filestore files; keeps `res_field IS NOT NULL`
+image/binary storage and `ir.ui.view`/`ir.ui.menu` asset bundles),
+`--purge-master-data`, or `--sanitize` for all of them at once (explicit
 `--no-*` flags win). **Since v0.48.0 `--sanitize` includes `--purge-master-data`** — a full
 "template DB from production" reset that DELETES movement data, CRM/HR/helpdesk/mail content,
 the customer/vendor/contact partners and their attachments (keeps products, pricelists,
