@@ -185,12 +185,25 @@ def create_odoo_config(
 
     addons_path = generate_addons_path(all_paths, repo_metadata, home_replacement)
 
-    # Replace addons_path in template
+    # Replace addons_path in template.
+    #
+    # The value spans the key line plus every following indented continuation
+    # line, which is how INI encodes a multi-line value. Both parts have to go:
+    # the previous pattern (r"addons_path\s*=\s*(\n[^\[]*)?") let \s* eat the
+    # newline, so the optional group never matched and the match ended right
+    # after "addons_path =". Any existing value survived and the freshly
+    # generated block was merely prepended to it, which produced configs
+    # carrying the paths twice — and, where an inline value met the block, a
+    # path glued to the next one across the newline. Odoo splits addons_path on
+    # "," only, so that entry became a single unusable path and every lookup
+    # through it failed (image placeholders, module resolution) without an error
+    # above debug level.
     content = re.sub(
-        r"addons_path\s*=\s*(\n[^\[]*)?",
+        r"^addons_path[ \t]*=[^\n]*\n(?:[ \t]+[^\n]*\n)*",
         f"addons_path =\n{addons_path}\n",
         content,
         count=1,
+        flags=re.MULTILINE,
     )
 
     # Replace ${DEV_USER}

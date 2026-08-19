@@ -1,5 +1,36 @@
 # Release Notes
 
+## Version 0.62.1 (19.08.2026)
+
+### Fixed
+- **`odoodev repos` could produce a config with a broken `addons_path`.** The
+  regex that replaces the value in the template only ever matched the key line:
+  in `r"addons_path\s*=\s*(\n[^\[]*)?"` the `\s*` after the `=` already
+  consumed the newline, so the optional group had nothing left to match and the
+  match ended right after `addons_path =`. Consequences on any template whose
+  `addons_path` was not empty:
+  - **The old paths survived** and the freshly generated block was merely
+    prepended to them, so every path appeared twice in the generated config.
+  - **Two paths ended up glued across a newline** wherever an inline value met
+    the generated block — e.g.
+    `/gitbase/v16/v16-chatbot\n/gitbase/v16/v16-server/odoo/addons`. Odoo splits
+    `addons_path` on `,` alone, so that entry becomes a single path that cannot
+    exist. Everything resolved through it fails, and Odoo reports nothing above
+    debug level: in v16 this surfaced as an HTTP 500 on the image placeholder
+    route (`/web/image/0/200x150`) and as a failing `web.TestImage` test, with
+    the actual `FileNotFoundError` buried in the log.
+  - The pattern also ran `[^\[]*` — everything up to the next `[` — so in a
+    config without a following section header it could swallow the remaining
+    keys.
+
+  The value now matches what INI actually defines: the key line plus every
+  indented continuation line (`r"^addons_path[ \t]*=[^\n]*\n(?:[ \t]+[^\n]*\n)*"`
+  with `re.MULTILINE`). Generation is idempotent — feeding a generated config
+  back in yields the same paths instead of accumulating them. Six regression
+  tests in `tests/test_odoo_config.py::TestAddonsPathReplacement` cover the
+  empty, inline, block, inline+block and following-keys cases, and assert
+  through `configparser` + `split(",")`, which is exactly how Odoo reads it.
+
 ## Version 0.62.0 (03.08.2026)
 
 ### Fixed
