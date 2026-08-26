@@ -692,7 +692,7 @@ the restore still ends with "Database restore complete".
 | `--deactivate-cron` / `--no-deactivate-cron` | **off** | Layer 1a (quiet cron / mail / fetchmail) |
 | `--neutralize` / `--no-neutralize` | **off** | Layer 1b + 1c (`odoo-bin neutralize` + bank sync) |
 | `--anonymize` / `--no-anonymize` | **off** | Layer 2 (Faker anonymization incl. HR — replacement values only) |
-| `--wipe` / `--no-wipe` | **off** | Layer 2b (chatter + attachment deletion: mail_message incl. tracking/followers/activities, ir_attachment rows, filestore files; image/binary fields and asset bundles are kept) |
+| `--wipe` / `--no-wipe` | **off** | Layer 2b (chatter + attachment deletion: mail_message incl. tracking/followers/activities, ir_attachment rows, filestore files; image/binary fields, asset bundles, asset sources (`url IS NOT NULL`) and attachments with an XML ID are kept) |
 | `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password); NOT included in `--sanitize` |
 | `--user-password TEXT` | `ownerp` | Dev password set on anonymized users |
 | `--recompute` / `--no-recompute` | **on after `--anonymize`** | Recompute stored computed fields (e.g. `complete_name`), since v0.44.0 |

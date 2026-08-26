@@ -19,6 +19,7 @@ from odoodev.core.database import (
     RESTORE_COMPRESSION_FACTOR,
     WIPE_ATTACHMENT_DELETE_SQL,
     WIPE_DELETE_TABLES,
+    WIPE_ORPHAN_REPAIR_SQL,
     AnonTable,
     _build_anonymize_sql,
     _build_recompute_script,
@@ -723,6 +724,140 @@ class TestWipeDatabase:
         )
         assert wipe_database("mydb") is True
         assert called == []
+
+
+# Theme customization written by web_editor.assets: an ir_asset record with
+# directive=replace pointing at an ir_attachment whose url is exactly this path.
+CUSTOM_SCSS_PATH = "/_custom/web.assets_frontend/website/static/src/scss/options/user_values.scss"
+
+
+class TestWipeKeepsAssetSources:
+    """Regression for the v0.62.0 wipe that broke SCSS compilation (v0.62.1).
+
+    The attachment DELETE removed the asset SOURCES (custom theme SCSS with
+    ``res_model IS NULL``, ``web.asset_styles_company_report``) and left their
+    XML IDs dangling, so ``web.assets_frontend`` no longer compiled and Odoo
+    showed a permanent "style error" banner in the backend.
+
+    The statements are executed against SQLite rather than asserted as strings:
+    the guards are only worth anything if the right rows actually survive.
+    """
+
+    def _db(self):
+        import sqlite3
+
+        con = sqlite3.connect(":memory:")
+        con.executescript(
+            "CREATE TABLE ir_attachment (id INTEGER PRIMARY KEY, name TEXT, url TEXT,"
+            " res_model TEXT, res_field TEXT, store_fname TEXT);"
+            "CREATE TABLE ir_model_data (id INTEGER PRIMARY KEY, module TEXT, name TEXT,"
+            " model TEXT, res_id INTEGER);"
+            "CREATE TABLE ir_asset (id INTEGER PRIMARY KEY, bundle TEXT, path TEXT);"
+        )
+        con.executemany(
+            "INSERT INTO ir_attachment VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                # Module data: company report styles, listed in web's manifest.
+                (12, "res.company.scss", "web/static/asset_styles_company_report.scss", None, None, None),
+                # Theme customization: SCSS source referenced by an ir_asset replace.
+                (20, "user_values.scss", CUSTOM_SCSS_PATH, None, None, "ab/scss"),
+                # Website snippet default image — reached only via its XML ID.
+                (30, "s_banner_default_image", None, "website", None, "cd/img"),
+                # Real user content: invoice PDF and a detached chatter upload.
+                (40, "INV-2024-0001.pdf", None, "account.move", None, "ef/pdf"),
+                (41, "notes.txt", None, None, None, "ef/txt"),
+                # Binary field storage and a compiled bundle.
+                (50, "product image", None, "product.template", "image_1920", "gh/img"),
+                (60, "web.assets_frontend.min.css", "/web/assets/1/x.css", "ir.ui.view", None, "ij/css"),
+            ],
+        )
+        con.executemany(
+            "INSERT INTO ir_model_data VALUES (?, ?, ?, ?, ?)",
+            [
+                (1, "web", "asset_styles_company_report", "ir.attachment", 12),
+                (2, "website", "s_banner_default_image", "ir.attachment", 30),
+                # Left behind by a v0.62.0 wipe: points at a deleted attachment.
+                (3, "website", "s_cover_default_image", "ir.attachment", 999),
+            ],
+        )
+        con.executemany(
+            "INSERT INTO ir_asset VALUES (?, ?, ?)",
+            [
+                (1, "web.assets_frontend", CUSTOM_SCSS_PATH),
+                (2, "web.assets_frontend", "/_custom/web.assets_frontend/website/static/src/scss/gone.scss"),
+            ],
+        )
+        return con
+
+    def _wipe(self, con):
+        con.execute(WIPE_ATTACHMENT_DELETE_SQL)
+        for _table, statement in WIPE_ORPHAN_REPAIR_SQL:
+            con.execute(statement)
+        return con
+
+    def _ids(self, con, table="ir_attachment"):
+        return {row[0] for row in con.execute(f"SELECT id FROM {table}")}  # noqa: S608 — literal table names
+
+    def test_asset_sources_survive_the_wipe(self):
+        """Deleting these stopped web.assets_frontend from compiling."""
+        con = self._wipe(self._db())
+        assert 12 in self._ids(con)  # web/static/asset_styles_company_report.scss
+        assert 20 in self._ids(con)  # /_custom/.../user_values.scss
+
+    def test_attachments_with_an_xml_id_survive_the_wipe(self):
+        """A row referenced by ir_model_data is module data, not user content."""
+        con = self._wipe(self._db())
+        assert 30 in self._ids(con)
+
+    def test_user_content_is_still_deleted(self):
+        """The guards must not turn the wipe into a no-op."""
+        con = self._wipe(self._db())
+        assert 40 not in self._ids(con)  # invoice PDF
+        assert 41 not in self._ids(con)  # res_model IS NULL chatter upload
+
+    def test_binary_fields_and_bundles_still_survive(self):
+        con = self._wipe(self._db())
+        assert {50, 60} <= self._ids(con)
+
+    def test_no_xml_id_points_at_a_deleted_attachment(self):
+        """Acceptance criterion: zero orphaned ir_model_data rows after a wipe."""
+        con = self._wipe(self._db())
+        orphans = con.execute(
+            "SELECT count(*) FROM ir_model_data d LEFT JOIN ir_attachment a ON a.id = d.res_id"
+            " WHERE d.model = 'ir.attachment' AND a.id IS NULL"
+        ).fetchone()[0]
+        assert orphans == 0
+
+    def test_env_ref_target_still_resolves(self):
+        """env.ref('web.asset_styles_company_report') must not hit a dead res_id."""
+        con = self._wipe(self._db())
+        row = con.execute(
+            "SELECT a.id FROM ir_model_data d JOIN ir_attachment a ON a.id = d.res_id"
+            " WHERE d.module = 'web' AND d.name = 'asset_styles_company_report'"
+        ).fetchone()
+        assert row == (12,)
+
+    def test_custom_assets_without_a_source_are_removed(self):
+        """A /_custom/ ir_asset without its SCSS attachment breaks the bundle."""
+        con = self._wipe(self._db())
+        assert self._ids(con, "ir_asset") == {1}
+
+    def test_repair_runs_after_the_attachment_delete(self, monkeypatch):
+        """Order matters: repairing first would leave the new orphans behind."""
+        from odoodev.core.database import wipe_database
+
+        queries: list[str] = []
+        monkeypatch.setattr("odoodev.core.database._existing_columns", lambda table, *a, **k: {"id"})
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql",
+            lambda query, **k: (queries.append(query), (True, ""))[1],
+        )
+        wipe_database("mydb")
+
+        attachments = next(i for i, q in enumerate(queries) if q.startswith("DELETE FROM ir_attachment"))
+        model_data = next(i for i, q in enumerate(queries) if q.startswith("DELETE FROM ir_model_data"))
+        assets = next(i for i, q in enumerate(queries) if q.startswith("DELETE FROM ir_asset"))
+        assert attachments < model_data < assets
 
 
 class TestGcFilestore:

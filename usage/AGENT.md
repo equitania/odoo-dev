@@ -148,7 +148,9 @@ completely untouched unless flags are passed: `--deactivate-cron`, `--neutralize
 `--anonymize` (Faker only), `--wipe` (since v0.62.0 a REAL delete: the chatter tables —
 mail_message, mail_tracking_value, mail_notification, mail_followers, mail_activity, rel
 tables — plus the ir_attachment rows AND their filestore files; keeps `res_field IS NOT NULL`
-image/binary storage and `ir.ui.view`/`ir.ui.menu` asset bundles),
+image/binary storage, `ir.ui.view`/`ir.ui.menu` asset bundles, and since v0.62.2 also the asset
+SOURCES (`url IS NOT NULL`) and every attachment with an XML ID — deleting those broke SCSS
+compilation and produced a permanent "style error" banner),
 `--purge-master-data`, or `--sanitize` for all of them at once (explicit
 `--no-*` flags win). **Since v0.48.0 `--sanitize` includes `--purge-master-data`** — a full
 "template DB from production" reset that DELETES movement data, CRM/HR/helpdesk/mail content,

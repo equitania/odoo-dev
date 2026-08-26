@@ -1512,18 +1512,58 @@ WIPE_DELETE_TABLES: tuple[str, ...] = (
     "mail_message",
 )
 
-# Attachment deletion. Two categories are deliberately kept:
+# Attachment deletion. Four categories are deliberately kept:
 #   - res_field IS NOT NULL — Binary/Image field storage (product images, avatars).
 #     Odoo stores fields.Image in ir_attachment, so deleting these would strip
 #     every product picture from the database, which is not what a wipe is for.
 #   - ir.ui.view / ir.ui.menu — compiled asset bundles (JS/CSS), no user content.
+#   - url IS NOT NULL — asset SOURCES, not just the compiled bundles. The custom
+#     theme SCSS (`/_custom/<bundle>/...`, referenced by ir_asset with
+#     directive=replace) and module files registered as attachments
+#     (`web/static/asset_styles_company_report.scss`) carry res_model NULL, so
+#     v0.62.0 deleted them and web.assets_frontend / web.report_assets_common
+#     stopped compiling — Odoo then renders a permanent "style error" banner.
+#   - attachments with an XML ID — a row referenced by ir_model_data is module
+#     data, not user content. Deleting it also left ir_model_data dangling
+#     (no FK), so env.ref() resolved to a dead res_id and Odoo's asset
+#     regeneration silently did nothing.
 # Everything else goes: invoice PDFs, chatter uploads and attachments whose
 # res_model is NULL (which a plain NOT IN would silently keep, since NULL NOT IN
 # (...) is NULL, not true).
 WIPE_ATTACHMENT_DELETE_SQL: str = (
     "DELETE FROM ir_attachment "
     "WHERE res_field IS NULL "
-    "  AND (res_model IS NULL OR res_model NOT IN ('ir.ui.view', 'ir.ui.menu'));"
+    "  AND (res_model IS NULL OR res_model NOT IN ('ir.ui.view', 'ir.ui.menu')) "
+    "  AND url IS NULL "
+    "  AND NOT EXISTS ("
+    "        SELECT 1 FROM ir_model_data d "
+    "         WHERE d.model = 'ir.attachment' AND d.res_id = ir_attachment.id"
+    "      );"
+)
+
+# Repair pass for databases already wiped by v0.62.0, whose attachment DELETE ran
+# without the two guards above. Both statements only ever touch rows whose target
+# is already gone, so they are a no-op on a healthy database:
+#   1. XML IDs pointing at deleted attachments. Without an FK these survive the
+#      DELETE and make env.ref('web.asset_styles_company_report') return a dead id.
+#   2. ir_asset records for custom theme SCSS whose source attachment is gone.
+#      Removing them makes Odoo fall back to the original module files, which is
+#      what turns the failing bundle compilation back into a working one.
+# The attachments themselves cannot be restored here — that needs `-u web -u website`
+# (see usage/db.md).
+WIPE_ORPHAN_REPAIR_SQL: tuple[tuple[str, str], ...] = (
+    (
+        "ir_model_data",
+        "DELETE FROM ir_model_data AS d "
+        "WHERE d.model = 'ir.attachment' "
+        "  AND NOT EXISTS (SELECT 1 FROM ir_attachment a WHERE a.id = d.res_id);",
+    ),
+    (
+        "ir_asset",
+        "DELETE FROM ir_asset AS a "
+        "WHERE a.path LIKE '/_custom/%' "
+        "  AND NOT EXISTS (SELECT 1 FROM ir_attachment t WHERE t.url = a.path);",
+    ),
 )
 
 # HR PII wiped with constant values. One spec per table covers v16/v18/v19 because
@@ -1937,6 +1977,11 @@ def wipe_database(
     (``ANONYMIZE_DELETE_TABLES``) are DELETEd, and — when ``filestore_path`` is
     given — the orphaned files are removed from disk afterwards.
 
+    Since v0.62.2 the attachment DELETE keeps asset sources and module data
+    (see ``WIPE_ATTACHMENT_DELETE_SQL``) and a repair pass
+    (``WIPE_ORPHAN_REPAIR_SQL``) drops the dangling XML IDs and custom-asset
+    records a v0.62.0 wipe left behind.
+
     Non-fatal by design: tables missing in this Odoo version are skipped.
 
     Args:
@@ -1956,13 +2001,22 @@ def wipe_database(
         if not ok:
             success = False
 
-    # 2. Attachments (rows), keeping asset bundles and Binary-field storage.
+    # 2. Attachments (rows), keeping asset bundles, asset sources, module data
+    #    and Binary-field storage.
     if _existing_columns("ir_attachment", db_name, host=host, port=port, user=user):
         ok, _ = _run_psql(WIPE_ATTACHMENT_DELETE_SQL, db=db_name, host=host, port=port, user=user)
         if not ok:
             success = False
 
-        # 3. Attachment files on disk — only meaningful once the rows are gone.
+        # 3. Repair leftovers from a v0.62.0 wipe (no-op on a healthy database).
+        for table, statement in WIPE_ORPHAN_REPAIR_SQL:
+            if not _existing_columns(table, db_name, host=host, port=port, user=user):
+                continue
+            ok, _ = _run_psql(statement, db=db_name, host=host, port=port, user=user)
+            if not ok:
+                success = False
+
+        # 4. Attachment files on disk — only meaningful once the rows are gone.
         if filestore_path:
             fs_ok, removed = gc_filestore(db_name, filestore_path, host=host, port=port, user=user)
             if removed:

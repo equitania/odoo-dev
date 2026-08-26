@@ -970,7 +970,8 @@ def _restore_dry_run(
     "--wipe/--no-wipe",
     default=None,
     help="Delete the whole chatter (messages, tracking values, followers, activities) plus all attachments "
-    "and their filestore files — keeps asset bundles and image fields. OFF by default",
+    "and their filestore files — keeps image fields, asset bundles, their SCSS sources and every "
+    "attachment with an XML ID. OFF by default",
 )
 @click.option(
     "--purge-transactions/--no-purge-transactions",

@@ -1,5 +1,57 @@
 # Release Notes
 
+## Version 0.62.2 (26.08.2026)
+
+### Fixed
+- **`--wipe` deleted the SCSS sources of the asset bundles and left dangling
+  XML IDs behind.** After a wipe of a database with `website` and a theme, the
+  backend showed a permanent red *"style error"* banner: `web.assets_frontend`
+  and `web.report_assets_common` no longer compiled, so the last CSS rule of the
+  bundle carried the `css_error_message` selector that Odoo's
+  `scss_error_display` service turns into that notification. The attachment
+  DELETE kept only `res_model IN ('ir.ui.view','ir.ui.menu')`, while every asset
+  SOURCE has `res_model IS NULL` and was therefore caught by the very branch
+  meant to cover orphaned uploads:
+  - the theme customization SCSS (`/_custom/web.assets_frontend/.../user_values.scss`,
+    `user_color_palette.scss`, `user_theme_color_palette.scss`), referenced by
+    `ir_asset` records with `directive=replace`,
+  - `web.asset_styles_company_report` (`web/static/asset_styles_company_report.scss`),
+    listed as a bundle file in web's manifest,
+  - the 135 `website.s_*_default_image` snippet images and `web.image_placeholder`.
+
+  Because `ir_model_data` has no foreign key to `ir_attachment`, the XML IDs of
+  the deleted rows survived: `env.ref('web.asset_styles_company_report')` returned
+  a dead `res_id`, so `_update_asset_style()` rebuilt nothing and the bundle stayed
+  broken. The filestore was never the cause — only DB rows were removed.
+
+  `WIPE_ATTACHMENT_DELETE_SQL` now also keeps every attachment with a `url` (the
+  asset sources) and every attachment referenced by `ir_model_data` (module data,
+  not user content). Invoice PDFs, chatter uploads and `res_model IS NULL`
+  attachments without an XML ID are still deleted.
+
+### Changed
+- **`--wipe` repairs what a v0.62.0 wipe left behind.** Two statements
+  (`WIPE_ORPHAN_REPAIR_SQL`) run after the attachment DELETE and are a no-op on a
+  healthy database: `ir_model_data` rows pointing at a deleted attachment are
+  removed, and `ir_asset` records with `path LIKE '/_custom/%'` whose source
+  attachment is gone are dropped so Odoo falls back to the original module files.
+  This makes an already-damaged database compile again; the deleted attachments
+  themselves are not restored — run `odoodev start <version> -d <db> -u web,website`
+  for that (see `usage/db.md`).
+- **`--wipe` help text corrected.** It promised "keeps asset bundles and image
+  fields", which was true of the compiled bundles but not of the sources they are
+  built from. It now names what is actually kept: image fields, asset bundles,
+  their SCSS sources and every attachment with an XML ID.
+- Eight regression tests in `tests/test_database.py::TestWipeKeepsAssetSources`
+  execute the wipe statements against SQLite with the row shapes from the bug
+  report, so the guards are checked by which rows survive rather than by string
+  matching: asset sources and XML-ID attachments stay, invoice PDFs and orphaned
+  uploads go, no `ir_model_data` row points at a deleted attachment, and the
+  repair runs after the DELETE.
+- `pyproject.toml` was still at `0.62.0` while `odoodev/__init__.py` said
+  `0.62.1` — a wheel built from that commit carried the wrong version. Both are
+  at `0.62.2` now.
+
 ## Version 0.62.1 (19.08.2026)
 
 ### Fixed

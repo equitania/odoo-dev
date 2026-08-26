@@ -626,9 +626,37 @@ readable (tracking history, followers and activities untouched) and kept every a
 both the database and the filestore. It now deletes the chatter tables and the attachment
 rows, and removes the orphaned files from the filestore.
 
-Two categories are deliberately **kept**: attachments with `res_field IS NOT NULL` (Odoo
+Four categories are deliberately **kept**: attachments with `res_field IS NOT NULL` (Odoo
 stores `fields.Image` in `ir_attachment`, so a blanket delete would strip every product image
-and avatar) and the compiled asset bundles on `ir.ui.view` / `ir.ui.menu`.
+and avatar), the compiled asset bundles on `ir.ui.view` / `ir.ui.menu`, every attachment with a
+`url` (the asset **sources** — the custom theme SCSS under `/_custom/…` and module files such as
+`web/static/asset_styles_company_report.scss`) and every attachment referenced by an
+`ir_model_data` row (module data, not user content).
+
+> **v0.62.0 deleted the last two categories** (fixed in v0.62.2). Both have `res_model IS NULL`,
+> so the branch meant for orphaned uploads caught them: `web.assets_frontend` and
+> `web.report_assets_common` stopped compiling and the backend showed a permanent red
+> *"style error"* banner. Since the XML IDs of the deleted rows survived (no foreign key on
+> `ir_model_data`), `env.ref('web.asset_styles_company_report')` returned a dead id and Odoo's
+> own asset repair did nothing.
+>
+> A wipe with v0.62.2+ repairs the leftovers — dangling `ir_model_data` rows and `/_custom/`
+> `ir_asset` records without a source attachment are removed, which makes the bundles compile
+> again from the original module files. The deleted attachments themselves come back with a
+> module update:
+>
+> ```bash
+> odoodev start 18 -d v18_m2_leer -u web,website
+> ```
+>
+> Check whether a database is affected:
+>
+> ```sql
+> SELECT d.module, count(*) FROM ir_model_data d
+>   LEFT JOIN ir_attachment a ON a.id = d.res_id
+>  WHERE d.model = 'ir.attachment' AND a.id IS NULL
+>  GROUP BY 1;
+> ```
 
 Replacement values are generated with **Faker** (`de_DE`, seeded per row id → reproducible).
 E-mail and login columns are deliberately **not** taken from Faker but forced onto reserved,
@@ -643,7 +671,8 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 | `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | wage → 0, sensitive personnel data (v19) |
 | `employee_bank_account_rel` (v19) | `--wipe` | M2M link deleted entirely |
 | `mail_message` + `mail_tracking_value`, `mail_notification`, `mail_followers`, `mail_activity`, rel tables | `--wipe` | rows deleted entirely (child before parent) — the chatter is empty afterwards |
-| `ir_attachment` | `--wipe` | rows deleted, except `res_field IS NOT NULL` (image/binary fields) and asset bundles (`ir.ui.view`/`ir.ui.menu`) |
+| `ir_attachment` | `--wipe` | rows deleted, except `res_field IS NOT NULL` (image/binary fields), asset bundles (`ir.ui.view`/`ir.ui.menu`), asset sources (`url IS NOT NULL`) and attachments with an XML ID (`ir_model_data`) |
+| `ir_model_data`, `ir_asset` | `--wipe` | repair pass: XML IDs pointing at a deleted attachment and `/_custom/%` assets without a source attachment are removed (no-op on a healthy DB) |
 | Filestore | `--wipe` | orphaned files removed from disk (`gc_filestore`) |
 
 > **`res_users` is NOT anonymized by default** — logins stay testable. Opt in via
