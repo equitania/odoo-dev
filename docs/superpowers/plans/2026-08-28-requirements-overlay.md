@@ -1915,9 +1915,22 @@ def bootstrap_requirements(version: str, version_cfg) -> tuple[bool, SyncOutcome
     created, plus the sync outcome (which carries a blocked_reason when an
     un-adopted hand-maintained file is in the way).
     """
+    allowed, reason = sync_allowed(version_cfg)
+    if not allowed:
+        target = generated_path(version_cfg)
+        outcome = SyncOutcome(
+            version=version, written=False, stale=False, path=target, result=None, blocked_reason=reason
+        )
+        return False, outcome
+
     created = seed_overlay(version_cfg)
     return created, sync_version(version, version_cfg)
 ```
+
+**The guard must be checked BEFORE seeding.** Seeding first would create the overlay whose mere
+existence `sync_allowed` treats as the user's consent — so a fresh `init` on a machine that never
+adopted would grant itself permission and overwrite the hand-maintained file with the bare
+baseline. This was a defect in an earlier draft of this plan, caught during implementation.
 
 In `odoodev/commands/init_cmd.py`, directly after the `if outdated:` block of Step 1.5, following
 the file's established lazy-import convention (see the `copy_example_templates` import above):
