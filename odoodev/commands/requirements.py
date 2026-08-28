@@ -57,3 +57,48 @@ def requirements_sync(ctx: click.Context, version: str | None, all_versions: boo
 
     if failed:
         raise SystemExit(1)
+
+
+@requirements.command("diff")
+@click.argument("version", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON output")
+@click.pass_context
+def requirements_diff(ctx: click.Context, version: str | None, as_json: bool) -> None:
+    """Show baseline vs. overlay vs. installed packages. Writes nothing."""
+    import json
+    import sys
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from odoodev.cli import resolve_version
+    from odoodev.core.requirements_sync import three_way_report
+
+    target = resolve_version(ctx, version)
+    rows = three_way_report(target, get_version(target))
+
+    if as_json:
+        payload = {
+            "version": target,
+            "rows": [
+                {
+                    "name": row.name,
+                    "base": row.base,
+                    "local": row.local,
+                    "installed": row.installed,
+                    "status": row.status,
+                }
+                for row in rows
+            ],
+        }
+        sys.stdout.write(json.dumps(payload) + "\n")
+        return
+
+    table = Table(title=f"Requirements v{target}")
+    for column in ("Package", "Base", "Local", "Installed", "Status"):
+        table.add_column(column)
+    for row in rows:
+        if row.status == "ok":
+            continue
+        table.add_row(row.name, row.base, row.local, row.installed, row.status)
+    Console().print(table)

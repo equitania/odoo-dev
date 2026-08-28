@@ -5,13 +5,16 @@ import os
 import pytest
 
 from odoodev.core.requirements_sync import (
+    DiffRow,
     SyncOutcome,
     ensure_generated_requirements,
     generated_path,
+    installed_packages,
     overlay_path,
     seed_overlay,
     sync_allowed,
     sync_version,
+    three_way_report,
 )
 
 
@@ -135,3 +138,47 @@ def test_seed_overlay_never_overwrites(cfg, tmp_path):
     (tmp_path / "requirements.local.txt").write_text("msal==1.31.0\n", encoding="utf-8")
     assert seed_overlay(cfg) is False
     assert (tmp_path / "requirements.local.txt").read_text(encoding="utf-8") == "msal==1.31.0\n"
+
+
+def test_installed_packages_parses_uv_freeze(monkeypatch):
+    import subprocess
+
+    def fake_run(cmd, **kwargs):
+        assert cmd[:3] == ["uv", "pip", "freeze"]
+        return subprocess.CompletedProcess(cmd, 0, stdout="Babel==2.16.0\nWerkzeug==3.0.6\n", stderr="")
+
+    monkeypatch.setattr("odoodev.core.requirements_sync.subprocess.run", fake_run)
+    assert installed_packages("/tmp/venv") == {"babel": "2.16.0", "werkzeug": "3.0.6"}
+
+
+def test_installed_packages_returns_empty_on_failure(monkeypatch):
+    import subprocess
+
+    monkeypatch.setattr(
+        "odoodev.core.requirements_sync.subprocess.run",
+        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom"),
+    )
+    assert installed_packages("/tmp/venv") == {}
+
+
+def test_three_way_report_classifies_each_row(cfg, tmp_path, bundle, monkeypatch):
+    (tmp_path / "requirements.local.txt").write_text("Werkzeug==3.0.6\nmsal==1.31.0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "odoodev.core.requirements_sync.installed_packages",
+        lambda venv_dir: {"babel": "2.16.0", "werkzeug": "3.0.6"},
+    )
+    rows = {row.name: row for row in three_way_report("16", cfg)}
+
+    assert rows["Babel"].status == "ok"
+    assert rows["Werkzeug"].status == "local override"
+    assert rows["Werkzeug"].base == "==3.1.3"
+    assert rows["Werkzeug"].local == "==3.0.6"
+    assert rows["Werkzeug"].installed == "3.0.6"
+    assert rows["msal"].status == "local only"
+
+
+def test_three_way_report_flags_declared_but_missing(cfg, tmp_path, bundle, monkeypatch):
+    monkeypatch.setattr("odoodev.core.requirements_sync.installed_packages", lambda venv_dir: {})
+    rows = {row.name: row for row in three_way_report("16", cfg)}
+    assert rows["Babel"].status == "not installed"
+    assert isinstance(rows["Babel"], DiffRow)

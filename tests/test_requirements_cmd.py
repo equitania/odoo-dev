@@ -66,3 +66,24 @@ def test_sync_all_covers_every_configured_version(env):
     assert result.exit_code == 0
     assert "v16" in result.output
     assert "v18" in result.output
+
+
+def test_diff_json_contract(env, monkeypatch):
+    import json
+
+    (env / "requirements.local.txt").write_text("Werkzeug==3.0.6\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "odoodev.core.requirements_sync.installed_packages",
+        lambda venv_dir: {"werkzeug": "3.0.6"},
+    )
+    result = CliRunner().invoke(cli, ["requirements", "diff", "16", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output.strip())
+    assert payload["version"] == "16"
+    names = {row["name"]: row for row in payload["rows"]}
+    assert names["Werkzeug"]["status"] == "local override"
+
+
+def test_diff_never_writes(env):
+    CliRunner().invoke(cli, ["requirements", "diff", "16"])
+    assert not (env / "requirements.txt").exists()

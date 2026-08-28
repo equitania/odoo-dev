@@ -7,6 +7,7 @@ overwrite guard and the write itself.
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass
 
 from odoodev import __version__
@@ -146,3 +147,84 @@ def seed_overlay(version_cfg) -> bool:
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(OVERLAY_TEMPLATE)
     return True
+
+
+@dataclass(frozen=True)
+class DiffRow:
+    """One package as seen by baseline, overlay and the installed venv."""
+
+    name: str
+    base: str
+    local: str
+    installed: str
+    status: str
+
+
+def installed_packages(venv_dir: str) -> dict[str, str]:
+    """Canonical name → installed version, via `uv pip freeze`.
+
+    Returns an empty mapping when the venv is absent or uv fails; the report
+    then simply shows nothing as installed rather than aborting.
+    """
+    from odoodev.core.requirements_merge import canonical_name
+
+    env = {**os.environ, "VIRTUAL_ENV": venv_dir}
+    result = subprocess.run(["uv", "pip", "freeze"], env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        return {}
+
+    packages: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        name, sep, version = line.strip().partition("==")
+        if sep and name:
+            packages[canonical_name(name)] = version.strip()
+    return packages
+
+
+def three_way_report(version: str, version_cfg) -> list[DiffRow]:
+    """Compare baseline, overlay and installed packages for one version."""
+    from odoodev.core.requirements_merge import parse_requirements
+
+    base_text = get_base_requirements_path(version).read_text(encoding="utf-8")
+    local_text = _read(overlay_path(version_cfg))
+    installed = installed_packages(os.path.join(version_cfg.paths.native_dir, ".venv"))
+
+    base_reqs = {
+        line.requirement.merge_key: line.requirement
+        for line in parse_requirements(base_text)
+        if line.requirement is not None
+    }
+    local_reqs = {
+        line.requirement.merge_key: line.requirement
+        for line in parse_requirements(local_text)
+        if line.requirement is not None
+    }
+
+    rows: list[DiffRow] = []
+    for key in list(base_reqs) + [k for k in local_reqs if k not in base_reqs]:
+        base_req = base_reqs.get(key)
+        local_req = local_reqs.get(key)
+        effective = local_req if local_req is not None else base_req
+        if effective is None:  # unreachable: the key came from one of the two maps
+            continue
+        installed_version = installed.get(effective.key, "")
+
+        if base_req is None:
+            status = "local only"
+        elif local_req is not None:
+            status = "local override"
+        elif not installed_version:
+            status = "not installed"
+        else:
+            status = "ok"
+
+        rows.append(
+            DiffRow(
+                name=effective.name,
+                base=base_req.specifier if base_req else "",
+                local=local_req.specifier if local_req else "",
+                installed=installed_version,
+                status=status,
+            )
+        )
+    return rows
