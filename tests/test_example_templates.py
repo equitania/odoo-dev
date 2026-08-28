@@ -8,10 +8,39 @@ import tempfile
 import pytest
 import yaml
 
-from odoodev.core.example_templates import copy_example_templates, get_example_dir, replace_example_template
+from odoodev.core.example_templates import (
+    _get_template_mapping,
+    copy_example_templates,
+    get_base_requirements_path,
+    get_example_dir,
+    replace_example_template,
+)
 from odoodev.core.version_registry import GitConfig, PathConfig, PortConfig, VersionConfig
 
 SUPPORTED_VERSIONS = ["16", "17", "18", "19"]
+
+
+def test_requirements_txt_is_no_longer_a_copyable_template(tmp_path):
+    """The generated requirements.txt must never be replaced by a bundled copy."""
+    from odoodev.core.version_registry import get_version
+
+    cfg = get_version("18")
+    mapping = _get_template_mapping("18", cfg)
+    assert "requirements.txt" not in mapping
+    assert "repos.yaml" in mapping
+    assert "postgresql.conf" in mapping
+
+
+def test_base_requirements_path_points_at_the_bundle():
+    path = get_base_requirements_path("16")
+    assert path.name == "requirements.base.txt"
+    assert path.is_file()
+    assert "Werkzeug" in path.read_text(encoding="utf-8")
+
+
+def test_every_supported_version_ships_a_baseline():
+    for version in ("16", "17", "18", "19"):
+        assert get_base_requirements_path(version).is_file()
 
 
 def _make_version_cfg(version: str, base: str) -> VersionConfig:
@@ -43,9 +72,9 @@ class TestGetExampleDir:
 
     @pytest.mark.parametrize("version", SUPPORTED_VERSIONS)
     def test_all_template_files_exist(self, version: str) -> None:
-        """All three template files exist for each version."""
+        """All bundled template files exist for each version."""
         d = get_example_dir(version)
-        expected = ["repos.yaml", "requirements.txt", "postgresql.conf", f"odoo{version}_template.conf"]
+        expected = ["repos.yaml", "requirements.base.txt", "postgresql.conf", f"odoo{version}_template.conf"]
         for filename in expected:
             assert (d / filename).is_file(), f"Missing {filename} in v{version} examples"
 
@@ -58,9 +87,9 @@ class TestCopyExampleTemplates:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _make_version_cfg("18", tmp)
             copied, outdated = copy_example_templates("18", cfg)
-            assert len(copied) == 4
+            assert len(copied) == 3
             assert "repos.yaml" in copied
-            assert "requirements.txt" in copied
+            assert "requirements.txt" not in copied
             assert "postgresql.conf" in copied
             assert "odoo18_template.conf" in copied
             assert len(outdated) == 0
@@ -84,8 +113,8 @@ class TestCopyExampleTemplates:
             assert "repos.yaml" not in copied
             # But repos.yaml should be in outdated (content differs)
             assert "repos.yaml" in outdated
-            # Other three should be copied
-            assert "requirements.txt" in copied
+            # Other two should be copied
+            assert "requirements.txt" not in copied
             assert "postgresql.conf" in copied
             assert "odoo18_template.conf" in copied
             # Verify existing file was not overwritten
@@ -139,7 +168,7 @@ class TestCopyExampleTemplates:
             assert len(copied) == 0
             assert "repos.yaml" in outdated
             # Unmodified files should not be outdated
-            assert "requirements.txt" not in outdated
+            assert "postgresql.conf" not in outdated
             assert "odoo18_template.conf" not in outdated
 
 
@@ -200,9 +229,9 @@ class TestTemplateContent:
 
     @pytest.mark.parametrize("version", SUPPORTED_VERSIONS)
     def test_requirements_txt_not_empty(self, version: str) -> None:
-        """requirements.txt is not empty and contains key packages."""
+        """requirements.base.txt is not empty and contains key packages."""
         d = get_example_dir(version)
-        content = (d / "requirements.txt").read_text()
+        content = (d / "requirements.base.txt").read_text()
         assert len(content) > 100
         # Key packages expected in all versions
         assert "psycopg2-binary" in content
@@ -212,9 +241,9 @@ class TestTemplateContent:
 
     @pytest.mark.parametrize("version", SUPPORTED_VERSIONS)
     def test_requirements_no_plain_psycopg2(self, version: str) -> None:
-        """requirements.txt uses psycopg2-binary, not plain psycopg2."""
+        """requirements.base.txt uses psycopg2-binary, not plain psycopg2."""
         d = get_example_dir(version)
-        content = (d / "requirements.txt").read_text()
+        content = (d / "requirements.base.txt").read_text()
         for line in content.splitlines():
             stripped = line.strip()
             if stripped.startswith("#") or not stripped:

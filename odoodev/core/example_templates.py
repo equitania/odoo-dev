@@ -37,10 +37,19 @@ def _get_template_mapping(version: str, version_cfg: VersionConfig) -> dict[str,
 
     return {
         "repos.yaml": os.path.join(native_dir, "repos.yaml"),
-        "requirements.txt": os.path.join(native_dir, "requirements.txt"),
         "postgresql.conf": os.path.join(native_dir, "postgresql.conf"),
         f"odoo{version}_template.conf": os.path.join(conf_dir, f"odoo{version}_template.conf"),
     }
+
+
+def get_base_requirements_path(version: str) -> Path:
+    """Return the bundled baseline requirements for a version.
+
+    Deliberately NOT part of _get_template_mapping(): the baseline is never
+    copied into the project. odoodev generates requirements.txt from it plus
+    the machine-local overlay instead.
+    """
+    return get_example_dir(version) / "requirements.base.txt"
 
 
 def copy_example_templates(version: str, version_cfg: VersionConfig) -> tuple[dict[str, str], dict[str, str]]:
