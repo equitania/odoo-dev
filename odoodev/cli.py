@@ -103,6 +103,7 @@ from odoodev.commands.migrate import migrate  # noqa: E402
 from odoodev.commands.playbook_cmd import playbook  # noqa: E402
 from odoodev.commands.pull import pull  # noqa: E402
 from odoodev.commands.repos import repos  # noqa: E402
+from odoodev.commands.requirements import requirements  # noqa: E402
 from odoodev.commands.run import run  # noqa: E402
 from odoodev.commands.setup_cmd import setup  # noqa: E402
 from odoodev.commands.shell_setup import shell_setup  # noqa: E402
@@ -115,6 +116,7 @@ cli.add_command(start)
 cli.add_command(stop)
 cli.add_command(pull)
 cli.add_command(repos)
+cli.add_command(requirements)
 cli.add_command(db)
 cli.add_command(env)
 cli.add_command(export)
