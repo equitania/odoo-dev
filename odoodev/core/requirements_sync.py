@@ -151,6 +151,31 @@ def seed_overlay(version_cfg) -> bool:
     return True
 
 
+def bootstrap_requirements(version: str, version_cfg) -> tuple[bool, SyncOutcome]:
+    """Seed an empty overlay if needed and generate the effective file.
+
+    Used by `init` on a fresh environment. Returns whether the overlay was
+    created, plus the sync outcome (which carries a blocked_reason when an
+    un-adopted hand-maintained file is in the way).
+
+    The guard is checked before seeding: seeding an overlay unconditionally
+    would itself count as the "consent" sync_allowed looks for, silently
+    letting a fresh init overwrite a hand-maintained requirements.txt it
+    never adopted. So a blocked environment is left untouched — no overlay,
+    no write — and the caller is pointed at `odoodev requirements adopt`.
+    """
+    allowed, reason = sync_allowed(version_cfg)
+    if not allowed:
+        target = generated_path(version_cfg)
+        outcome = SyncOutcome(
+            version=version, written=False, stale=False, path=target, result=None, blocked_reason=reason
+        )
+        return False, outcome
+
+    created = seed_overlay(version_cfg)
+    return created, sync_version(version, version_cfg)
+
+
 @dataclass(frozen=True)
 class DiffRow:
     """One package as seen by baseline, overlay and the installed venv."""

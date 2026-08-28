@@ -81,6 +81,17 @@ def init(
             else:
                 print_info(f"Keeping existing: {path}")
 
+    # Step 1.6: Requirements baseline/overlay
+    from odoodev.core.requirements_sync import bootstrap_requirements
+
+    overlay_created, sync_outcome = bootstrap_requirements(version, version_cfg)
+    if overlay_created:
+        print_info(f"Created empty local overlay: {os.path.join(native_dir, 'requirements.local.txt')}")
+    if sync_outcome.blocked_reason:
+        print_warning(sync_outcome.blocked_reason)
+    elif sync_outcome.written:
+        print_success(f"requirements.txt generated: {sync_outcome.path}")
+
     # Step 2: Create .env
     env_file = os.path.join(native_dir, ".env")
     if os.path.exists(env_file):
