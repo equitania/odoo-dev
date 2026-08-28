@@ -1,107 +1,156 @@
-# Odoo 18.0 Requirements — Python 3.13 (based on CI prepare-18)
-# psycopg2-binary used instead of psycopg2 for native development
-# Old Python markers (< 3.13) removed as v18 exclusively uses Python 3.13
+# Odoo 18 Requirements for Native macOS Development
+# Based on: prepare-18 Docker image (Python 3.13.12, Debian Trixie slim)
+# Updated: 04.03.2026
+#
+# Key differences for macOS:
+#   - psycopg2-binary instead of psycopg2 (no pg_config needed)
+#   - python-ldap may require OpenLDAP: brew install openldap
+#   - python-magic needs libmagic: brew install libmagic (without it Odoo falls
+#     back to its own mimetype guessing, which works but is less precise)
+#   - pypdf replaces PyPDF2 for Python 3.13+
+
+# Core Odoo dependencies (Python >= 3.13)
 asn1crypto==1.5.1
-Babel==2.16.0  # upgraded for sphinx 8.2.3 (requires >=2.13)
-cbor2==5.9.0  # upgraded from 5.8.0 for CVE-2026-26209 (DoS via recursion in loads)
+Babel==2.16.0
+cbor2==5.9.0  # CVE-2026-26209 (DoS via recursion in loads)
 chardet==5.2.0
-cryptography==46.0.7  # pyopenssl 26.0.0 requires >=46.0.0; upgraded from 46.0.5 for CVE-2026-39892 (buffer overflow) + CVE-2026-34073 (DNS constraint)
+cryptography==50.0.0  # floor required by eq-chatbot-core 3.x; CVE-2026-69247 (Bleichenbacher
+                      # oracle, PKCS#7), CVE-2026-69248/69249, vulnerable OpenSSL in wheels < 48.0.1
 decorator==5.1.1
 docutils==0.20.1
 freezegun==1.5.1
 geoip2==2.9.0
-gevent==24.11.1 ; sys_platform != 'win32'  # (Trixie)
-greenlet==3.1.1 ; sys_platform != 'win32'  # (Trixie)
-idna==3.15  # upgraded from 3.11 for CVE-2026-45409 (IDNA encode bypass)
+gevent==24.11.1
+greenlet==3.1.1
+idna==3.18  # CVE-2026-45409 (IDNA encode bypass); also the httpx2 floor
 Jinja2==3.1.6
 libsass==0.22.0
-lxml==5.4.0  # (Trixie) aligned with Odoo 18 pin; newer bundled libxslt
+lxml==6.1.2  # CVE-2026-41066 (XXE via iterparse()/ETCompatXMLParser() defaults)
 lxml-html-clean
 MarkupSafe==2.1.5
 num2words==0.5.13
 ofxparse==0.21
 openpyxl==3.1.2
 passlib==1.7.4
-Pillow==11.1.0  # (Trixie)
+Pillow==12.3.0  # 17 advisories: heap OOB writes in ImageCms / ImagingExpand /
+                # paste-crop, PSD OOB write, several decompression bombs
 polib==1.1.1
 psutil==5.9.8
-psycopg2-binary==2.9.10  # (Trixie)
-pyopenssl==26.0.0  # CVE-2026-27459: DTLS cookie buffer overflow fix, requires cryptography>=46.0.0
-pypdf==5.4.0  # (Trixie)
+
+# PostgreSQL adapter - use binary for macOS (no pg_config needed)
+psycopg2-binary==2.9.10
+
+pyopenssl==26.4.0  # <26 dies on Odoo startup with cryptography>=49 (GEN_EMAIL);
+                   # 26.0.0 caps cryptography<47, 26.4.0 wants >=49,<51
+
+# pypdf replaces PyPDF2 for Python 3.13+
+pypdf==6.16.1  # 70+ advisories (DoS / RAM exhaustion via malformed streams, xref
+               # tables, inline images)
+
 pyserial==3.5
 python-dateutil==2.8.2
-python-ldap==3.4.5 ; sys_platform != 'win32'  # upgraded from 3.4.4 for CVE-2025-61911/61912 (filter escaping bypass)
+
+# LDAP - requires: brew install openldap
+python-ldap==3.4.5  # CVE-2025-61911 / CVE-2025-61912 (filter escaping bypass)
+
 python-stdnum==1.19
-pytz  # no version pinning to avoid OS perturbations
+pytz  # intentionally unpinned - timezone data updates frequently
 pyusb==1.2.1
 qrcode==7.4.2
 reportlab==4.1.0
-requests==2.33.0  # upgraded from 2.32.5 for CVE-2026-25645 (insecure temp file reuse)
+requests==2.33.0  # CVE-2026-25645 (insecure temp file reuse)
 rjsmin==1.2.0
-rl-renderPM==4.0.3 ; sys_platform == 'win32'
-urllib3==2.7.0  # upgraded from 2.6.3 for CVE-2026-44431/44432 (cross-origin header leak + decompression bomb)
+urllib3==2.7.0  # CVE-2026-44431 / CVE-2026-44432 (cross-origin header leak, bomb)
 vobject==0.9.6.1
-Werkzeug==3.0.6  # upgraded from 3.0.1 for CVE-2024-34069 RCE fix
+Werkzeug==3.0.6
+watchdog
 xlrd==2.0.1
 XlsxWriter==3.1.9
 xlwt==1.3.0
-zeep==4.3.3  # upgraded from 4.3.1 for GHSA-4cc2-g9w2-fhf6 (SSRF)
+zeep==4.3.3  # GHSA-4cc2-g9w2-fhf6 (SSRF)
 rlPyCairo
 
-# custom libs
-openpyxl
+# PDF extraction - required by Odoo attachment_indexation module
+pdfminer.six==20260107  # CVE-2025-70559 (pickle deserialization -> local privesc)
+
+# Custom libs (Equitania)
 pycryptodome==3.23.0
-nextcloud-api-wrapper
+nextcloud-api-wrapper     # KEEP: the Equitania Nextcloud connector is still to be
+                          # imported into v18. No import in the tree yet, so the usual
+                          # unused-package sweep would drop it. Do not remove.
 phonenumbers
 python-slugify
-parse-accept-language
-bleach==6.4.0  # upgraded from 6.2.0 for GHSA-8rfp-98v4-mmr6 / GHSA-gj48-438w-jh9v (URI sanitization bypass)
+bleach==6.4.0  # GHSA-8rfp-98v4-mmr6 / GHSA-gj48-438w-jh9v (URI sanitization bypass)
 holidays==0.84
-#odoorpc-toolbox
-python-gitlab
-pypandoc==1.6.4
-python-docx==0.8.11
+markdown==3.10.2
 PyYAML>=6.0.1,<7.0.0
-pyotp>=2.9.0,<3.0.0
 paramiko>=3.5.0
 python-barcode
-#GitPython
-pandas==2.2.3
-numpy==1.26.3
+pandas>=2.1.0
+numpy>=1.26.3
 deepl
 unidecode
-pdfminer.six==20260107  # upgraded from 20251107 for CVE-2025-70559 (pickle deserialization -> local privesc)
 oauthlib==3.3.1
-sphinx==8.2.3
-sphinx_tabs==3.4.7
-sphinxcontrib-httpdomain==1.8.1
-sphinx_rtd_theme==3.0.2
-dicttoxml==1.7.16
 xmltodict==0.13.0
-openai>=2.0.0,<3.0.0  # aligned with eq-chatbot-core 1.17.2 (requires openai>=2.0.0)
-xmlschema
-msal==1.34.0  # upgraded from 1.31.1, supports cryptography>=46
-email_validator
-markdown==3.10.2
+
+# AI/Chatbot dependencies (eq-chatbot-core)
+# Install eq-chatbot-core locally (run manually):
+#   uv pip install -e ~/gitbase/PyPi-Projects/eq_chatbot_core[dev,rag,security,docs]
+#
+# The SDK stack (openai, anthropic, tiktoken, httpx/httpx2, pydantic, click) is
+# resolved by eq-chatbot-core itself and is NOT repeated here: the previous
+# duplicates pinned openai <3.0.0 and click <8.3.3, which contradict the floors
+# v3.0.0 requires and would make this file unresolvable.
+#
+# Extras in use by the v18 addons:
+#   rag      -> qdrant-client, imported directly by eq_chatbot_rag
+#   security -> puremagic; without it FileValidator silently degrades to
+#               extension-only checks on chatbot uploads (MIME spoofing)
+#   docs     -> markitdown + pymupdf for services/document_extractor
+eq-chatbot-core[rag,security,docs]>=3.0.0
+
+# Declared as an external_dependency by eq_chatbot_rag and imported directly.
+qdrant-client>=1.12.0,<2.0.0
+
+# Imported by v18-oca and odoo core (attachment MIME detection).
 python-magic>=0.4.27
-pymupdf>=1.25.0
-click>=8.1.0,<9.0.0  # aligned with eq-chatbot-core 1.17.2 (requires click>=8.1.0,<9.0.0)
+
+# Additional
+email_validator
 openupgradelib
 
-# AI/Chatbot dependencies
-eq-chatbot-core>=1.17.2
-anthropic>=0.90.0,<2.0.0  # aligned with eq-chatbot-core 1.17.2 (requires anthropic>=0.90.0,<2.0.0)
-qdrant-client>=1.12.0,<2.0.0
-tiktoken>=0.9.0,<1.0.0
-httpx>=0.27.0,<1.0.0
-pydantic>=2.11.0,<3.0.0  # aligned with eq-chatbot-core 1.17.2 (requires pydantic>=2.11.0)
+# Declared in external_dependencies but never installed, so Odoo refused to install
+# the owning modules. Added 19.08.2026, all clean against OSV.
+cachetools                # OCA component, component_event
+dbfread                   # v18e account_winbooks_import
+fsspec>=2024.5.0          # OCA fs_storage (floor taken from its manifest)
+google-auth               # v18e social_push_notifications
+odoorpc                   # OCA upgrade_analysis
+pycountry                 # OCA base_iso3166, delivery_dhl_paket
+pysftp                    # OCA auto_backup (see the paramiko note below)
+requests-oauthlib         # OCA webservice
+responses                 # OCA webservice - a test double, but declared as a hard dependency
+schwifty==2024.4.0        # OCA base_bank_from_iban pins this exact version; a newer
+                          # one fails Odoo's external_dependencies check
 
-# OCA REST-Framework Stack
-fastapi>=0.110.0
-a2wsgi>=1.10.6
-ujson
-python-multipart
-extendable>=0.0.4
-extendable-pydantic>=1.2.0
-pyjwt
-typing-extensions
+# Removed on 19.08.2026 - no import and no external_dependencies declaration
+# anywhere in the v18 tree (23 repos incl. odoo core, enterprise, OCA, customers):
+#   parse-accept-language, python-gitlab, pypandoc, python-docx, pyotp,
+#   dicttoxml, xmlschema, msal (v18-m365 authenticates through plain requests,
+#   it does not use msal) and the sphinx block. Plus a duplicate watchdog line.
+# Deliberately NOT removed although v19 dropped them - these are in use here:
+#   holidays (v18-solutions30), pandas (v18-sss, ks_dashboard_ninja),
+#   deepl (v18-addons), xmltodict (v18-oca, edi_xml_oca).
+
+# Declared by modules in the tree but deliberately NOT shipped:
+#   PyPDF2 (syscoon_financeinterface_datev_xml) - unmaintained since 2023, its
+#     successor pypdf is already here; shipping it would add an unpatched PDF parser
+#   SQLAlchemy, gTTS (ks_dashboard_ninja), cairosvg, lottie, python-telegram-bot
+#     (mail_gateway_telegram), plaid-python, py3o.template, py3o.formats, qifparse,
+#     suds-community, factur-x, odoo_test_helper
+#   These pull heavy or system-level dependencies for OCA modules we do not deploy.
+#   Install them ad hoc if such a module is ever needed.
+#
+# paramiko: OCA auto_backup declares paramiko<4.0.0, we ship 5.x because
+# eq_releasemanager uses it. auto_backup therefore stays uninstallable - deliberate,
+# downgrading two major versions for one unused OCA module is the worse trade.

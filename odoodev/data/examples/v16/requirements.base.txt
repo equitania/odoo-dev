@@ -2,14 +2,15 @@
 # psycopg2-binary used instead of psycopg2 for native development
 Babel==2.16.0
 chardet==4.0.0
-cryptography==46.0.0  # upgraded for pyopenssl 26.0.0 (CVE-2026-27459)
+cryptography==50.0.0  # floor required by eq-chatbot-core 3.x; 13 advisories against 44.0.0,
+                      # incl. CVE-2026-69247 (Bleichenbacher oracle in PKCS#7) and CVE-2024-12797
 decorator==4.4.2
 docutils==0.16
 ebaysdk==2.1.5
 freezegun==0.3.15
 gevent==24.2.1
 greenlet==3.0.3
-idna==3.10
+idna==3.18  # CVE-2026-45409 (IDNA encode bypass); also the httpx2 floor
 Jinja2==3.1.6
 libsass==0.22.0
 lxml==5.3.1
@@ -18,69 +19,93 @@ MarkupSafe==2.1.5
 num2words==0.5.9
 ofxparse==0.21
 passlib==1.7.4
-Pillow==11.1.0
+Pillow==12.3.0  # 34 advisories against 11.1.0: heap OOB writes in ImageCms / ImagingExpand /
+                # paste-crop, PSD OOB write, several decompression bombs
 polib==1.1.0
 psutil==5.9.8
 psycopg2-binary==2.9.9
 pydot==1.4.2
-pyopenssl==26.0.0  # CVE-2026-27459: DTLS cookie buffer overflow fix
+pyopenssl==26.4.0  # CVE-2026-27448 / CVE-2026-27459; also required by cryptography 50
+                   # (26.0.0 caps cryptography<47, 26.4.0 wants >=49,<51)
 PyPDF2==2.12.1 ; python_version < '3.13'
 pypdf==5.4.0 ; python_version >= '3.13'
 pyserial==3.5
 python-dateutil==2.8.2
-python-ldap==3.4.4
+python-ldap==3.4.5  # CVE-2025-61911 / CVE-2025-61912 (filter escaping bypass)
 python-stdnum==1.16
 pytz
 pyusb==1.2.1
 qrcode==6.1
 reportlab==4.1.0
-requests==2.32.3
-urllib3==2.3.0
+requests==2.33.0  # CVE-2024-47081 (netrc credential leak), CVE-2026-25645
+urllib3==2.7.0  # 12 advisories against 2.3.0, incl. CVE-2025-50181/50182 (redirect handling)
+                # and CVE-2026-44431/44432 (cross-origin header leak, decompression bomb)
 vobject==0.9.6.1
-Werkzeug==2.3.8  # Odoo 16 requires Werkzeug <2.4 (werkzeug.__version__ removed in 3.x)
+Werkzeug==3.0.6  # MUST stay < 3.1: odoo/http.py:260 reads werkzeug.__version__, which
+                 # 3.1 removed - Odoo 16 does not even import with 3.1.x. The file asked
+                 # for 3.1.3 while the venv still had 3.0.1, so this only surfaced on a
+                 # rebuild. Odoo 16 upstream pins 2.0.2; the open advisories against
+                 # 3.0.6 are Windows device names in safe_join and do not apply here.
 xlrd==1.2.0
 XlsxWriter==1.1.2
 xlwt==1.3.0
-zeep==4.0.0
+zeep==4.3.3  # CVE-2026-58501, GHSA-4cc2-g9w2-fhf6 (SSRF)
 
 # Custom and additional packages (from live deployment)
-bleach==6.2.0
+bleach==6.4.0  # GHSA-8rfp-98v4-mmr6 / GHSA-gj48-438w-jh9v (URI sanitization bypass)
 deepl
 dicttoxml==1.7.16
-GitPython
-holidays==0.10.1
-langchain-core>=0.3.61
-langchain-ollama>=0.3.3
-langchain-openai>=0.3.18
-langchain-qdrant>=0.2.0
-msal>=1.31  # unpinned: msal 1.31.x requires cryptography<46, 1.32+ supports >=46
+msal==1.37.0  # v16-microsoft365; 1.31.1 caps cryptography<46 and blocked the bump
+              # above - 1.37.0 allows <51
 nextcloud-api-wrapper
 numpy==1.26.4
 oauthlib==3.2.2
 odoorpc-toolbox
-openai
+openai                    # v16-ai, v16-equitania, v16-supedio import it directly
+
+# AI/Chatbot — declared by eq_chatbot, eq_chatbot_insights, eq_chatbot_mcp and
+# eq_website_chatbot but never pinned here, so those modules relied on a manual
+# install. Same version as v18/v19; v16 runs on Python 3.12, which meets the >=3.12
+# floor. Azure, Vertex and NovaSonic (removed in 3.0.0) are not used in the v16
+# tree, and the pricing_catalog import is try/except-guarded.
+eq-chatbot-core[rag,security,docs]>=3.0.0
+
+# Declared by eq_chatbot_rag. Until now it only arrived transitively through
+# langchain-qdrant, which is gone with the langchain block below.
+qdrant-client>=1.12.0,<2.0.0
 openupgradelib
 openpyxl
 pandas==2.2.2
 paramiko
-parse-accept-language
-pdfminer.six==20211012
+pdfminer.six==20260107  # CVE-2025-64512, CVE-2025-70559 (pickle deserialization -> local privesc)
 phonenumbers
 pycryptodome==3.21.0
-pypandoc==1.6.4
-pyotp
-python-barcode
-python-docx==1.1.2
-python-gitlab
 python-slugify
 PyYAML
-sphinx==5.3.0
-sphinx_rtd_theme==2.0.0
-sphinx_tabs==3.4.5
-sphinxcontrib-httpdomain==1.8.1
 unidecode
 xmlschema
 xmltodict==0.13.0
 
 # Native development additions (not in official Odoo requirements)
 rlPyCairo  # reportlab rendering (macOS and Linux)
+
+# Removed on 19.08.2026
+# - langchain-core / -ollama / -openai / -qdrant: only v16-langdock used them and
+#   that repo was never rolled out. The pins were open floors (>=0.3.61), so a
+#   rebuild pulled langchain-core 1.5.6 - a major the code was never written for.
+#   Dropping them also clears CVE-2025-68664 (CRITICAL, secret extraction) and
+#   five further advisories instead of merely capping them.
+# - No import anywhere in the 41 v16 directories: GitPython, holidays,
+#   parse-accept-language, pyotp, pypandoc, python-barcode, python-docx,
+#   python-gitlab and the sphinx block.
+#
+# Deliberately kept although v18/v19 dropped them - these ARE used in v16:
+#   msal (v16-microsoft365), nextcloud-api-wrapper (v16-cloud, v16-indurad,
+#   v16-supedio), deepl, dicttoxml, xmltodict, xmlschema, pandas, openai,
+#   odoorpc-toolbox, ebaysdk, pydot.
+#
+# lxml stays at 5.3.1 and Werkzeug at 3.0.6 on purpose: Odoo 16 has no
+# odoo/_monkeypatches layer, which is what makes lxml 6 and Werkzeug 3.1 safe in
+# v18/v19. Odoo 16 itself pins lxml 5.2.1. The open Werkzeug advisories are
+# Windows device names only.
+
