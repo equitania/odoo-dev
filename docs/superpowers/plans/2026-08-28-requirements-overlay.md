@@ -1221,7 +1221,7 @@ git commit -m "[ADD] odoodev requirements sync with --all and --check"
 
 **Interfaces:**
 - Consumes: `parse_requirements`, `canonical_name` (Task 1); `overlay_path`, `generated_path` (Task 5).
-- Produces in `requirements_sync`: `installed_packages(venv_dir: str) -> dict[str, str]` (canonical name → version); frozen dataclass `DiffRow(name: str, base: str, local: str, installed: str, status: str)`; `three_way_report(version: str, version_cfg) -> list[DiffRow]`. Status is one of `"base only"`, `"local override"`, `"local only"`, `"not installed"`, `"ok"`.
+- Produces in `requirements_sync`: `installed_packages(venv_dir: str) -> dict[str, str]` (canonical name → version); frozen dataclass `DiffRow(name: str, base: str, local: str, installed: str, status: str)`; `three_way_report(version: str, version_cfg) -> list[DiffRow]`. Status is one of `"local override"`, `"local only"`, `"not installed"`, `"ok"`. (An earlier draft also listed `"base only"`; it describes no distinguishable state — a package present only in the baseline is the normal case and is already told apart by `"ok"` versus `"not installed"`.)
 
 - [ ] **Step 1: Write the failing test**
 
