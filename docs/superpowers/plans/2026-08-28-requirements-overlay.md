@@ -1763,7 +1763,9 @@ class TestReportRequirementsSync:
             written=True,
             stale=True,
             path="/tmp/requirements.txt",
-            result=MergeResult(body=(), replaced=((base, local),), added=(), warnings=warnings),
+            result=MergeResult(
+                body=(), replaced=((base, local),), added=(), added_passthrough=(), warnings=warnings
+            ),
             blocked_reason="",
         )
 
