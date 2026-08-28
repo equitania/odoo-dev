@@ -10,10 +10,12 @@ from odoodev.core.requirements_sync import (
     adopt_candidates,
     adopt_passthrough_lines,
     backup_existing,
+    backup_overlay,
     bootstrap_requirements,
     ensure_generated_requirements,
     generated_path,
     installed_packages,
+    overlay_has_content,
     overlay_path,
     seed_overlay,
     sync_allowed,
@@ -275,6 +277,33 @@ def test_backup_existing_writes_pre_adopt_copy(cfg, tmp_path):
 
 def test_backup_existing_returns_none_without_a_file(cfg):
     assert backup_existing(cfg) is None
+
+
+def test_overlay_has_content_false_when_missing(cfg):
+    assert overlay_has_content(cfg) is False
+
+
+def test_overlay_has_content_false_on_the_empty_seeded_template(cfg, tmp_path):
+    seed_overlay(cfg)
+    assert overlay_has_content(cfg) is False
+
+
+def test_overlay_has_content_true_once_a_real_entry_is_present(cfg, tmp_path):
+    seed_overlay(cfg)
+    with open(overlay_path(cfg), "a", encoding="utf-8") as handle:
+        handle.write("msal==1.31.0\n")
+    assert overlay_has_content(cfg) is True
+
+
+def test_backup_overlay_writes_pre_adopt_copy(cfg, tmp_path):
+    (tmp_path / "requirements.local.txt").write_text("msal==1.31.0\n", encoding="utf-8")
+    path = backup_overlay(cfg)
+    assert path.endswith("requirements.local.txt.pre-adopt")
+    assert (tmp_path / "requirements.local.txt.pre-adopt").read_text(encoding="utf-8") == "msal==1.31.0\n"
+
+
+def test_backup_overlay_returns_none_without_a_file(cfg):
+    assert backup_overlay(cfg) is None
 
 
 def test_write_overlay_emits_parseable_entries(cfg, tmp_path):

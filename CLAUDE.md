@@ -57,7 +57,13 @@ uv build
 - **`core/requirements_sync.py`** — Filesystem layer for the baseline/overlay model (v0.63.0):
   paths, the overwrite guard (`sync_allowed` — refuses on a hand-maintained file without an
   overlay), `sync_version`, `ensure_generated_requirements` (called by `start` before the hash
-  check), `three_way_report`, `adopt_candidates`.
+  check), `three_way_report`, `adopt_candidates`. `overlay_has_content()` is the already-adopted
+  guard `adopt` keys on — it reads `requirements.local.txt` itself rather than the generated
+  file's header, because the header is not durable (a `git pull` in the shared `vXX-dev` repo, or
+  an older odoodev regenerating the file, can strip it without touching the overlay). `adopt`
+  refuses once this is true, pointing at `sync`; `backup_overlay()` additionally backs up
+  `requirements.local.txt` to `.pre-adopt` before a write, mirroring `backup_existing()` for
+  `requirements.txt`.
 - **`core/docker_compose.py`** — Renders and manages docker-compose.yml via Jinja2 template.
 - **`core/shell_integration.py`** — Installs `odoodev-activate` shell function for Fish, Bash, Zsh.
 - **`core/playbook_schema.py`** — Single source of truth for the playbook assistant (v0.54.0): `SCHEMA_VERSION`, frozen `WizardField`/`WizardSection` dataclasses, `SECTIONS`, `SQL_PRESETS` (enterprise code, eq_cloud cleanup, website-domain swap), `DEV_STEP_GROUPS`/`DEV_STEP_ORDER`, `STEP_ARG_SPECS` (descriptive per-step arg specs incl. `server.rebuild`), `wizard_schema()` (JSON-serializable; resolves `choices_source` like `available_versions` inline). Pure data — no questionary/click imports.

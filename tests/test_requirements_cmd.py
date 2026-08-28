@@ -148,3 +148,60 @@ def test_adopt_refuses_on_an_already_generated_file(env):
     result = CliRunner().invoke(cli, ["requirements", "adopt", "16"])
     assert result.exit_code == 1
     assert "already" in result.output.lower()
+
+
+def test_adopt_refuses_when_the_overlay_already_has_content(env):
+    """Regression for the critical finding: adopt must never clobber a
+    requirements.local.txt that already carries real entries — even when
+    requirements.txt no longer looks generated (a git pull in the shared
+    vXX-dev repo reverted it, or a colleague on a pre-0.63.0 odoodev
+    regenerated it by hand). The overlay's own content, not the generated
+    file's header, is the durable "already adopted" signal.
+    """
+    (env / "requirements.local.txt").write_text("msal==1.31.0  # v16-microsoft365\n", encoding="utf-8")
+    (env / "requirements.txt").write_text("Babel==2.16.0\nmsal==1.31.0\n", encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["requirements", "adopt", "16", "--yes"])
+
+    assert result.exit_code == 1
+    assert "sync" in result.output.lower()
+    overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
+    assert overlay == "msal==1.31.0  # v16-microsoft365\n"
+
+
+def test_sync_all_does_not_short_circuit_on_a_blocked_version(env, tmp_path, monkeypatch):
+    """Regression: one blocked version in `sync --all` must not stop the loop
+    early — the other (already current) version is still synced/reported and
+    the overall exit code stays 1 because of the blocked one.
+    """
+
+    class FakePaths:
+        def __init__(self, native_dir):
+            self.native_dir = native_dir
+
+    class FakeConfig:
+        def __init__(self, native_dir):
+            self.paths = FakePaths(native_dir)
+
+    blocked_dir = tmp_path / "v16native"
+    current_dir = tmp_path / "v18native"
+    blocked_dir.mkdir()
+    current_dir.mkdir()
+
+    configs = {"16": FakeConfig(str(blocked_dir)), "18": FakeConfig(str(current_dir))}
+    monkeypatch.setattr("odoodev.commands.requirements.get_version", lambda version: configs[version])
+
+    # v16: hand-written requirements.txt, no overlay -> blocked
+    (blocked_dir / "requirements.txt").write_text("hand written\n", encoding="utf-8")
+
+    # v18: already synced -> current, not stale
+    setup = CliRunner().invoke(cli, ["requirements", "sync", "18"])
+    assert setup.exit_code == 0
+
+    result = CliRunner().invoke(cli, ["requirements", "sync", "--all"])
+
+    assert result.exit_code == 1
+    assert "v16" in result.output
+    assert "adopt" in result.output
+    assert "v18" in result.output
+    assert "already current" in result.output

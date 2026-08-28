@@ -118,7 +118,10 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
         adopt_candidates,
         adopt_passthrough_lines,
         backup_existing,
+        backup_overlay,
         generated_path,
+        overlay_has_content,
+        overlay_path,
         sync_version,
         write_overlay,
     )
@@ -131,9 +134,24 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
         print_error(f"No requirements.txt at {current} — nothing to adopt. Run 'odoodev requirements sync'.")
         raise SystemExit(1)
 
+    # The durable "already adopted" signal: unlike requirements.txt's generated
+    # header, requirements.local.txt cannot silently revert (a git pull in the
+    # shared vXX-dev repo, or a colleague on an older odoodev, only ever
+    # touches the generated file). Checked first and unconditionally, so it
+    # can never be bypassed by requirements.txt losing its header.
+    if overlay_has_content(cfg):
+        print_error(
+            f"v{target}: {overlay_path(cfg)} already has entries — this environment has already adopted. "
+            f"Edit it directly, or run 'odoodev requirements sync' to regenerate requirements.txt from it."
+        )
+        raise SystemExit(1)
+
     with open(current, encoding="utf-8") as handle:
         if is_generated(handle.read()):
-            print_error(f"v{target}: requirements.txt is already generated — this environment has adopted.")
+            print_error(
+                f"v{target}: requirements.txt is already generated and the overlay is empty — nothing to "
+                f"adopt. Run 'odoodev requirements sync' if you need to refresh it."
+            )
             raise SystemExit(1)
 
     keep: list[Requirement] = []
@@ -159,6 +177,10 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
     backup = backup_existing(cfg)
     if backup:
         print_info(f"Previous file kept at {backup}")
+
+    overlay_backup = backup_overlay(cfg)
+    if overlay_backup:
+        print_info(f"Previous overlay kept at {overlay_backup}")
 
     overlay = write_overlay(cfg, keep, passthrough)
     print_success(f"Overlay written: {overlay} ({len(keep) + len(passthrough)} entries)")

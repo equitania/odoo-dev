@@ -332,9 +332,47 @@ def adopt_passthrough_lines(version_cfg) -> list[str]:
     return lines
 
 
+def overlay_has_content(version_cfg) -> bool:
+    """True once the overlay carries a real entry, not just the empty template.
+
+    This is the durable "already adopted" signal — unlike the generated
+    file's header, it cannot revert on its own: a git pull in the shared
+    vXX-dev repo, or a colleague running an older odoodev, can bring back a
+    non-generated requirements.txt, but nothing external rewrites
+    requirements.local.txt. `adopt`'s guard keys on this, not on
+    `is_generated(requirements.txt)`, so a re-run can never silently
+    overwrite pins that were only ever recorded here. A freshly seeded
+    empty template (see OVERLAY_TEMPLATE / seed_overlay) does not count, so
+    a genuine first-time adopt still proceeds.
+    """
+    for line in _read(overlay_path(version_cfg)).splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return True
+    return False
+
+
 def backup_existing(version_cfg) -> str | None:
     """Copy requirements.txt aside before adopt rewrites it."""
     source = generated_path(version_cfg)
+    if not os.path.exists(source):
+        return None
+    target = source + PRE_ADOPT_SUFFIX
+    shutil.copy2(source, target)
+    return target
+
+
+def backup_overlay(version_cfg) -> str | None:
+    """Copy requirements.local.txt aside before adopt (over)writes it.
+
+    Belt and braces alongside the `overlay_has_content` guard in the adopt
+    command: that guard already refuses to run once the overlay has real
+    content, so in practice this only ever backs up an empty template. It
+    stays anyway — a second, independent line of defense for the one file
+    this whole feature exists to protect, cheap enough that skipping it
+    would only save a template-sized file copy.
+    """
+    source = overlay_path(version_cfg)
     if not os.path.exists(source):
         return None
     target = source + PRE_ADOPT_SUFFIX
