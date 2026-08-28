@@ -1364,8 +1364,9 @@ def three_way_report(version: str, version_cfg) -> list[DiffRow]:
     for key in list(base_reqs) + [k for k in local_reqs if k not in base_reqs]:
         base_req = base_reqs.get(key)
         local_req = local_reqs.get(key)
-        effective = local_req or base_req
-        assert effective is not None
+        effective = local_req if local_req is not None else base_req
+        if effective is None:  # unreachable: the key came from one of the two maps
+            continue
         installed_version = installed.get(effective.key, "")
 
         if base_req is None:
