@@ -113,9 +113,10 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
     import os
 
     from odoodev.cli import resolve_version
-    from odoodev.core.requirements_merge import is_generated
+    from odoodev.core.requirements_merge import Requirement, is_generated
     from odoodev.core.requirements_sync import (
         adopt_candidates,
+        adopt_passthrough_lines,
         backup_existing,
         generated_path,
         sync_version,
@@ -135,7 +136,7 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
             print_error(f"v{target}: requirements.txt is already generated — this environment has adopted.")
             raise SystemExit(1)
 
-    keep: list = []
+    keep: list[Requirement] = []
     for candidate in adopt_candidates(target, cfg):
         if candidate.base is None:
             print_info(f"local only, moved to overlay: {candidate.existing.to_line()}")
@@ -151,12 +152,16 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
         if choice == "keep local":
             keep.append(candidate.existing)
 
+    passthrough = adopt_passthrough_lines(cfg)
+    for raw in passthrough:
+        print_info(f"passthrough line, moved to overlay: {raw}")
+
     backup = backup_existing(cfg)
     if backup:
         print_info(f"Previous file kept at {backup}")
 
-    overlay = write_overlay(cfg, keep)
-    print_success(f"Overlay written: {overlay} ({len(keep)} entries)")
+    overlay = write_overlay(cfg, keep, passthrough)
+    print_success(f"Overlay written: {overlay} ({len(keep) + len(passthrough)} entries)")
 
     outcome = sync_version(target, cfg)
     _print_sync_outcome(outcome)

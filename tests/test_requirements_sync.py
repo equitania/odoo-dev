@@ -8,6 +8,7 @@ from odoodev.core.requirements_sync import (
     DiffRow,
     SyncOutcome,
     adopt_candidates,
+    adopt_passthrough_lines,
     backup_existing,
     ensure_generated_requirements,
     generated_path,
@@ -240,6 +241,30 @@ def test_adopt_candidates_respect_markers(cfg, tmp_path, monkeypatch):
     assert candidates[0].base is None
 
 
+def test_adopt_passthrough_lines_collects_editable_vcs_and_url_requirements(cfg, tmp_path, bundle):
+    (tmp_path / "requirements.txt").write_text(
+        "Babel==2.16.0\n"
+        "-e ./local-pkg\n"
+        "git+https://example.invalid/x.git#egg=x\n"
+        "pkg @ https://example.invalid/x.whl\n"
+        "msal==1.31.0\n"
+        "# a comment\n"
+        "\n",
+        encoding="utf-8",
+    )
+    lines = adopt_passthrough_lines(cfg)
+    assert lines == [
+        "-e ./local-pkg",
+        "git+https://example.invalid/x.git#egg=x",
+        "pkg @ https://example.invalid/x.whl",
+    ]
+
+
+def test_adopt_passthrough_lines_empty_on_a_plain_file(cfg, tmp_path, bundle):
+    (tmp_path / "requirements.txt").write_text("Babel==2.16.0\nmsal==1.31.0\n", encoding="utf-8")
+    assert adopt_passthrough_lines(cfg) == []
+
+
 def test_backup_existing_writes_pre_adopt_copy(cfg, tmp_path):
     (tmp_path / "requirements.txt").write_text("Babel==2.16.0\n", encoding="utf-8")
     path = backup_existing(cfg)
@@ -262,3 +287,15 @@ def test_write_overlay_emits_parseable_entries(cfg, tmp_path):
     assert "msal==1.31.0" in text
     assert "v16-microsoft365" in text
     assert text.lstrip().startswith("#")
+
+
+def test_write_overlay_carries_passthrough_lines_verbatim(cfg, tmp_path):
+    passthrough = [
+        "-e ./local-pkg",
+        "git+https://example.invalid/x.git#egg=x",
+        "pkg @ https://example.invalid/x.whl",
+    ]
+    path = write_overlay(cfg, [], passthrough)
+    text = open(path, encoding="utf-8").read()
+    for line in passthrough:
+        assert line in text

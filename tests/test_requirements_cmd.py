@@ -123,6 +123,26 @@ def test_adopt_yes_keeps_every_local_entry_without_prompting(env):
     assert "msal==1.31.0" in overlay
 
 
+def test_adopt_moves_passthrough_lines_into_the_overlay_and_reports_them(env):
+    (env / "requirements.txt").write_text(
+        "Babel==2.16.0\n-e ./local-pkg\ngit+https://example.invalid/x.git#egg=x\npkg @ https://example.invalid/x.whl\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(cli, ["requirements", "adopt", "16", "--yes"])
+    assert result.exit_code == 0
+
+    overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
+    assert "-e ./local-pkg" in overlay
+    assert "git+https://example.invalid/x.git#egg=x" in overlay
+    assert "pkg @ https://example.invalid/x.whl" in overlay
+    assert "-e ./local-pkg" in result.output  # reported on screen, like a local-only entry
+
+    generated = (env / "requirements.txt").read_text(encoding="utf-8")
+    assert "-e ./local-pkg" in generated
+    assert "git+https://example.invalid/x.git#egg=x" in generated
+    assert "pkg @ https://example.invalid/x.whl" in generated
+
+
 def test_adopt_refuses_on_an_already_generated_file(env):
     CliRunner().invoke(cli, ["requirements", "sync", "16"])
     result = CliRunner().invoke(cli, ["requirements", "adopt", "16"])

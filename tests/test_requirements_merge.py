@@ -114,6 +114,39 @@ def test_overlay_only_entries_land_in_additions_block():
     assert [r.name for r in result.added] == ["msal"]
 
 
+def test_overlay_passthrough_lines_survive_verbatim_in_additions_block():
+    local = (
+        "-e ./local-pkg\ngit+https://example.invalid/x.git#egg=x\npkg @ https://example.invalid/x.whl\nmsal==1.31.0\n"
+    )
+    result = merge_requirements(BASE, local)
+    body = "\n".join(result.body)
+    assert "local additions" in body
+    assert "-e ./local-pkg" in body
+    assert "git+https://example.invalid/x.git#egg=x" in body
+    assert "pkg @ https://example.invalid/x.whl" in body
+    assert result.added_passthrough == (
+        "-e ./local-pkg",
+        "git+https://example.invalid/x.git#egg=x",
+        "pkg @ https://example.invalid/x.whl",
+    )
+    assert [r.name for r in result.added] == ["msal"]
+
+
+def test_overlay_passthrough_line_alone_still_opens_the_additions_block():
+    result = merge_requirements(BASE, "-e ./local-pkg\n")
+    body = "\n".join(result.body)
+    assert "local additions" in body
+    assert "-e ./local-pkg" in body
+    assert result.added == ()
+    assert result.added_passthrough == ("-e ./local-pkg",)
+
+
+def test_overlay_blank_and_comment_lines_are_not_treated_as_passthrough():
+    result = merge_requirements(BASE, "\n# just a note\n")
+    assert result.added_passthrough == ()
+    assert "local additions" not in "\n".join(result.body)
+
+
 def test_marker_variants_are_replaced_independently():
     base = "Babel==2.10.3 ; python_version < '3.13'\nBabel==2.17.0 ; python_version >= '3.13'\n"
     result = merge_requirements(base, "Babel==2.18.0 ; python_version >= '3.13'\n")

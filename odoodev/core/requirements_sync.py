@@ -285,6 +285,28 @@ def adopt_candidates(version: str, version_cfg) -> list[AdoptCandidate]:
     return candidates
 
 
+def adopt_passthrough_lines(version_cfg) -> list[str]:
+    """Non-requirement content lines in the current requirements.txt.
+
+    Editable installs (`-e ./local-pkg`), VCS and URL requirements
+    (`git+https://...`, `pkg @ https://...`) parse to no `Requirement` — see
+    `_parse_line` — so `adopt_candidates` cannot represent them and they have
+    no baseline counterpart to fall back on or conflict with. They are always
+    kept, verbatim, and reported like a local-only entry.
+    """
+    from odoodev.core.requirements_merge import parse_requirements
+
+    existing_text = _read(generated_path(version_cfg))
+    lines: list[str] = []
+    for line in parse_requirements(existing_text):
+        if line.requirement is not None:
+            continue
+        stripped = line.raw.strip()
+        if stripped and not stripped.startswith("#"):
+            lines.append(stripped)
+    return lines
+
+
 def backup_existing(version_cfg) -> str | None:
     """Copy requirements.txt aside before adopt rewrites it."""
     source = generated_path(version_cfg)
@@ -295,13 +317,15 @@ def backup_existing(version_cfg) -> str | None:
     return target
 
 
-def write_overlay(version_cfg, entries: list[Requirement]) -> str:
-    """Write the overlay file from a list of requirements."""
+def write_overlay(version_cfg, entries: list[Requirement], passthrough: list[str] | None = None) -> str:
+    """Write the overlay file from a list of requirements plus verbatim passthrough lines."""
     path = overlay_path(version_cfg)
     lines = [OVERLAY_TEMPLATE.rstrip("\n"), ""]
     for req in entries:
         comment = f"  # {req.comment}" if req.comment else ""
         lines.append(f"{req.to_line()}{comment}")
+    for raw in passthrough or []:
+        lines.append(raw)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines).rstrip("\n") + "\n")

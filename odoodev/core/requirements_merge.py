@@ -114,6 +114,7 @@ class MergeResult:
     body: tuple[str, ...]
     replaced: tuple[tuple[Requirement, Requirement], ...]
     added: tuple[Requirement, ...]
+    added_passthrough: tuple[str, ...]
     warnings: tuple[str, ...]
 
 
@@ -171,9 +172,19 @@ def merge_requirements(base_text: str, local_text: str) -> MergeResult:
     local_lines = parse_requirements(local_text)
 
     overlay: dict[tuple[str, str], Requirement] = {}
+    passthrough: list[str] = []
     for line in local_lines:
         if line.requirement is not None:
             overlay[line.requirement.merge_key] = line.requirement
+            continue
+        stripped = line.raw.strip()
+        # Editable installs, VCS and URL requirements parse to no Requirement (see
+        # _parse_line) but are still real, load-bearing content — unlike a base
+        # passthrough line (already carried through verbatim in the loop below),
+        # an overlay one has no baseline counterpart to fall back on, so it must be
+        # captured here or it silently disappears from the generated file.
+        if stripped and not stripped.startswith("#"):
+            passthrough.append(stripped)
 
     body: list[str] = []
     replaced: list[tuple[Requirement, Requirement]] = []
@@ -194,16 +205,18 @@ def merge_requirements(base_text: str, local_text: str) -> MergeResult:
                 warnings.append(warning)
 
     added = tuple(req for key, req in overlay.items() if key not in consumed)
-    if added:
+    if added or passthrough:
         if body and body[-1].strip():
             body.append("")
         body.append(ADDITIONS_HEADER)
         body.extend(_render_local(req) for req in added)
+        body.extend(passthrough)
 
     return MergeResult(
         body=tuple(body),
         replaced=tuple(replaced),
         added=added,
+        added_passthrough=tuple(passthrough),
         warnings=tuple(warnings),
     )
 
