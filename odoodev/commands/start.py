@@ -15,6 +15,7 @@ from odoodev.cli import resolve_version
 from odoodev.click_types import ExpandedPath
 from odoodev.core.environment import detect_shell
 from odoodev.core.prerequisites import check_port, wait_for_postgres_ready
+from odoodev.core.requirements_sync import ensure_generated_requirements
 from odoodev.core.venv_manager import (
     check_requirements_changed,
     check_venv_python_matches,
@@ -688,6 +689,25 @@ def _select_runtime(runtime_override: str | None, no_confirm: bool) -> str | Non
     return choice
 
 
+def _report_requirements_sync(version: str, version_cfg) -> bool:
+    """Regenerate requirements.txt when the shipped baseline moved on.
+
+    Returns True when a regeneration happened. Runs BEFORE the SHA256
+    freshness check on purpose: a regeneration changes the file, which is
+    exactly what that check is meant to react to.
+    """
+    outcome = ensure_generated_requirements(version, version_cfg)
+    if outcome is None or outcome.result is None:
+        return False
+
+    print_info(f"Base requirements updated — {outcome.path} regenerated")
+    for _base_req, local_req in outcome.result.replaced:
+        print_info(f"  {local_req.name}: overlay pins {local_req.specifier}")
+    for warning in outcome.result.warnings:
+        print_warning(f"  {warning}")
+    return True
+
+
 def _check_services(
     env_vars: dict[str, str],
     version_cfg: VersionConfigProtocol,
@@ -749,6 +769,8 @@ def _check_services(
 
                 name = build_dev_spec(effective_cfg, svc_env).container_name
                 print_success(f"Apple Container '{name}' is running — inspect with: container ls")
+
+    _report_requirements_sync(version, version_cfg)
 
     # Check requirements freshness
     requirements = os.path.join(native_dir, "requirements.txt")

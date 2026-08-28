@@ -858,6 +858,51 @@ class TestRequirementsHashAfterStartUpdate:
         _check_services({}, self._version_cfg(tmp_path), "18", str(tmp_path), str(tmp_path), no_confirm=True)
 
 
+class TestReportRequirementsSync:
+    """start regenerates requirements.txt before it compares hashes."""
+
+    def _outcome(self, warnings=()):
+        from odoodev.core.requirements_merge import MergeResult, Requirement
+        from odoodev.core.requirements_sync import SyncOutcome
+
+        base = Requirement(name="Werkzeug", key="werkzeug", extras=(), specifier="==3.1.3", marker="", comment="")
+        local = Requirement(name="Werkzeug", key="werkzeug", extras=(), specifier="==3.0.6", marker="", comment="")
+        return SyncOutcome(
+            version="16",
+            written=True,
+            stale=True,
+            path="/tmp/requirements.txt",
+            result=MergeResult(body=(), replaced=((base, local),), added=(), added_passthrough=(), warnings=warnings),
+            blocked_reason="",
+        )
+
+    def test_reports_regeneration_and_warnings(self, monkeypatch, capsys):
+        from odoodev.commands.start import _report_requirements_sync
+
+        outcome = self._outcome(warnings=("Werkzeug: overlay holds 3.0.6 back (base: 3.1.3)",))
+        monkeypatch.setattr(
+            "odoodev.commands.start.ensure_generated_requirements",
+            lambda version, version_cfg: outcome,
+        )
+
+        assert _report_requirements_sync("16", object()) is True
+        out = capsys.readouterr().out
+        assert "regenerated" in out
+        assert "holds 3.0.6 back" in out
+        assert "overlay pins ==3.0.6" in out
+
+    def test_stays_silent_when_nothing_changed(self, monkeypatch, capsys):
+        from odoodev.commands.start import _report_requirements_sync
+
+        monkeypatch.setattr(
+            "odoodev.commands.start.ensure_generated_requirements",
+            lambda version, version_cfg: None,
+        )
+
+        assert _report_requirements_sync("16", object()) is False
+        assert capsys.readouterr().out == ""
+
+
 from click.testing import CliRunner  # noqa: E402
 
 from odoodev.commands.start import start  # noqa: E402
