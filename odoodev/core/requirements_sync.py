@@ -7,6 +7,7 @@ overwrite guard and the write itself.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -14,6 +15,7 @@ from odoodev import __version__
 from odoodev.core.example_templates import get_base_requirements_path
 from odoodev.core.requirements_merge import (
     MergeResult,
+    Requirement,
     extract_base_hash,
     is_generated,
     render_requirements,
@@ -30,7 +32,7 @@ OVERLAY_TEMPLATE = """# requirements.local.txt — this file is yours; odoodev n
 # After editing, run: odoodev requirements sync
 #
 # Example:
-#   Werkzeug==3.0.6   # MUST stay < 3.1: odoo/http.py:260 reads werkzeug.__version__
+#   some-package==1.2.3   # why this pin exists
 """
 
 
@@ -241,3 +243,66 @@ def three_way_report(version: str, version_cfg) -> list[DiffRow]:
             )
         )
     return rows
+
+
+PRE_ADOPT_SUFFIX = ".pre-adopt"
+
+
+@dataclass(frozen=True)
+class AdoptCandidate:
+    """An entry from the existing file that adopt must decide about.
+
+    `base` is the baseline counterpart when one exists (a genuine conflict),
+    None when the entry exists only locally.
+    """
+
+    existing: Requirement
+    base: Requirement | None
+
+
+def adopt_candidates(version: str, version_cfg) -> list[AdoptCandidate]:
+    """Entries of the current requirements.txt that deviate from the baseline."""
+    from odoodev.core.requirements_merge import parse_requirements
+
+    base_text = get_base_requirements_path(version).read_text(encoding="utf-8")
+    existing_text = _read(generated_path(version_cfg))
+
+    base_reqs = {
+        line.requirement.merge_key: line.requirement
+        for line in parse_requirements(base_text)
+        if line.requirement is not None
+    }
+
+    candidates: list[AdoptCandidate] = []
+    for line in parse_requirements(existing_text):
+        req = line.requirement
+        if req is None:
+            continue
+        base_req = base_reqs.get(req.merge_key)
+        if base_req is not None and base_req.specifier == req.specifier and base_req.extras == req.extras:
+            continue
+        candidates.append(AdoptCandidate(existing=req, base=base_req))
+    return candidates
+
+
+def backup_existing(version_cfg) -> str | None:
+    """Copy requirements.txt aside before adopt rewrites it."""
+    source = generated_path(version_cfg)
+    if not os.path.exists(source):
+        return None
+    target = source + PRE_ADOPT_SUFFIX
+    shutil.copy2(source, target)
+    return target
+
+
+def write_overlay(version_cfg, entries: list[Requirement]) -> str:
+    """Write the overlay file from a list of requirements."""
+    path = overlay_path(version_cfg)
+    lines = [OVERLAY_TEMPLATE.rstrip("\n"), ""]
+    for req in entries:
+        comment = f"  # {req.comment}" if req.comment else ""
+        lines.append(f"{req.to_line()}{comment}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines).rstrip("\n") + "\n")
+    return path

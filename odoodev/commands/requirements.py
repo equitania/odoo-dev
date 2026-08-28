@@ -6,7 +6,7 @@ import click
 
 from odoodev.core.requirements_sync import SyncOutcome, sync_version
 from odoodev.core.version_registry import available_versions, get_version
-from odoodev.output import print_error, print_info, print_success, print_warning
+from odoodev.output import print_error, print_info, print_success, print_warning, select
 
 
 @click.group()
@@ -102,3 +102,61 @@ def requirements_diff(ctx: click.Context, version: str | None, as_json: bool) ->
             continue
         table.add_row(row.name, row.base, row.local, row.installed, row.status)
     Console().print(table)
+
+
+@requirements.command("adopt")
+@click.argument("version", required=False)
+@click.option("--yes", "-y", is_flag=True, help="Keep every local pin without prompting")
+@click.pass_context
+def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> None:
+    """Migrate a hand-maintained requirements.txt into baseline + overlay."""
+    import os
+
+    from odoodev.cli import resolve_version
+    from odoodev.core.requirements_merge import is_generated
+    from odoodev.core.requirements_sync import (
+        adopt_candidates,
+        backup_existing,
+        generated_path,
+        sync_version,
+        write_overlay,
+    )
+
+    target = resolve_version(ctx, version)
+    cfg = get_version(target)
+    current = generated_path(cfg)
+
+    if not os.path.exists(current):
+        print_error(f"No requirements.txt at {current} — nothing to adopt. Run 'odoodev requirements sync'.")
+        raise SystemExit(1)
+
+    with open(current, encoding="utf-8") as handle:
+        if is_generated(handle.read()):
+            print_error(f"v{target}: requirements.txt is already generated — this environment has adopted.")
+            raise SystemExit(1)
+
+    keep: list = []
+    for candidate in adopt_candidates(target, cfg):
+        if candidate.base is None:
+            print_info(f"local only, moved to overlay: {candidate.existing.to_line()}")
+            keep.append(candidate.existing)
+            continue
+        if yes:
+            keep.append(candidate.existing)
+            continue
+        choice = select(
+            f"{candidate.existing.name}: baseline {candidate.base.specifier} vs. local {candidate.existing.specifier}",
+            ["keep local", "take baseline"],
+        )
+        if choice == "keep local":
+            keep.append(candidate.existing)
+
+    backup = backup_existing(cfg)
+    if backup:
+        print_info(f"Previous file kept at {backup}")
+
+    overlay = write_overlay(cfg, keep)
+    print_success(f"Overlay written: {overlay} ({len(keep)} entries)")
+
+    outcome = sync_version(target, cfg)
+    _print_sync_outcome(outcome)

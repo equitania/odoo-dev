@@ -7,6 +7,8 @@ import pytest
 from odoodev.core.requirements_sync import (
     DiffRow,
     SyncOutcome,
+    adopt_candidates,
+    backup_existing,
     ensure_generated_requirements,
     generated_path,
     installed_packages,
@@ -15,6 +17,7 @@ from odoodev.core.requirements_sync import (
     sync_allowed,
     sync_version,
     three_way_report,
+    write_overlay,
 )
 
 
@@ -212,3 +215,50 @@ def test_three_way_report_flags_declared_but_missing(cfg, tmp_path, bundle, monk
     rows = {row.name: row for row in three_way_report("16", cfg)}
     assert rows["Babel"].status == "not installed"
     assert isinstance(rows["Babel"], DiffRow)
+
+
+def test_adopt_candidates_split_conflicts_from_local_only(cfg, tmp_path, bundle):
+    (tmp_path / "requirements.txt").write_text("Babel==2.16.0\nWerkzeug==3.0.6\nmsal==1.31.0\n", encoding="utf-8")
+    candidates = {c.existing.name: c for c in adopt_candidates("16", cfg)}
+
+    assert "Babel" not in candidates  # identical to baseline, nothing to decide
+    assert candidates["Werkzeug"].base is not None  # conflict: baseline has 3.1.3
+    assert candidates["msal"].base is None  # local only
+
+
+def test_adopt_candidates_respect_markers(cfg, tmp_path, monkeypatch):
+    base_file = tmp_path / "base.txt"
+    base_file.write_text("Babel==2.10.3 ; python_version < '3.13'\n", encoding="utf-8")
+    monkeypatch.setattr("odoodev.core.requirements_sync.get_base_requirements_path", lambda version: base_file)
+    (tmp_path / "requirements.txt").write_text(
+        "Babel==2.10.3 ; python_version < '3.13'\nBabel==2.17.0 ; python_version >= '3.13'\n",
+        encoding="utf-8",
+    )
+    candidates = adopt_candidates("16", cfg)
+    assert len(candidates) == 1
+    assert candidates[0].existing.marker == "python_version >= '3.13'"
+    assert candidates[0].base is None
+
+
+def test_backup_existing_writes_pre_adopt_copy(cfg, tmp_path):
+    (tmp_path / "requirements.txt").write_text("Babel==2.16.0\n", encoding="utf-8")
+    path = backup_existing(cfg)
+    assert path.endswith("requirements.txt.pre-adopt")
+    assert (tmp_path / "requirements.txt.pre-adopt").read_text(encoding="utf-8") == "Babel==2.16.0\n"
+
+
+def test_backup_existing_returns_none_without_a_file(cfg):
+    assert backup_existing(cfg) is None
+
+
+def test_write_overlay_emits_parseable_entries(cfg, tmp_path):
+    from odoodev.core.requirements_merge import parse_requirements
+
+    existing = [
+        line.requirement for line in parse_requirements("msal==1.31.0  # v16-microsoft365\n") if line.requirement
+    ]
+    path = write_overlay(cfg, existing)
+    text = open(path, encoding="utf-8").read()
+    assert "msal==1.31.0" in text
+    assert "v16-microsoft365" in text
+    assert text.lstrip().startswith("#")
