@@ -96,6 +96,7 @@ odoodev start 18 --dev
 | `odoodev doctor [VERSION]` | Umgebungs-Checks + PyPI-Update-Hinweis | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Konfiguration und Versionen (inkl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps (`--list`, `--var`) | [run.md](usage/run.md) |
+| `odoodev requirements [SUB] [VERSION]` | Requirements-Baseline + lokales Overlay abgleichen (`sync`, `diff`, `adopt`) | siehe unten |
 | `odoodev playbook [SUB]` | Playbook-Assistent: interaktiv erstellen (`create`), Feldschema für GUIs (`schema --json`), prüfen (`validate`) | [playbook.md](usage/playbook.md) |
 | `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
@@ -127,7 +128,8 @@ Port-Schema: `{version}{service}` — z.B. v18: DB=18432, Odoo=18069
 │   │   ├── .env                     # [GENERATED]
 │   │   ├── docker-compose.yml       # [GENERATED]
 │   │   ├── .venv/                   # [GENERATED]
-│   │   └── requirements.txt         # [MANUELL]
+│   │   ├── requirements.local.txt   # [MANUELL] Overlay (v0.63.0)
+│   │   └── requirements.txt         # [GENERATED] Baseline + Overlay
 │   ├── conf/odooXX_template.conf    # [MANUELL]
 │   └── scripts/repos.yaml           # [MANUELL]
 ├── myconfs/odoo_YYMMDD.conf         # [GENERATED]
@@ -135,6 +137,25 @@ Port-Schema: `{version}{service}` — z.B. v18: DB=18432, Odoo=18069
 ```
 
 **Legende:** `[GENERATED]` = von odoodev erzeugt | `[REPOS]` = per git clone | `[MANUELL]` = vom Benutzer
+
+### Requirements: Baseline + Overlay
+
+Seit v0.63.0 ist `requirements.txt` eine generierte Datei, keine mehr zum Bearbeiten. Drei Dateien
+sind beteiligt:
+
+| Datei | Herkunft | Bearbeitet der Benutzer? |
+|-------|----------|---------------------------|
+| `requirements.base.txt` | Mit odoodev ausgeliefert (`data/examples/vXX/`) | Nein |
+| `requirements.local.txt` | Maschinenlokales Overlay (`vXX-dev/devXX_native/`) | **Ja — hier eintragen** |
+| `requirements.txt` | Generiert aus Baseline + Overlay | Nein — wird überschrieben |
+
+Overlay-Einträge ersetzen den passenden Baseline-Eintrag an Ort und Stelle (Abgleich über
+Paketname + Environment-Marker, z. B. `python_version`), zusätzliche Einträge werden angehängt.
+`odoodev requirements sync` regeneriert die Datei; `odoodev requirements diff` zeigt Baseline vs.
+Overlay vs. installiert; `odoodev requirements adopt` überführt eine handgepflegte
+`requirements.txt` einmalig verlustfrei in Baseline + Overlay (Backup als `.pre-adopt`). Hält ein
+Overlay-Pin ein Baseline-Update zurück (etwa `Werkzeug==3.0.6` unter v16, weil Odoos `http.py` das
+in Werkzeug 3.1 entfernte `werkzeug.__version__` liest), meldet jeder Sync das explizit.
 
 ### Datenfluss
 
@@ -177,6 +198,23 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.63.0:**
+- **Neu:** Requirements sind jetzt Baseline (mitgeliefert) plus lokales Overlay
+  (`requirements.local.txt`, nie von odoodev überschrieben) — die wirksame `requirements.txt` wird
+  aus beiden generiert. Overlay-Einträge ersetzen den passenden Baseline-Eintrag, abgeglichen über
+  `(PEP-503-Name, Environment-Marker)` — v17 pinnt sechs Pakete zweimal, unterschieden nur durch
+  einen `python_version`-Marker.
+- **Neu:** Befehlsgruppe `odoodev requirements`: `sync` (regenerieren, `--all`, `--check` für CI),
+  `diff` (Baseline vs. Overlay vs. installiert, `--json`), `adopt` (einmalige verlustfreie
+  Migration einer handgepflegten Datei, Backup als `requirements.txt.pre-adopt`).
+- **Neu:** Ein zurückgehaltener Pin wird jetzt gemeldet — hält ein Overlay-Eintrag ein
+  Baseline-Update zurück, meldet jeder Sync das explizit (`Werkzeug: overlay holds 3.0.6 back
+  (base: 3.1.3)`).
+- **Geändert:** `odoodev start` regeneriert `requirements.txt`, wenn sich die mitgelieferte
+  Baseline geändert hat — direkt vor der bestehenden SHA256-Frische-Prüfung.
+- **Sicherheit:** `requirements sync` verweigert den Lauf, wenn die vorhandene `requirements.txt`
+  nicht von odoodev generiert wurde und kein Overlay existiert, und verweist auf `adopt`.
 
 **Version 0.62.2:**
 - **Behoben:** `--wipe` hat die Quelldateien der Asset-Bundles gelöscht. Nach einem Wipe zeigte das Backend dauerhaft die rote Meldung „Stilfehler“: `web.assets_frontend` und `web.report_assets_common` ließen sich nicht mehr kompilieren. Geschützt war nur `res_model IN ('ir.ui.view','ir.ui.menu')` — jede Asset-Quelle hat aber `res_model IS NULL` und wurde damit genau von dem Zweig erfasst, der herrenlose Uploads treffen sollte: die Theme-SCSS unter `/_custom/…`, `web.asset_styles_company_report` und die Standardbilder der Website-Snippets. Da `ir_model_data` keinen Fremdschlüssel auf `ir_attachment` hat, blieben die XML-IDs stehen, `env.ref('web.asset_styles_company_report')` zeigte ins Leere und Odoos eigene Reparatur lief wirkungslos. Der Wipe verschont jetzt zusätzlich jeden Anhang mit `url` (die Asset-Quellen) und jeden Anhang mit XML-ID (Moduldaten, kein Nutzerinhalt). Rechnungs-PDFs, Chatter-Uploads und Anhänge ohne `res_model` und ohne XML-ID werden weiterhin gelöscht.
@@ -454,6 +492,7 @@ odoodev start 18 --dev
 | `odoodev doctor [VERSION]` | Environment checks + PyPI update notice | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Configuration and versions (incl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML playbook or inline steps (`--list`, `--var`) | [run.md](usage/run.md) |
+| `odoodev requirements [SUB] [VERSION]` | Reconcile the requirements baseline with the local overlay (`sync`, `diff`, `adopt`) | see below |
 | `odoodev playbook [SUB]` | Playbook assistant: interactive creation (`create`), GUI field schema (`schema --json`), validation (`validate`) | [playbook.md](usage/playbook.md) |
 | `odoodev migrate [SUB]` | Migration mode for cross-version DB migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Install shell completions and wrappers | [shell.md](usage/shell.md) |
@@ -485,7 +524,8 @@ Port schema: `{version}{service}` — e.g. v18: DB=18432, Odoo=18069
 │   │   ├── .env                     # [GENERATED]
 │   │   ├── docker-compose.yml       # [GENERATED]
 │   │   ├── .venv/                   # [GENERATED]
-│   │   └── requirements.txt         # [MANUAL]
+│   │   ├── requirements.local.txt   # [MANUAL] Overlay (v0.63.0)
+│   │   └── requirements.txt         # [GENERATED] Baseline + overlay
 │   ├── conf/odooXX_template.conf    # [MANUAL]
 │   └── scripts/repos.yaml           # [MANUAL]
 ├── myconfs/odoo_YYMMDD.conf         # [GENERATED]
@@ -493,6 +533,25 @@ Port schema: `{version}{service}` — e.g. v18: DB=18432, Odoo=18069
 ```
 
 **Legend:** `[GENERATED]` = created by odoodev | `[REPOS]` = via git clone | `[MANUAL]` = user-provided
+
+### Requirements: Baseline + Overlay
+
+Since v0.63.0, `requirements.txt` is a generated file — no longer one to edit. Three files are
+involved:
+
+| File | Origin | User-edited? |
+|------|--------|---------------|
+| `requirements.base.txt` | Shipped with odoodev (`data/examples/vXX/`) | No |
+| `requirements.local.txt` | Machine-local overlay (`vXX-dev/devXX_native/`) | **Yes — edit here** |
+| `requirements.txt` | Generated from baseline + overlay | No — gets overwritten |
+
+Overlay entries replace their matching baseline entry in place (matched on package name +
+environment marker, e.g. `python_version`); entries with no baseline counterpart are appended.
+`odoodev requirements sync` regenerates the file; `odoodev requirements diff` shows baseline vs.
+overlay vs. installed; `odoodev requirements adopt` migrates a hand-maintained `requirements.txt`
+into baseline + overlay once, losslessly (keeps a `.pre-adopt` backup). When an overlay pin holds
+back a baseline update — e.g. `Werkzeug==3.0.6` on v16, because Odoo's `http.py` reads
+`werkzeug.__version__`, which Werkzeug 3.1 removed — every sync reports it explicitly.
 
 ### Data Flow
 
@@ -535,6 +594,21 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.63.0:**
+- **Added:** Requirements are now a shipped baseline plus a local overlay (`requirements.local.txt`,
+  never overwritten by odoodev) — the effective `requirements.txt` is generated from both. Overlay
+  entries replace their baseline counterpart, matched on `(PEP 503 name, environment marker)` — v17
+  pins six packages twice, distinguished only by a `python_version` marker.
+- **Added:** New command group `odoodev requirements`: `sync` (regenerate, `--all`, `--check` for
+  CI), `diff` (baseline vs. overlay vs. installed, `--json`), `adopt` (one-time lossless migration
+  of a hand-maintained file, keeping a `requirements.txt.pre-adopt` backup).
+- **Added:** A held-back pin is now reported — when an overlay entry blocks a baseline bump, every
+  sync says so explicitly (`Werkzeug: overlay holds 3.0.6 back (base: 3.1.3)`).
+- **Changed:** `odoodev start` regenerates `requirements.txt` when the shipped baseline moved on,
+  immediately before the existing SHA256 freshness check.
+- **Safety:** `requirements sync` refuses to run when the existing `requirements.txt` was not
+  generated by odoodev and no overlay exists, and points at `adopt`.
 
 **Version 0.62.2:**
 - **Fixed:** `--wipe` deleted the source files behind the asset bundles. After a wipe the backend showed a permanent red *"style error"* banner: `web.assets_frontend` and `web.report_assets_common` no longer compiled. Only `res_model IN ('ir.ui.view','ir.ui.menu')` was protected — but every asset source has `res_model IS NULL` and was therefore caught by the very branch meant for orphaned uploads: the theme SCSS under `/_custom/…`, `web.asset_styles_company_report` and the website snippets' default images. Since `ir_model_data` has no foreign key to `ir_attachment`, the XML IDs survived, `env.ref('web.asset_styles_company_report')` pointed at a dead id and Odoo's own repair did nothing. The wipe now additionally spares every attachment with a `url` (the asset sources) and every attachment with an XML ID (module data, not user content). Invoice PDFs, chatter uploads and attachments without a `res_model` and without an XML ID are still deleted.
