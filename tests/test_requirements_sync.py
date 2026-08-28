@@ -140,25 +140,55 @@ def test_seed_overlay_never_overwrites(cfg, tmp_path):
     assert (tmp_path / "requirements.local.txt").read_text(encoding="utf-8") == "msal==1.31.0\n"
 
 
-def test_installed_packages_parses_uv_freeze(monkeypatch):
+def test_installed_packages_parses_uv_freeze(tmp_path, monkeypatch):
     import subprocess
+
+    venv_dir = tmp_path / "venv"
+    venv_dir.mkdir()
+    (venv_dir / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
 
     def fake_run(cmd, **kwargs):
         assert cmd[:3] == ["uv", "pip", "freeze"]
         return subprocess.CompletedProcess(cmd, 0, stdout="Babel==2.16.0\nWerkzeug==3.0.6\n", stderr="")
 
     monkeypatch.setattr("odoodev.core.requirements_sync.subprocess.run", fake_run)
-    assert installed_packages("/tmp/venv") == {"babel": "2.16.0", "werkzeug": "3.0.6"}
+    assert installed_packages(str(venv_dir)) == {"babel": "2.16.0", "werkzeug": "3.0.6"}
 
 
-def test_installed_packages_returns_empty_on_failure(monkeypatch):
+def test_installed_packages_returns_empty_on_failure(tmp_path, monkeypatch):
     import subprocess
+
+    venv_dir = tmp_path / "venv"
+    venv_dir.mkdir()
+    (venv_dir / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
 
     monkeypatch.setattr(
         "odoodev.core.requirements_sync.subprocess.run",
         lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom"),
     )
-    assert installed_packages("/tmp/venv") == {}
+    assert installed_packages(str(venv_dir)) == {}
+
+
+def test_installed_packages_returns_empty_when_venv_missing(tmp_path):
+    """uv pip freeze does not fail on a bogus VIRTUAL_ENV — it silently falls
+    back to whatever environment uv can otherwise resolve and exits 0. So the
+    guard must trigger on the venv's absence itself, before uv ever runs;
+    this test exercises that path for real, without mocking subprocess.run.
+    """
+    missing_venv = tmp_path / "does-not-exist"
+    assert installed_packages(str(missing_venv)) == {}
+
+
+def test_installed_packages_returns_empty_when_uv_binary_missing(tmp_path, monkeypatch):
+    venv_dir = tmp_path / "venv"
+    venv_dir.mkdir()
+    (venv_dir / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError("uv not found")
+
+    monkeypatch.setattr("odoodev.core.requirements_sync.subprocess.run", fake_run)
+    assert installed_packages(str(venv_dir)) == {}
 
 
 def test_three_way_report_classifies_each_row(cfg, tmp_path, bundle, monkeypatch):

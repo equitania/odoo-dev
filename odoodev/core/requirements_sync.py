@@ -165,11 +165,24 @@ def installed_packages(venv_dir: str) -> dict[str, str]:
 
     Returns an empty mapping when the venv is absent or uv fails; the report
     then simply shows nothing as installed rather than aborting.
+
+    `uv pip freeze` does NOT fail when VIRTUAL_ENV points at a non-existent
+    path — it silently falls back to whatever Python environment uv can
+    otherwise resolve and exits 0. So the venv's presence (a real
+    pyvenv.cfg) is checked explicitly before ever invoking uv; without that
+    check a version whose venv was never created would report an unrelated
+    environment's packages instead of "not installed".
     """
     from odoodev.core.requirements_merge import canonical_name
 
+    if not os.path.isfile(os.path.join(venv_dir, "pyvenv.cfg")):
+        return {}
+
     env = {**os.environ, "VIRTUAL_ENV": venv_dir}
-    result = subprocess.run(["uv", "pip", "freeze"], env=env, capture_output=True, text=True)
+    try:
+        result = subprocess.run(["uv", "pip", "freeze"], env=env, capture_output=True, text=True)
+    except FileNotFoundError:
+        return {}
     if result.returncode != 0:
         return {}
 
