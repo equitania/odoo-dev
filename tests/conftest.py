@@ -82,6 +82,18 @@ def _stub_pg_reachable_precheck(request, monkeypatch):
         yield
         return
 
+    # Import odoodev.cli first so its module-level `from odoodev.commands.db
+    # import db` (odoodev/cli.py) runs to completion before anything imports
+    # odoodev.commands.db directly. odoodev/commands/db.py does `from
+    # odoodev.cli import resolve_version`, so whichever of the two modules
+    # starts importing second finds the other only partially initialized.
+    # Production code and a full-suite test run both happen to import
+    # odoodev.cli before odoodev.commands.db somewhere along the way; a
+    # single-file test run of a module that never imports odoodev.cli does
+    # not, and hits the cycle here. Forcing the order in this fixture keeps
+    # every test run's import order identical regardless of what else the
+    # test file under execution imports.
+    import odoodev.cli  # noqa: F401
     from odoodev.commands import db as db_cmd
 
     monkeypatch.setattr(db_cmd, "_ensure_pg_reachable", lambda version, params: None)
