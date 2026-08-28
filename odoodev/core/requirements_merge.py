@@ -100,3 +100,108 @@ def _parse_line(raw: str) -> Line:
 def parse_requirements(text: str) -> list[Line]:
     """Parse a requirements file into lines, preserving order and comments."""
     return [_parse_line(raw) for raw in text.splitlines()]
+
+
+LOCAL_MARK = "[local]"
+ADDITIONS_HEADER = "# ── local additions ──────────────────────────────────────────"
+
+
+@dataclass(frozen=True)
+class MergeResult:
+    """Outcome of merging a baseline with an overlay."""
+
+    body: tuple[str, ...]
+    replaced: tuple[tuple[Requirement, Requirement], ...]
+    added: tuple[Requirement, ...]
+    warnings: tuple[str, ...]
+
+
+def _pin_value(specifier: str) -> str | None:
+    """Return the pinned version for an '==' specifier, else None."""
+    return specifier[2:].strip() if specifier.startswith("==") else None
+
+
+def _version_tuple(value: str) -> tuple[int, ...] | None:
+    """Best-effort numeric version tuple; None when not purely numeric."""
+    try:
+        return tuple(int(part) for part in value.split("."))
+    except ValueError:
+        return None
+
+
+def _render_local(req: Requirement) -> str:
+    """Render an overlay requirement with its provenance marker."""
+    line = req.to_line()
+    padding = " " * max(1, 30 - len(line))
+    comment = f" {req.comment}" if req.comment else ""
+    return f"{line}{padding}# {LOCAL_MARK}{comment}"
+
+
+def _compare_warning(base: Requirement, local: Requirement) -> str | None:
+    """Warn when an overlay pin holds a baseline bump back."""
+    base_pin, local_pin = _pin_value(base.specifier), _pin_value(local.specifier)
+    if not base_pin or not local_pin or base_pin == local_pin:
+        return None
+    base_tuple, local_tuple = _version_tuple(base_pin), _version_tuple(local_pin)
+    if base_tuple is None or local_tuple is None:
+        return f"{base.name}: overlay pin {local_pin} differs from base {base_pin}"
+    if local_tuple < base_tuple:
+        return f"{base.name}: overlay holds {local_pin} back (base: {base_pin})"
+    return None
+
+
+def _extras_warning(base: Requirement, local: Requirement) -> str | None:
+    """Warn when an overlay entry silently drops the baseline's extras."""
+    dropped = set(base.extras) - set(local.extras)
+    if not dropped:
+        return None
+    return f"{base.name}: overlay drops baseline extras {sorted(dropped)}"
+
+
+def merge_requirements(base_text: str, local_text: str) -> MergeResult:
+    """Merge an overlay into a baseline, preserving baseline structure.
+
+    Overlay entries replace their baseline counterpart in place; entries with
+    no counterpart are appended in a dedicated block. Keeping the baseline's
+    order and comment blocks is what makes the git diff of a baseline update
+    readable — the comments are the actual knowledge in these files.
+    """
+    base_lines = parse_requirements(base_text)
+    local_lines = parse_requirements(local_text)
+
+    overlay: dict[tuple[str, str], Requirement] = {}
+    for line in local_lines:
+        if line.requirement is not None:
+            overlay[line.requirement.merge_key] = line.requirement
+
+    body: list[str] = []
+    replaced: list[tuple[Requirement, Requirement]] = []
+    warnings: list[str] = []
+    consumed: set[tuple[str, str]] = set()
+
+    for line in base_lines:
+        base_req = line.requirement
+        if base_req is None or base_req.merge_key not in overlay:
+            body.append(line.raw)
+            continue
+        local_req = overlay[base_req.merge_key]
+        consumed.add(base_req.merge_key)
+        replaced.append((base_req, local_req))
+        body.append(_render_local(local_req))
+        for warning in (_compare_warning(base_req, local_req), _extras_warning(base_req, local_req)):
+            if warning:
+                warnings.append(warning)
+
+    added = tuple(req for key, req in overlay.items() if key not in consumed)
+    if added:
+        if body and body[-1].strip():
+            body.append("")
+        body.append(ADDITIONS_HEADER)
+        body.extend(_render_local(req) for req in added)
+
+    return MergeResult(
+        body=tuple(body),
+        replaced=tuple(replaced),
+        added=added,
+        warnings=tuple(warnings),
+    )

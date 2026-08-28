@@ -1,6 +1,11 @@
 """Tests for the pure requirements merge core."""
 
-from odoodev.core.requirements_merge import Requirement, canonical_name, parse_requirements
+from odoodev.core.requirements_merge import (
+    Requirement,
+    canonical_name,
+    merge_requirements,
+    parse_requirements,
+)
 
 
 def test_canonical_name_normalises_case_and_separators():
@@ -71,3 +76,80 @@ def test_to_line_round_trips():
     text = "eq-chatbot-core[docs,rag]>=3.0.0 ; python_version >= '3.13'"
     req = parse_requirements(text + "\n")[0].requirement
     assert req.to_line() == "eq-chatbot-core[docs,rag]>=3.0.0 ; python_version >= '3.13'"
+
+
+BASE = """# baseline
+Babel==2.16.0
+cryptography==46.0.7          # CVE-2026-39892
+Werkzeug==3.1.3
+eq-chatbot-core[rag,docs]>=3.0.0
+"""
+
+
+def test_overlay_replaces_in_place_and_keeps_order():
+    result = merge_requirements(BASE, "Werkzeug==3.0.6  # MUST stay < 3.1\n")
+    body = "\n".join(result.body)
+    assert body.index("Babel") < body.index("Werkzeug") < body.index("eq-chatbot-core")
+    assert "Werkzeug==3.0.6" in body
+    assert "3.1.3" not in body
+    assert "[local]" in body
+
+
+def test_baseline_comments_survive():
+    result = merge_requirements(BASE, "")
+    body = "\n".join(result.body)
+    assert "# baseline" in body
+    assert "# CVE-2026-39892" in body
+
+
+def test_overlay_only_entries_land_in_additions_block():
+    result = merge_requirements(BASE, "msal==1.31.0  # v16-microsoft365\n")
+    body = "\n".join(result.body)
+    assert "local additions" in body
+    assert body.index("eq-chatbot-core") < body.index("msal")
+    assert [r.name for r in result.added] == ["msal"]
+
+
+def test_marker_variants_are_replaced_independently():
+    base = "Babel==2.10.3 ; python_version < '3.13'\nBabel==2.17.0 ; python_version >= '3.13'\n"
+    result = merge_requirements(base, "Babel==2.18.0 ; python_version >= '3.13'\n")
+    body = "\n".join(result.body)
+    assert "Babel==2.10.3 ; python_version < '3.13'" in body
+    assert "Babel==2.18.0 ; python_version >= '3.13'" in body
+    assert "2.17.0" not in body
+    assert result.added == ()
+
+
+def test_held_back_bump_is_reported():
+    result = merge_requirements(BASE, "Werkzeug==3.0.6\n")
+    assert any("Werkzeug" in w and "3.0.6" in w and "3.1.3" in w for w in result.warnings)
+
+
+def test_forward_pin_is_not_reported_as_held_back():
+    result = merge_requirements(BASE, "Werkzeug==3.2.0\n")
+    assert not any("holds" in w for w in result.warnings)
+
+
+def test_unparseable_version_degrades_to_neutral_message():
+    result = merge_requirements("foo==1.0.0\n", "foo==2.0.0rc1\n")
+    assert any("differs" in w for w in result.warnings)
+    assert not any("holds" in w for w in result.warnings)
+
+
+def test_dropped_extras_are_reported():
+    result = merge_requirements(BASE, "eq-chatbot-core>=3.1.0\n")
+    assert any("extras" in w and "eq-chatbot-core" in w for w in result.warnings)
+
+
+def test_replaced_pairs_expose_base_and_local():
+    result = merge_requirements(BASE, "Werkzeug==3.0.6\n")
+    base_req, local_req = result.replaced[0]
+    assert base_req.specifier == "==3.1.3"
+    assert local_req.specifier == "==3.0.6"
+
+
+def test_empty_overlay_reproduces_baseline_body():
+    result = merge_requirements(BASE, "")
+    assert "\n".join(result.body).rstrip() == BASE.rstrip()
+    assert result.replaced == ()
+    assert result.added == ()
