@@ -6,7 +6,7 @@ import hashlib
 import os
 import subprocess
 
-from odoodev.output import print_warning
+from odoodev.output import print_info, print_warning
 
 
 def create_venv(venv_dir: str, python_version: str, prompt: str) -> bool:
@@ -66,7 +66,32 @@ def install_requirements(
     # stale uv cache that does not yet know a freshly published version.
     print_warning("Install failed — retrying with fresh package index (uv --refresh)...")
     result = subprocess.run([*cmd, "--refresh"], env=env, cwd=cwd, capture_output=capture, text=True)
-    return result.returncode == 0
+    if result.returncode == 0:
+        return True
+
+    _report_overlay_hint(requirements_path)
+    return False
+
+
+def _report_overlay_hint(requirements_path: str) -> None:
+    """Name the overlay after a failed resolution, when one is in play.
+
+    uv reports which packages it could not reconcile but not which file to edit,
+    and requirements.txt — the file named in the install line above — is
+    generated, so changing it there achieves nothing. The overlay is the only
+    file the user owns.
+    """
+    from odoodev.core.requirements_sync import OVERLAY_FILENAME
+
+    overlay = os.path.join(os.path.dirname(requirements_path), OVERLAY_FILENAME)
+    if not os.path.exists(overlay):
+        return
+
+    print_info(
+        f"requirements.txt is generated — an overriding pin lives in {OVERLAY_FILENAME}. "
+        f"Run 'odoodev requirements diff' to see which entries override the baseline, then edit "
+        f"{overlay} and re-run 'odoodev requirements sync'."
+    )
 
 
 def hash_requirements(requirements_path: str) -> str:

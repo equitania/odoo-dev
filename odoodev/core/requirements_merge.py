@@ -191,10 +191,60 @@ def merge_requirements(base_text: str, local_text: str) -> MergeResult:
     warnings: list[str] = []
     consumed: set[tuple[str, str]] = set()
 
+    # An overlay entry whose marker differs from the baseline's still concerns a
+    # package the baseline pins. Treating it as unknown appends it alongside the
+    # baseline line, which hands uv two contradictory constraints for one package
+    # ("you require python-ldap==3.4.5 and python-ldap{sys_platform != 'win32'}
+    # ==3.4.4"). Such entries are matched on the name instead — but only after
+    # every exact (name, marker) match has claimed its counterpart, so the v17
+    # pairs keep resolving individually.
+    exact_keys = {
+        line.requirement.merge_key
+        for line in base_lines
+        if line.requirement is not None and line.requirement.merge_key in overlay
+    }
+    leftover_by_name: dict[str, list[Requirement]] = {}
+    for key, req in overlay.items():
+        if key not in exact_keys:
+            leftover_by_name.setdefault(req.key, []).append(req)
+
+    def _overlaps(base_req: Requirement, local_req: Requirement) -> bool:
+        """True when both entries can apply to the same environment.
+
+        An entry without a marker applies everywhere, so it necessarily overlaps
+        with any other entry for that package. Two *different* markers are taken
+        as complementary instead — that is exactly how the v17 pairs and the
+        `python_version < / >= '3.13'` splits are built, and merging those would
+        drop a platform rather than fix a conflict.
+        """
+        return not base_req.marker or not local_req.marker
+
+    collapsed: set[str] = set()
+
     for line in base_lines:
         base_req = line.requirement
-        if base_req is None or base_req.merge_key not in overlay:
+        if base_req is None:
             body.append(line.raw)
+            continue
+        if base_req.merge_key not in overlay:
+            substitutes = [
+                candidate for candidate in leftover_by_name.get(base_req.key, []) if _overlaps(base_req, candidate)
+            ]
+            if not substitutes:
+                body.append(line.raw)
+            elif base_req.key not in collapsed:
+                # First baseline line for this package: the overlay entries take
+                # its place. Any further baseline line for the same package is
+                # dropped rather than duplicated — the overlay already covers it.
+                collapsed.add(base_req.key)
+                for substitute in substitutes:
+                    consumed.add(substitute.merge_key)
+                    replaced.append((base_req, substitute))
+                    body.append(_render_local(substitute))
+                    warnings.append(
+                        f"{base_req.name}: overlay entry '{substitute.to_line()}' replaces baseline "
+                        f"'{base_req.to_line()}' — the environment markers differ"
+                    )
             continue
         local_req = overlay[base_req.merge_key]
         consumed.add(base_req.merge_key)

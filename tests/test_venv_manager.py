@@ -44,6 +44,37 @@ class TestInstallRequirements:
         assert "--refresh" not in mock_run.call_args_list[0].args[0]
         assert "--refresh" in mock_run.call_args_list[1].args[0]
 
+    def test_failure_names_the_overlay_as_the_file_to_edit(self, tmp_dir, capsys):
+        """uv's "no solution found" names the packages but never the file to change.
+
+        requirements.txt is generated, so editing it is pointless; the overlay is
+        the only file the user owns. Without this pointer a conflicting overlay pin
+        reads as an unexplained uv failure.
+        """
+        with open(f"{tmp_dir}/requirements.local.txt", "w", encoding="utf-8") as handle:
+            handle.write("cryptography==46.0.0\n")
+
+        with patch(
+            "odoodev.core.venv_manager.subprocess.run",
+            side_effect=[_completed(1), _completed(1)],
+        ):
+            result = install_requirements(tmp_dir, f"{tmp_dir}/requirements.txt")
+
+        assert result is False
+        output = " ".join(capsys.readouterr().out.split())
+        assert "requirements.local.txt" in output
+        assert "requirements diff" in output
+
+    def test_failure_stays_quiet_about_an_overlay_that_does_not_exist(self, tmp_dir, capsys):
+        """No overlay, no pointer — the failure is not an overlay problem then."""
+        with patch(
+            "odoodev.core.venv_manager.subprocess.run",
+            side_effect=[_completed(1), _completed(1)],
+        ):
+            install_requirements(tmp_dir, f"{tmp_dir}/requirements.txt")
+
+        assert "requirements.local.txt" not in capsys.readouterr().out
+
     def test_returns_false_when_refresh_also_fails(self, tmp_dir):
         """Should return False when both the install and the refresh retry fail."""
         with (

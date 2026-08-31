@@ -1,5 +1,51 @@
 # Release Notes
 
+## Version 0.64.1 (31.08.2026)
+
+### Fixed
+- **An overlay entry whose environment marker differs from the baseline's no
+  longer produces two contradictory pins.** The merge key is
+  `(name, environment marker)`, so a hand-maintained `python-ldap==3.4.4 ;
+  sys_platform != 'win32'` did not match the baseline's unmarked
+  `python-ldap==3.4.5`, was classed as a package the baseline does not know, and
+  both lines were written — after which uv refused to resolve: *"you require
+  python-ldap==3.4.5 and python-ldap{sys_platform != 'win32'}==3.4.4"*. The same
+  shape affected `gevent`, `greenlet` and `rl-renderPM` on v18, where the pins
+  happened to agree and the duplication stayed invisible.
+- Such entries are now matched on the package name — but only when one of the two
+  carries no marker at all, because an unmarked entry applies everywhere and
+  therefore genuinely overlaps. Two *different* markers stay side by side: the v17
+  `python_version` pairs and splits like `< '3.13'` / `>= '3.13'` are
+  complementary, and collapsing them would drop a platform. Name-level matching
+  runs only after every exact `(name, marker)` match has claimed its counterpart.
+- `requirements adopt` applies the same rule, so a marker-only difference is now
+  offered as a conflict instead of passing as a local-only entry — without this,
+  `--yes` kept the old pin after all, which is exactly what 0.64.0 set out to stop.
+
+## Version 0.64.0 (31.08.2026)
+
+### Changed
+- **BREAKING: `requirements adopt --yes` now takes the baseline for a conflicting
+  pin instead of keeping the local one.** A hand-maintained `requirements.txt`
+  predates the baseline, so its version of a baseline package is the older state
+  rather than a local decision. Keeping all of them reverted the entire security
+  baseline in one step — on v16 it also made the set unsolvable, because the
+  baseline's `cryptography` bump is exactly what `eq-chatbot-core[rag]>=3.0.0`
+  requires, and `adopt --yes` reinstated `cryptography==46.0.0` against it. uv
+  then refused to resolve, naming packages but not the file that caused it.
+  Packages the baseline does not know still move to the overlay unchanged; only
+  entries that collide with a baseline package are now dropped in its favour.
+- Interactive `adopt` (no flags) is unchanged: it still asks per conflict.
+
+### Added
+- **`requirements adopt --keep-local`** restores the previous `--yes` behaviour
+  for a deliberate local downgrade: every local pin is kept without prompting,
+  and each one is reported as overriding its baseline counterpart.
+- **A failed dependency resolution now names the overlay.** When `uv pip install`
+  cannot resolve after the `--refresh` retry, odoodev points at
+  `requirements.local.txt` and `odoodev requirements diff` — `requirements.txt`
+  is generated, so it is not the file to edit, which uv's own error cannot know.
+
 ## Version 0.63.0 (28.08.2026)
 
 ### Added

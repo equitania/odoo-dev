@@ -20,6 +20,16 @@ Seit v0.63.0 ist `requirements.txt` eine **generierte** Datei. Bearbeitet wird s
 Ein Overlay-Eintrag **ersetzt** den passenden Baseline-Eintrag an Ort und Stelle. Verglichen wird
 über Paketnamen (PEP 503, normalisiert) **und** Environment-Marker — v17 pinnt sechs Pakete
 zweimal unter unterschiedlichen `python_version`-Markern, deshalb reicht der Name allein nicht.
+
+Findet sich kein exakter Treffer, wird seit 0.64.1 zusätzlich über den **Paketnamen allein**
+verglichen — aber nur, wenn eine der beiden Seiten **gar keinen** Marker trägt. Ein markerloser
+Eintrag gilt in jeder Umgebung und überschneidet sich damit zwangsläufig; zwei *verschiedene*
+Marker gelten dagegen als komplementär und bleiben nebeneinander stehen (`< '3.13'` und
+`>= '3.13'` zusammenzuführen würde eine Plattform verlieren). Ohne diesen Rückfall standen die
+markerlose Baseline-Zeile `python-ldap==3.4.5` und die lokale
+`python-ldap==3.4.4 ; sys_platform != 'win32'` beide in der Datei, und uv verweigerte die
+Auflösung.
+
 Ein Eintrag ohne Gegenstück in der Baseline wird in einem eigenen Block am Ende angehängt.
 
 odoodev löst keine Abhängigkeiten auf: es bildet nur ab und schreibt die Datei — auflösen tut UV
@@ -43,7 +53,8 @@ odoodev requirements diff 18 --json
 
 # Handgepflegte requirements.txt einmalig übernehmen
 odoodev requirements adopt 18
-odoodev requirements adopt 18 --yes
+odoodev requirements adopt 18 --yes          # Baseline gewinnt bei Konflikten
+odoodev requirements adopt 18 --keep-local   # lokale Pins gewinnen
 ```
 
 Die Versionsangabe ist überall optional — ohne sie leitet odoodev sie aus dem aktuellen
@@ -98,7 +109,11 @@ Einmalige, verlustfreie Migration einer handgepflegten `requirements.txt` in das
 Ablauf:
 
 1. Jeder Eintrag, der von der Baseline abweicht, wird zur Auswahl gestellt
-   (`keep local` / `take baseline`). Mit `--yes` / `-y` bleibt ausnahmslos jeder lokale Pin.
+   (`keep local` / `take baseline`). Mit `--yes` / `-y` gewinnt ohne Rückfrage die **Baseline**:
+   eine handgepflegte `requirements.txt` ist älter als die Baseline, ihre Version eines
+   Baseline-Pakets ist also der alte Stand und keine bewusste lokale Entscheidung. Wer den
+   lokalen Pin wirklich braucht, nimmt `--keep-local` — dann bleibt ausnahmslos jeder lokale
+   Pin, und jeder einzelne wird als Baseline-Übersteuerung gemeldet.
 2. Einträge ohne Baseline-Gegenstück und Nicht-Requirement-Zeilen (etwa `-e`- oder
    `--index-url`-Zeilen) wandern ohne Rückfrage ins Overlay.
 3. Die bisherige `requirements.txt` wird als `requirements.txt.pre-adopt` gesichert, ein bereits
@@ -181,8 +196,16 @@ machine-local overlay.
 
 An overlay entry **replaces** its baseline counterpart in place. The match is on package name
 (PEP 503 normalised) **and** environment marker — v17 pins six packages twice under different
-`python_version` markers, so the name alone is not enough. An entry with no counterpart is
-appended in a dedicated block at the end.
+`python_version` markers, so the name alone is not enough.
+
+When no exact match exists, 0.64.1 additionally compares on the **package name alone** — but only
+when one of the two carries **no** marker at all. An unmarked entry applies in every environment
+and therefore necessarily overlaps; two *different* markers count as complementary and stay side by
+side (collapsing `< '3.13'` and `>= '3.13'` would drop a platform). Without that fallback the
+baseline's unmarked `python-ldap==3.4.5` and a local `python-ldap==3.4.4 ; sys_platform != 'win32'`
+were both written to the file, and uv refused to resolve.
+
+An entry with no counterpart is appended in a dedicated block at the end.
 
 odoodev resolves nothing: it maps and emits — UV resolves at install time.
 
@@ -204,7 +227,8 @@ odoodev requirements diff 18 --json
 
 # One-time migration of a hand-maintained requirements.txt
 odoodev requirements adopt 18
-odoodev requirements adopt 18 --yes
+odoodev requirements adopt 18 --yes          # baseline wins on conflicts
+odoodev requirements adopt 18 --keep-local   # local pins win
 ```
 
 The version argument is optional everywhere — without it odoodev derives it from the current
@@ -257,7 +281,11 @@ The table output hides `ok` rows — what remains is what deviates. `--json` ret
 One-time, lossless migration of a hand-maintained `requirements.txt` into the new model:
 
 1. Every entry that deviates from the baseline is offered as a choice (`keep local` /
-   `take baseline`). With `--yes` / `-y` every local pin is kept without prompting.
+   `take baseline`). With `--yes` / `-y` the **baseline** wins without prompting: a
+   hand-maintained `requirements.txt` predates the baseline, so its version of a baseline
+   package is the older state rather than a deliberate local decision. Use `--keep-local`
+   when the local pin really is deliberate — then every local pin is kept, each reported as
+   overriding its baseline counterpart.
 2. Entries with no baseline counterpart and non-requirement lines (such as `-e` or
    `--index-url` lines) move into the overlay without asking.
 3. The previous `requirements.txt` is backed up as `requirements.txt.pre-adopt`, an already

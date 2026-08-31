@@ -1,3 +1,3 @@
 """odoodev - Unified CLI tool for native Odoo development environment management."""
 
-__version__ = "0.63.0"
+__version__ = "0.64.1"

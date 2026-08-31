@@ -114,10 +114,33 @@ def test_adopt_taking_the_baseline_leaves_it_out_of_the_overlay(env, monkeypatch
     assert "Werkzeug==3.1.3" in (env / "requirements.txt").read_text(encoding="utf-8")
 
 
-def test_adopt_yes_keeps_every_local_entry_without_prompting(env):
+def test_adopt_yes_takes_the_baseline_for_conflicting_pins(env):
+    """--yes means "migrate me", not "freeze what I had".
+
+    A hand-maintained requirements.txt predates the baseline, so its versions of
+    baseline packages are simply the older state — not a deliberate local
+    decision. Carrying them into the overlay reverts the whole security baseline
+    at once, and on v16 it makes the set unsolvable: eq-chatbot-core's
+    cryptography floor is exactly what the baseline bump exists for.
+
+    Entries the baseline does not know stay local — that is what the overlay is.
+    """
     (env / "requirements.txt").write_text("Werkzeug==3.0.6\nmsal==1.31.0\n", encoding="utf-8")
     result = CliRunner().invoke(cli, ["requirements", "adopt", "16", "--yes"])
     assert result.exit_code == 0
+
+    overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
+    assert "Werkzeug" not in overlay
+    assert "msal==1.31.0" in overlay
+    assert "Werkzeug==3.1.3" in (env / "requirements.txt").read_text(encoding="utf-8")
+
+
+def test_adopt_keep_local_preserves_conflicting_pins_without_prompting(env):
+    """The escape hatch for a genuine local downgrade: no prompts, nothing dropped."""
+    (env / "requirements.txt").write_text("Werkzeug==3.0.6\nmsal==1.31.0\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["requirements", "adopt", "16", "--keep-local"])
+    assert result.exit_code == 0
+
     overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
     assert "Werkzeug==3.0.6" in overlay
     assert "msal==1.31.0" in overlay
@@ -205,3 +228,15 @@ def test_sync_all_does_not_short_circuit_on_a_blocked_version(env, tmp_path, mon
     assert "adopt" in result.output
     assert "v18" in result.output
     assert "already current" in result.output
+
+
+def test_adopt_yes_takes_the_baseline_when_only_the_marker_differs(env):
+    """A marker the baseline does not carry must not disguise a baseline package
+    as a local-only one — otherwise --yes silently keeps the old pin after all."""
+    (env / "requirements.txt").write_text("Werkzeug==3.0.6 ; sys_platform != 'win32'\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["requirements", "adopt", "16", "--yes"])
+    assert result.exit_code == 0
+
+    overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
+    assert "Werkzeug" not in overlay
+    assert "Werkzeug==3.1.3" in (env / "requirements.txt").read_text(encoding="utf-8")

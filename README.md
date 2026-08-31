@@ -202,6 +202,21 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.64.0:**
+- **Geändert (BREAKING):** `requirements adopt --yes` nimmt bei einem Konflikt jetzt die
+  **Baseline** statt den lokalen Pin. Eine handgepflegte `requirements.txt` ist älter als die
+  Baseline — ihre Version eines Baseline-Pakets ist der alte Stand, keine bewusste lokale
+  Entscheidung. Alle zu übernehmen machte die komplette Sicherheits-Baseline in einem Schritt
+  rückgängig und erzeugte auf v16 ein unauflösbares Set: der `cryptography`-Sprung der Baseline
+  ist genau das, was `eq-chatbot-core[rag]>=3.0.0` verlangt. Pakete, die die Baseline nicht kennt,
+  wandern unverändert ins Overlay.
+- **Neu:** `requirements adopt --keep-local` stellt das bisherige `--yes`-Verhalten für einen
+  bewussten lokalen Downgrade wieder her — jeder lokale Pin bleibt, jeder wird als
+  Baseline-Übersteuerung gemeldet.
+- **Neu:** Scheitert die Auflösung in `uv pip install`, verweist odoodev jetzt auf
+  `requirements.local.txt` und `odoodev requirements diff`. `requirements.txt` ist generiert und
+  damit nicht die Datei, die man bearbeitet — das kann uv aus seiner Fehlermeldung nicht wissen.
+
 **Version 0.63.0:**
 - **Neu:** Requirements sind jetzt Baseline (mitgeliefert) plus lokales Overlay
   (`requirements.local.txt`, nie von odoodev überschrieben) — die wirksame `requirements.txt` wird

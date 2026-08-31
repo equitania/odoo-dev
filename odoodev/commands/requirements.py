@@ -106,10 +106,22 @@ def requirements_diff(ctx: click.Context, version: str | None, as_json: bool) ->
 
 @requirements.command("adopt")
 @click.argument("version", required=False)
-@click.option("--yes", "-y", is_flag=True, help="Keep every local pin without prompting")
+@click.option("--yes", "-y", is_flag=True, help="Take the baseline for every conflict without prompting")
+@click.option(
+    "--keep-local",
+    is_flag=True,
+    help="Keep every local pin instead, overriding the baseline (no prompting)",
+)
 @click.pass_context
-def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> None:
-    """Migrate a hand-maintained requirements.txt into baseline + overlay."""
+def requirements_adopt(ctx: click.Context, version: str | None, yes: bool, keep_local: bool) -> None:
+    """Migrate a hand-maintained requirements.txt into baseline + overlay.
+
+    Packages the baseline does not know always move to the overlay. For a package
+    both files carry, the baseline wins by default: a hand-maintained file
+    predates the baseline, so its version is the older state rather than a local
+    decision, and keeping it would revert the baseline's security bumps wholesale.
+    Use --keep-local when the local pin really is deliberate.
+    """
     import os
 
     from odoodev.cli import resolve_version
@@ -160,8 +172,18 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool) -> No
             print_info(f"local only, moved to overlay: {candidate.existing.to_line()}")
             keep.append(candidate.existing)
             continue
-        if yes:
+        if keep_local:
+            print_warning(
+                f"kept local, overrides baseline {candidate.base.name}{candidate.base.specifier}: "
+                f"{candidate.existing.to_line()}"
+            )
             keep.append(candidate.existing)
+            continue
+        if yes:
+            print_info(
+                f"baseline wins: {candidate.base.name}{candidate.base.specifier} "
+                f"(local {candidate.existing.specifier} dropped)"
+            )
             continue
         choice = select(
             f"{candidate.existing.name}: baseline {candidate.base.specifier} vs. local {candidate.existing.specifier}",

@@ -233,3 +233,57 @@ def test_render_ends_with_single_newline():
     text, _ = render_requirements(version="16", odoodev_version="0.63.0", base_text="a==1\n", local_text="")
     assert text.endswith("\n")
     assert not text.endswith("\n\n")
+
+
+def test_a_marked_overlay_entry_replaces_an_unmarked_baseline_pin():
+    """A marker mismatch must not turn one package into two conflicting pins.
+
+    The v18 baseline pins python-ldap without a marker while the machine's
+    hand-maintained file carried `; sys_platform != 'win32'`. Matching on
+    (name, marker) alone treated that as a package the baseline does not know,
+    so both lines were emitted and uv refused: "you require python-ldap==3.4.5
+    and python-ldap{sys_platform != 'win32'}==3.4.4".
+    """
+    result = merge_requirements(
+        "python-ldap==3.4.5\n",
+        "python-ldap==3.4.4 ; sys_platform != 'win32'\n",
+    )
+    body = "\n".join(result.body)
+    assert "3.4.5" not in body
+    assert "3.4.4" in body
+    assert body.count("python-ldap") == 1
+
+
+def test_an_exact_marker_match_still_leaves_the_other_baseline_pin_alone():
+    """The v17 pairs stay individually addressable — that is why marker is in the key."""
+    base = "greenlet==3.1.1 ; python_version >= '3.12'\ngreenlet==2.0.2 ; python_version < '3.12'\n"
+    result = merge_requirements(base, "greenlet==3.2.0 ; python_version >= '3.12'\n")
+    body = "\n".join(result.body)
+    assert "3.2.0" in body
+    assert "2.0.2" in body
+    assert "3.1.1" not in body
+
+
+def test_an_unmarked_overlay_entry_collapses_every_baseline_pin_of_that_package():
+    """ "I want this version" replaces the whole set, rather than duplicating it."""
+    base = "greenlet==3.1.1 ; python_version >= '3.12'\ngreenlet==2.0.2 ; python_version < '3.12'\n"
+    result = merge_requirements(base, "greenlet==3.2.0\n")
+    body = "\n".join(result.body)
+    assert body.count("greenlet") == 1
+    assert "3.2.0" in body
+
+
+def test_two_different_markers_stay_side_by_side():
+    """Complementary markers are not a conflict — collapsing them drops a platform.
+
+    The baseline covers `python_version < '3.13'`, the overlay adds the other
+    half. Both lines must survive; only an unmarked entry, which applies
+    everywhere, genuinely overlaps.
+    """
+    result = merge_requirements(
+        "Babel==2.10.3 ; python_version < '3.13'\n",
+        "Babel==2.17.0 ; python_version >= '3.13'\n",
+    )
+    body = "\n".join(result.body)
+    assert "2.10.3" in body
+    assert "2.17.0" in body

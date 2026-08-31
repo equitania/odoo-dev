@@ -292,18 +292,32 @@ def adopt_candidates(version: str, version_cfg) -> list[AdoptCandidate]:
     base_text = get_base_requirements_path(version).read_text(encoding="utf-8")
     existing_text = _read(generated_path(version_cfg))
 
-    base_reqs = {
-        line.requirement.merge_key: line.requirement
-        for line in parse_requirements(base_text)
-        if line.requirement is not None
-    }
+    base_reqs = {}
+    base_by_name: dict[str, Requirement] = {}
+    for line in parse_requirements(base_text):
+        if line.requirement is None:
+            continue
+        base_reqs[line.requirement.merge_key] = line.requirement
+        base_by_name.setdefault(line.requirement.key, line.requirement)
 
     candidates: list[AdoptCandidate] = []
     for line in parse_requirements(existing_text):
         req = line.requirement
         if req is None:
             continue
+        # Fall back to the name when the marker differs: a hand-maintained file
+        # may carry `; sys_platform != 'win32'` on a package the baseline pins
+        # plainly. Reporting that as local-only would let --yes keep the old pin
+        # under the guise of an entry the baseline does not know.
         base_req = base_reqs.get(req.merge_key)
+        if base_req is None:
+            # Only when one side carries no marker at all: an unmarked entry
+            # applies everywhere and therefore overlaps. Two different markers
+            # are complementary (the v17 python_version splits) and must stay
+            # side by side.
+            named = base_by_name.get(req.key)
+            if named is not None and (not named.marker or not req.marker):
+                base_req = named
         if base_req is not None and base_req.specifier == req.specifier and base_req.extras == req.extras:
             continue
         candidates.append(AdoptCandidate(existing=req, base=base_req))
