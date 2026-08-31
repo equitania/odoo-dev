@@ -344,4 +344,4 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 ## Deeper docs
 For background and edge cases see `usage/`: `start.md`, `db.md`, `data-protection.md`, `repos.md`,
 `migrate.md`, `run.md`, `playbook.md`, `docker.md`, `apple-container.md`, `venv.md`, `config.md`,
-`setup.md`, `doctor.md`, `shell.md`, and the full `odoo-development-workflow.md`.
+`setup.md`, `doctor.md`, `shell.md`, `requirements.md`, and the full `odoo-development-workflow.md`.

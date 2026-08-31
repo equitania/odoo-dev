@@ -70,6 +70,7 @@ odoodev start 18 --dev
 > - [Repositories](usage/repos.md) — Klonen, Pull, Addon-Selektor
 > - [Datenbank](usage/db.md) — Backup, Restore, List, Drop
 > - [Virtual Environment](usage/venv.md) — UV-basierte venv-Verwaltung
+> - [Requirements](usage/requirements.md) — Baseline + lokales Overlay, `sync`/`diff`/`adopt`
 > - [Docker](usage/docker.md) — PostgreSQL & Mailpit Services
 > - [Konfiguration](usage/config.md) — Versionen, Plattforminfo, `config set`/`edit`
 > - [Doctor](usage/doctor.md) — Umgebungs-Checks und PyPI-Update-Hinweis
@@ -96,7 +97,7 @@ odoodev start 18 --dev
 | `odoodev doctor [VERSION]` | Umgebungs-Checks + PyPI-Update-Hinweis | [doctor.md](usage/doctor.md) |
 | `odoodev config [SUB]` | Konfiguration und Versionen (inkl. `set`/`edit`) | [config.md](usage/config.md) |
 | `odoodev run [PLAYBOOK]` | YAML-Playbook oder Inline-Steps (`--list`, `--var`) | [run.md](usage/run.md) |
-| `odoodev requirements [SUB] [VERSION]` | Requirements-Baseline + lokales Overlay abgleichen (`sync`, `diff`, `adopt`) | siehe unten |
+| `odoodev requirements [SUB] [VERSION]` | Requirements-Baseline + lokales Overlay abgleichen (`sync`, `diff`, `adopt`) | [requirements.md](usage/requirements.md) |
 | `odoodev playbook [SUB]` | Playbook-Assistent: interaktiv erstellen (`create`), Feldschema für GUIs (`schema --json`), prüfen (`validate`) | [playbook.md](usage/playbook.md) |
 | `odoodev migrate [SUB]` | Migrationsmodus für versionsübergreifende DB-Migration | [migrate.md](usage/migrate.md) |
 | `odoodev shell-setup` | Shell-Completions und Wrapper installieren | [shell.md](usage/shell.md) |
