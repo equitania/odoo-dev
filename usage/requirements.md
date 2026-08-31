@@ -55,6 +55,10 @@ odoodev requirements diff 18 --json
 odoodev requirements adopt 18
 odoodev requirements adopt 18 --yes          # Baseline gewinnt bei Konflikten
 odoodev requirements adopt 18 --keep-local   # lokale Pins gewinnen
+
+# Overlay-Einträge entfernen, die die Baseline abdeckt
+odoodev requirements prune 18 --dry-run
+odoodev requirements prune 18
 ```
 
 Die Versionsangabe ist überall optional — ohne sie leitet odoodev sie aus dem aktuellen
@@ -128,6 +132,34 @@ Ablauf:
   älterem odoodev kann den Header entfernen, das Overlay aber nicht.
 - `requirements.txt` trägt den Generiert-Header und das Overlay ist leer → es gibt nichts zu
   übernehmen.
+
+### `requirements prune`
+
+Räumt Overlay-Einträge weg, die die Baseline ohnehin abdeckt. Jede Umgebung, die vor 0.64.1
+migriert wurde, hat solche Einträge angesammelt — in einem echten v18-Overlay waren es 25 von
+30. Vier Kategorien werden entfernt, jede mit ihrem Baseline-Gegenstück angezeigt, bevor
+irgendetwas geschrieben wird:
+
+| Kategorie | Bedeutung |
+|-----------|-----------|
+| `redundant` | Eintrag ist identisch zur Baseline — reine Dublette |
+| `holds back` | Overlay-Pin ist älter als der Baseline-Pin (jedes zurückgehaltene Sicherheitsupdate) |
+| `drops extras` | Eintrag verliert Extras der Baseline, etwa `eq-chatbot-core>=1.1.0` ohne `[rag,security,docs]` |
+| `unpins` | Eintrag sagt weniger als die Baseline: gar kein Specifier, wo die Baseline einen hat (ein nacktes `PyYAML` lässt wieder 7.x zu, das `>=6.0.1,<7.0.0` ausschließt), oder ein Bereich über einem exakten Pin (`pyopenssl>=25.0.0` verwirft das `==26.4.0`, das existiert, weil `<26` beim Odoo-Start stirbt) |
+
+**Erhalten bleiben:** bewusst *neuere* Pins, jedes Paket, das die Baseline nicht kennt, und
+Passthrough-Zeilen (`-e`, VCS- und URL-Requirements). Ein Bereich über einem Baseline-Bereich
+bleibt ebenfalls stehen — ob er enger ist, entscheidet Versionsalgebra, die odoodev bewusst uv
+überlässt.
+
+```bash
+odoodev requirements prune 18 --dry-run   # nur anzeigen, nichts schreiben
+odoodev requirements prune 18             # anzeigen, dann y/N-Rückfrage
+odoodev requirements prune 18 --yes       # ohne Rückfrage
+```
+
+Das bisherige Overlay wird als `requirements.local.txt.pre-prune` gesichert, anschließend läuft
+automatisch ein `sync`.
 
 ### Automatik: `init` und `start`
 
@@ -229,6 +261,10 @@ odoodev requirements diff 18 --json
 odoodev requirements adopt 18
 odoodev requirements adopt 18 --yes          # baseline wins on conflicts
 odoodev requirements adopt 18 --keep-local   # local pins win
+
+# Remove overlay entries the baseline already covers
+odoodev requirements prune 18 --dry-run
+odoodev requirements prune 18
 ```
 
 The version argument is optional everywhere — without it odoodev derives it from the current
@@ -300,6 +336,31 @@ One-time, lossless migration of a hand-maintained `requirements.txt` into the ne
   header but never the overlay.
 - `requirements.txt` carries the generated header and the overlay is empty → there is nothing to
   adopt.
+
+### `requirements prune`
+
+Clears out overlay entries the baseline already covers. Every environment migrated before 0.64.1
+accumulated them — a real v18 overlay carried 25 such entries out of 30. Four categories are
+removed, each shown with its baseline counterpart before anything is written:
+
+| Category | Meaning |
+|----------|---------|
+| `redundant` | The entry is identical to the baseline — a pure duplicate |
+| `holds back` | The overlay pin is older than the baseline's (every security bump that never arrived) |
+| `drops extras` | The entry loses extras the baseline declares, e.g. `eq-chatbot-core>=1.1.0` without `[rag,security,docs]` |
+| `unpins` | The entry says less than the baseline: no specifier at all where the baseline has one (a bare `PyYAML` re-admits the 7.x that `>=6.0.1,<7.0.0` excludes), or a range over an exact pin (`pyopenssl>=25.0.0` discards the `==26.4.0` that exists because <26 dies on Odoo startup) |
+
+**Kept:** deliberately *newer* pins, every package the baseline does not know, and passthrough
+lines (`-e`, VCS and URL requirements). A range over a baseline range is kept too — deciding
+whether it is narrower needs version algebra odoodev deliberately leaves to uv.
+
+```bash
+odoodev requirements prune 18 --dry-run   # show only, write nothing
+odoodev requirements prune 18             # show, then a y/N confirmation
+odoodev requirements prune 18 --yes       # no confirmation
+```
+
+The previous overlay is kept as `requirements.local.txt.pre-prune`, and a `sync` runs afterwards.
 
 ### Automatic runs: `init` and `start`
 

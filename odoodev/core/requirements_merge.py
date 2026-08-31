@@ -139,6 +139,46 @@ def _render_local(req: Requirement) -> str:
     return f"{line}{padding}# {LOCAL_MARK}{comment}"
 
 
+def holds_back(base: Requirement, local: Requirement) -> bool:
+    """True when an overlay pin keeps a package below the baseline's pin.
+
+    Only meaningful for two `==` pins with purely numeric versions; anything
+    else (ranges, pre-release suffixes) is not a comparison this module is
+    willing to make without a resolver.
+    """
+    base_pin, local_pin = _pin_value(base.specifier), _pin_value(local.specifier)
+    if not base_pin or not local_pin or base_pin == local_pin:
+        return False
+    base_tuple, local_tuple = _version_tuple(base_pin), _version_tuple(local_pin)
+    if base_tuple is None or local_tuple is None:
+        return False
+    return local_tuple < base_tuple
+
+
+def unpins(base: Requirement, local: Requirement) -> bool:
+    """True when an overlay entry replaces an exact baseline pin with something looser.
+
+    Two shapes qualify. An overlay entry with no specifier at all says nothing
+    where the baseline said something — a bare `PyYAML` re-admits the 7.x that
+    the baseline's `>=6.0.1,<7.0.0` deliberately excludes. And a range over an
+    exact baseline pin discards a verified release: `pyopenssl>=25.0.0` drops
+    the `==26.4.0` that exists because <26 dies on Odoo startup.
+
+    A range over a range is left alone: deciding whether it is narrower or wider
+    needs version algebra this module deliberately does not do — uv resolves.
+    """
+    if not base.specifier:
+        return False
+    if not local.specifier:
+        return True
+    return bool(_pin_value(base.specifier)) and not _pin_value(local.specifier)
+
+
+def drops_extras(base: Requirement, local: Requirement) -> bool:
+    """True when an overlay entry silently loses extras the baseline declares."""
+    return bool(set(base.extras) - set(local.extras))
+
+
 def _compare_warning(base: Requirement, local: Requirement) -> str | None:
     """Warn when an overlay pin holds a baseline bump back."""
     base_pin, local_pin = _pin_value(base.specifier), _pin_value(local.specifier)

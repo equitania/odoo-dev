@@ -240,3 +240,33 @@ def test_adopt_yes_takes_the_baseline_when_only_the_marker_differs(env):
     overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
     assert "Werkzeug" not in overlay
     assert "Werkzeug==3.1.3" in (env / "requirements.txt").read_text(encoding="utf-8")
+
+
+def test_prune_removes_baseline_covered_entries_and_keeps_the_rest(env):
+    """The clean-up every environment migrated before 0.65.0 needs, done by the tool."""
+    (env / "requirements.local.txt").write_text("Werkzeug==3.0.6\nfintech\n-e ./local-pkg\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["requirements", "prune", "16", "--yes"])
+    assert result.exit_code == 0
+
+    overlay = (env / "requirements.local.txt").read_text(encoding="utf-8")
+    assert "Werkzeug" not in overlay
+    assert "fintech" in overlay
+    assert "-e ./local-pkg" in overlay
+    assert (env / "requirements.local.txt.pre-prune").exists()
+    assert "Werkzeug==3.1.3" in (env / "requirements.txt").read_text(encoding="utf-8")
+
+
+def test_prune_dry_run_changes_nothing_on_disk(env):
+    (env / "requirements.local.txt").write_text("Werkzeug==3.0.6\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["requirements", "prune", "16", "--dry-run"])
+    assert result.exit_code == 0
+    assert "Werkzeug==3.0.6" in (env / "requirements.local.txt").read_text(encoding="utf-8")
+    assert not (env / "requirements.local.txt.pre-prune").exists()
+
+
+def test_prune_says_so_when_the_overlay_is_already_clean(env):
+    (env / "requirements.local.txt").write_text("fintech\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["requirements", "prune", "16", "--yes"])
+    assert result.exit_code == 0
+    assert "nothing to prune" in result.output.lower()
+    assert not (env / "requirements.local.txt.pre-prune").exists()

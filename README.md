@@ -202,6 +202,22 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.65.0:**
+- **Neu:** `odoodev requirements prune` entfernt Overlay-Einträge, die die Baseline ohnehin
+  abdeckt — identische Dubletten, zurückgehaltene Pins, Einträge die Baseline-Extras verlieren,
+  und solche die einen Pin aufweichen (ein nacktes `PyYAML` lässt wieder das 7.x zu, das die
+  Baseline ausschließt). In einem echten v18-Overlay waren das 25 von 30 Einträgen. Bewusst
+  neuere Pins, der Baseline unbekannte Pakete und Passthrough-Zeilen bleiben stehen.
+  `--dry-run` zeigt nur, `--yes` überspringt die Rückfrage, Backup als `.pre-prune`.
+
+**Version 0.64.1:**
+- **Behoben:** Ein Overlay-Eintrag mit abweichendem Environment-Marker erzeugte zwei
+  widersprüchliche Pins desselben Pakets — die markerlose Baseline-Zeile `python-ldap==3.4.5`
+  und die lokale `python-ldap==3.4.4 ; sys_platform != 'win32'` standen beide in der Datei, und
+  uv verweigerte die Auflösung. Solche Einträge werden jetzt über den Paketnamen abgeglichen,
+  aber nur wenn eine der beiden Seiten gar keinen Marker trägt; zwei *verschiedene* Marker
+  gelten als komplementär und bleiben nebeneinander (die v17-`python_version`-Paare).
+
 **Version 0.64.0:**
 - **Geändert (BREAKING):** `requirements adopt --yes` nimmt bei einem Konflikt jetzt die
   **Baseline** statt den lokalen Pin. Eine handgepflegte `requirements.txt` ist älter als die

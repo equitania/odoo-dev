@@ -1,5 +1,36 @@
 # Release Notes
 
+## Version 0.65.0 (31.08.2026)
+
+### Added
+- **`odoodev requirements prune [VERSION]`** — removes overlay entries the baseline
+  already covers. Every environment migrated before 0.64.1 accumulated them, and
+  clearing them out by hand took a `sed` over two dozen package names per machine.
+  Four categories qualify, and each is reported with its baseline counterpart before
+  anything is written:
+  - `redundant` — the entry is identical to the baseline.
+  - `holds back` — the overlay pin is older than the baseline's (19 of these in a
+    real v18 overlay, every one of them a security bump that never arrived).
+  - `drops extras` — the entry loses extras the baseline declares, e.g. an
+    `eq-chatbot-core>=1.1.0` that silently discards `[rag,security,docs]`.
+  - `unpins` — the entry says less than the baseline: no specifier at all where the
+    baseline has one (a bare `PyYAML` re-admits the 7.x that `>=6.0.1,<7.0.0`
+    excludes), or a range over an exact pin (`pyopenssl>=25.0.0` discards the
+    `==26.4.0` that exists because <26 dies on Odoo startup).
+- Kept are a deliberately **newer** pin, any package the baseline does not know, and
+  passthrough lines (`-e`, VCS and URL requirements). A range over a baseline range is
+  also kept: judging whether it is narrower needs version algebra this tool
+  deliberately leaves to uv.
+- `--dry-run` writes nothing, `--yes` skips the confirmation, and the previous overlay
+  is kept as `requirements.local.txt.pre-prune`. A `sync` runs automatically afterwards.
+
+### Changed
+- The baseline-matching rule from 0.64.1 (exact `(name, marker)` first, then the name
+  when one side is unmarked) is now shared by `adopt` and `prune` through
+  `_index_baseline` / `_baseline_counterpart`, instead of being written twice.
+- `requirements_merge` exports `holds_back()`, `drops_extras()` and `unpins()`, so the
+  classification behind the sync warnings and the one behind `prune` cannot drift apart.
+
 ## Version 0.64.1 (31.08.2026)
 
 ### Fixed

@@ -209,3 +209,54 @@ def requirements_adopt(ctx: click.Context, version: str | None, yes: bool, keep_
 
     outcome = sync_version(target, cfg)
     _print_sync_outcome(outcome)
+
+
+@requirements.command("prune")
+@click.argument("version", required=False)
+@click.option("--dry-run", is_flag=True, help="Show what would be removed; write nothing")
+@click.option("--yes", "-y", is_flag=True, help="Remove without asking")
+@click.pass_context
+def requirements_prune(ctx: click.Context, version: str | None, dry_run: bool, yes: bool) -> None:
+    """Drop overlay entries the baseline already covers.
+
+    Removed are pins identical to the baseline, pins holding a baseline bump back,
+    and entries that drop the baseline's extras — the residue every environment
+    migrated before 0.65.0 carries. A deliberately newer pin and any package the
+    baseline does not know are kept, and so are passthrough lines.
+    """
+    from odoodev.cli import resolve_version
+    from odoodev.core.requirements_sync import (
+        PRE_PRUNE_SUFFIX,
+        backup_overlay,
+        prune_candidates,
+        sync_version,
+        write_overlay,
+    )
+    from odoodev.output import confirm
+
+    target = resolve_version(ctx, version)
+    cfg = get_version(target)
+    report = prune_candidates(target, cfg)
+
+    if not report.removable:
+        print_success(f"v{target}: nothing to prune — every overlay entry says something the baseline does not")
+        return
+
+    for candidate in report.removable:
+        print_info(f"{candidate.reason}: {candidate.entry.to_line()}  (baseline: {candidate.base.to_line()})")
+
+    if dry_run:
+        print_info(f"v{target}: dry run — {len(report.removable)} entries would be removed, nothing written")
+        return
+
+    if not yes and not confirm(f"Remove these {len(report.removable)} entries from the overlay?", default=False):
+        print_warning(f"v{target}: aborted — overlay unchanged")
+        return
+
+    backup = backup_overlay(cfg, suffix=PRE_PRUNE_SUFFIX)
+    if backup:
+        print_info(f"Previous overlay kept at {backup}")
+
+    write_overlay(cfg, list(report.kept), list(report.passthrough))
+    print_success(f"v{target}: {len(report.removable)} entries removed, {len(report.kept)} kept")
+    _print_sync_outcome(sync_version(target, cfg))

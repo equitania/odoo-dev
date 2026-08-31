@@ -41,54 +41,32 @@ uv build
 
 `versions.yaml` → `VersionRegistry` (frozen dataclasses) → Commands → Jinja2 templates → generated files (.env, docker-compose.yml, odoo.conf)
 
-### Key modules
+### Architecture reference
 
-- **`cli.py`** — Click entry point. Auto-detects Odoo version from CWD path (`~/gitbase/vXX/...`). All commands accept an optional `[VERSION]` argument.
-- **`core/version_registry.py`** — Loads `data/versions.yaml` into frozen `VersionConfig` dataclasses with nested `PortConfig`, `PathConfig`, `GitConfig`. Supports user overrides via `~/.config/odoodev/versions-override.yaml`.
-- **`core/environment.py`** — Detects OS, architecture, shell (fish/zsh/bash), Docker platform, user.
-- **`core/git_ops.py`** — Git clone/update with SSH key support. Module-global `_ssh_key_path`. Handles OCA repos (subdirectory extraction for addons_path). Since v0.59.0 `clone_repo` and `switch_branch_and_update` return `(result, error)` tuples — callers must surface errors; `get_module_paths` returns `[]` for missing dirs (no phantom addons_path entries).
-- **`core/xmlrpc_client.py`** — Odoo XML-RPC client (moved from `tui/` in v0.59.0, shared by TUI + `export modules`). Credentials via `from_stored_credentials()` factory (reads the `odoo_login` global-config section, default admin/admin); hot module upgrade, `list_modules`, `update_module_list`, `cleanup_uninstalled_modules`.
-- **`core/module_export.py`** — Pure Releasemanager-CSV helpers (moved from `tui/` in v0.59.0): `EXPORT_SCOPES`, `is_exportable_module`, `write_modules_csv`, `build_export_path`.
-- **`core/database.py`** — PostgreSQL ops via `psql`/`createdb`/`dropdb` CLI. All pg client calls transparently fall back to `docker exec` into the container publishing the target DB port when host CLI tools are absent (`resolve_pg_exec_mode`, per-port cached, `ODOODEV_PG_EXEC=host|container` override; no password needed — Unix-socket trust auth; port-based lookup makes migration-mode's shared-port redirection just work). Dumps are piped via stdin (never `psql -f`). Backup creation (`backup_database_sql`, `create_backup_zip`, `create_backup_tar_zst` — the last pipes a Python `tarfile` stream into the `zstd` CLI, symmetric to the `.tar.zst` restore). Backup extraction (ZIP, 7z, tar, tar.zst, gz, SQL). Post-restore (ALL OFF by default since v0.43.0 — opt-in per flag or `--sanitize` for all four; explicit `--no-*` wins): (1) `deactivate_cronjobs()` psql baseline (crons/mail/fetchmail, `--deactivate-cron`), (2) native `run_neutralize()` → `odoo-bin neutralize` (`--neutralize`; runs each module's `data/neutralize.sql`: payment/IAP/webhooks/banner/cloud modules; graceful-skip if venv/odoo-bin/conf missing), (3) `anonymize_database()` (`--anonymize`) — Faker-generated, per-id-seeded values as bundled `UPDATE ... FROM (VALUES ...)` over `res_partner`/`crm_lead`/`res_partner_bank`/HR; emails/logins forced to RFC 2606 reserved targets, (4) `wipe_database()` (`--wipe`) — content deletion split out of anonymize; since v0.62.0 a REAL delete, not a blanking pass: DELETEs the chatter tables (`WIPE_DELETE_TABLES` — mail_message + mail_tracking_value/mail_notification/mail_followers/mail_activity/rel tables, child-before-parent so it survives `NO ACTION` FKs), the attachment rows (`WIPE_ATTACHMENT_DELETE_SQL` — keeps `res_field IS NOT NULL` Binary/Image storage, `ir.ui.view`/`ir.ui.menu` asset bundles and, since v0.62.2, the asset SOURCES (`url IS NOT NULL`: `/_custom/` theme SCSS, `web/static/asset_styles_company_report.scss`) plus every attachment with an `ir_model_data` XML ID — v0.62.0 deleted those two via its `res_model IS NULL` branch, which broke `web.assets_frontend` compilation and produced a permanent „style error“ banner; `WIPE_ORPHAN_REPAIR_SQL` then drops dangling XML IDs and source-less `/_custom/` `ir_asset` rows, a no-op on a healthy DB) and the linkage tables; with `filestore_path` (passed by all three callers) it then runs `gc_filestore()` to delete the orphaned files on disk — the surviving `store_fname` set is read AFTER the delete (Odoo dedupes by checksum), a failed query aborts instead of deleting everything, and the directory must be named after the DB, (5) `anonymize_users()` (`--anonymize-users`, standalone, not in `--sanitize`). Also (v0.44.0, standalone commands AND separate opt-in `db restore` flags, neither in `--sanitize`): `purge_transactional_data()` (`--purge-transactions`, `odoodev db purge`) — deletes all stock/sales/purchase/accounting/MRP/POS movement data while keeping products/pricelists/partners/users/config; computes the ON-DELETE-CASCADE closure of the movement root tables via `pg_constraint` introspection and DELETEs it under `session_replication_role = replica` (not a naive `TRUNCATE CASCADE`, which would also sweep `res_company` via its `account_opening_move_id` FK), then nulls `ON DELETE SET NULL` back-references; a safety pre-check aborts with no deletion if the closure would reach a protected master table; requires a superuser DB role. `run_recompute()` (`--recompute`/`--no-recompute`, auto after `--anonymize`, `odoodev db recompute`) — recomputes stored computed fields (e.g. `res_partner.complete_name`) via `odoo-bin shell` since raw-SQL anonymization bypasses the ORM and leaves them stale; graceful-skip if the dev env (venv/odoo-bin/conf) isn't ready. Standalone `odoodev db neutralize`. Since v0.45.0: `run_uninstall_modules()` (`--uninstall-modules mod1,mod2` on `db restore`, standalone `odoodev db uninstall -n DB -m mods`, playbook arg `uninstall-modules`) — uninstalls modules that conflict with the sanitize steps via `odoo-bin shell` (`button_immediate_uninstall`) BEFORE any sanitize step runs; interactive prompt when the flag is omitted, a sanitize step is enabled and no `-y/--yes` (new restore flag); not-found/not-installed names are warnings (`odoodev-uninstall:` stdout markers); on failure interactive mode offers to abort the pipeline (default abort). User management for the `db users` TUI: `list_users()` (`UserInfo` dataclass, `totp_secret IS NOT NULL` as 2FA status, schema-guarded), `set_user_password()` (pbkdf2_sha512 via `_pbkdf2_sha512_hash`), `disable_user_2fa()` (`totp_secret` NULL + `auth_totp_device` DELETE, table-guarded). Default credentials: `ownerp`/`CHANGE_AT_FIRST`.
-- **`core/odoo_config.py`** — Generates `odoo_YYMMDD.conf` with addons_path grouped by section (Odoo, OCA, Enterprise, Syscoon, 3rd-party, Equitania, Customer, Other).
-- **`core/venv_manager.py`** — UV-based venv creation. SHA256 hashing of requirements for freshness detection.
-- **`core/requirements_merge.py`** — Pure requirements merging (v0.63.0): `parse_requirements`,
-  `canonical_name` (PEP 503), `merge_requirements`, `render_requirements`. Merge key is
-  `(name, environment marker)` — v17 pins six packages twice under different `python_version` Since v0.64.1 an entry whose marker has no exact counterpart falls back to a name-level match, but only when one of the two carries no marker at all (an unmarked entry applies everywhere and therefore overlaps); two different markers stay side by side as complementary. Without that fallback a baseline's unmarked `python-ldap==3.4.5` and a local `python-ldap==3.4.4 ; sys_platform != 'win32'` were both emitted and uv refused to resolve.
-  markers. No resolution and no `packaging` dependency: uv resolves, this only maps and emits.
-- **`core/requirements_sync.py`** — Filesystem layer for the baseline/overlay model (v0.63.0):
-  paths, the overwrite guard (`sync_allowed` — refuses on a hand-maintained file without an
-  overlay), `sync_version`, `ensure_generated_requirements` (called by `start` before the hash
-  check), `three_way_report`, `adopt_candidates`. `overlay_has_content()` is the already-adopted
-  guard `adopt` keys on — it reads `requirements.local.txt` itself rather than the generated
-  file's header, because the header is not durable (a `git pull` in the shared `vXX-dev` repo, or
-  an older odoodev regenerating the file, can strip it without touching the overlay). `adopt`
-  refuses once this is true, pointing at `sync`; `backup_overlay()` additionally backs up
-  `requirements.local.txt` to `.pre-adopt` before a write, mirroring `backup_existing()` for
-  `requirements.txt`.
-- **`core/docker_compose.py`** — Renders and manages docker-compose.yml via Jinja2 template.
-- **`core/shell_integration.py`** — Installs `odoodev-activate` shell function for Fish, Bash, Zsh.
-- **`core/playbook_schema.py`** — Single source of truth for the playbook assistant (v0.54.0): `SCHEMA_VERSION`, frozen `WizardField`/`WizardSection` dataclasses, `SECTIONS`, `SQL_PRESETS` (enterprise code, eq_cloud cleanup, website-domain swap), `DEV_STEP_GROUPS`/`DEV_STEP_ORDER`, `STEP_ARG_SPECS` (descriptive per-step arg specs incl. `server.rebuild`), `wizard_schema()` (JSON-serializable; resolves `choices_source` like `available_versions` inline). Pure data — no questionary/click imports.
-- **`core/playbook_builder.py`** — Pure generator core (v0.54.0): answers dict → `build_playbook_dict()` → `render_playbook_yaml()`; `validate_generated()` round-trips through `playbook._validate_playbook` before any write; `answers_from_file()`/`validate_answers()` collect ALL structural problems into one `AnswersValidationError`; `write_env_file()` (0600 via `os.open`, merge-aware via `dotenv_values`), `find_env_references()`/`find_var_references()` (Jinja ref scanning), `slugify()`/`default_output_path()` (`./playbooks/<slug>.yaml`, matches `run.py` discovery). One shared input contract for the interactive wizard AND the GUI's `--answers` mode.
-- **`output.py`** — Rich console helpers (success/error/warning/info/header) + questionary wrappers (`confirm`, `select`, `text_input`, `path_input`, `password_input`, `checkbox_with_separators`).
+Module-by-module detail, the command table, the data-flow diagram and the `start`
+preflight list live in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — read it when
+changing a core module or adding a command. For *using* the CLI, `usage/AGENT.md` is
+the better source: it tracks the actual `--help` output.
 
-### Commands (`commands/`)
+### Traps worth knowing before you touch the code
 
-| Command | Purpose |
-|---------|---------|
-| `init` | Full environment setup (dirs, .env, compose, venv, repos, docker) |
-| `start` | Start Odoo server (modes: normal, --dev, --shell, --test, --prepare). Since v0.59.0: instance-info table first → ONE confirmation → side-effecting preflight (`_run_preflight`); `--yes/-y` visible, skips only the prompt |
-| `repos` | Clone/update repos from repos.yaml, generate odoo.conf. Since v0.59.0: SSH access check is diagnostic-only (never blocks a clone), per-repo failures surfaced, `RepoOpSummary` table, exit 1 on failures |
-| `export` | `export modules` — Releasemanager CSV via XML-RPC from a running Odoo (shared core with TUI `x` export; `--json` contract for the GUI; credentials: flags > `ODOODEV_ODOO_USER/PASSWORD` env > `odoo_login` config) |
-| `db` | list, restore, drop, uninstall, users, purge, recompute, cleanup databases. Since v0.60.0: when PostgreSQL is unreachable, the error path runs `diagnose_runtime()` (`core/container_backend.py`) — runtime-aware hints (`container system start` for a stopped Apple Container API server, `open -a Docker` for a stopped Docker daemon, install/switch hints for a missing CLI) instead of a blanket Docker reference. Also since v0.60.0: `db cleanup [VERSION]` — filestore ↔ DB consistency check (orphaned filestores with sizes / DBs without filestore); report-only by default, `--delete-orphans` (y/N confirm, `-y`), `--json` contract (never deletes); migration-aware via `get_filestore_path` |
-| `playbook` | Playbook assistant (v0.54.0, source-first v0.55.0, guided UX v0.56.0, v0.57.0: fresh-backup source hands its file to the restore via backup_source.mode from_backup_step (runner injects _runtime like _rpc_config; no pattern questions) and the restored-DB treatment is ONE sanitize question whose neutralize choice derives the server.neutralize step: opens with a DE/EN language question when none is explicitly set (--lang/ODOODEV_LANG/config; shell-locale default, optional persist via save_global_config), numbered step headers (server 6 / dev 4), role-specific "Source name"/"Destination name" prompts, plain-language labeled choices for on_error/select_by/sanitize flags — values unchanged): `create` (interactive wizard: server branch asks SOURCE first (fresh backup from container pair with auto-derived restore pattern | existing file | newest by pattern), then DESTINATION (self-mirror guard), then optional steps incl. `server.rebuild` — restore always included; server-side paths never locally expanded; dev branch = grouped step checkbox; or `--answers file.json --non-interactive` for GUI/agents, `--force` overwrite guard), `schema --json` (GUI form contract, schema_version 3; v1/v2 answers still accepted), `validate [--json]`. Secrets go into a 0600 env_file, never into the YAML (empty -> no file) |
-| `run` | YAML playbook execution (`--list`, `--steps`, `--var`, `--dry-run`, `--output json` NDJSON; server-mode steps incl. `server.rebuild` — shell-out to `update_docker_odoo.py`, v0.54.0) |
-| `requirements` | sync / diff / adopt — baseline (wheel) + `requirements.local.txt` overlay → generated `requirements.txt` (v0.63.0). Since v0.64.0 `adopt --yes` takes the BASELINE for a conflicting pin (a hand-maintained file predates the baseline, so its pins are the old state, and keeping them reverted the security baseline wholesale — on v16 into an unsolvable set against `eq-chatbot-core`'s cryptography floor); `--keep-local` restores the old behaviour. A failed `uv pip install` now names `requirements.local.txt` and `requirements diff` as where to look. |
-| `env` | setup, check, show, dir for .env management |
-| `venv` | setup, check, activate, path for UV venv |
-| `docker` | up, down, status, logs for the configured container runtime (Docker or Apple Container). Since v0.60.0 `service_up` is self-healing: verifies the runtime CLI + daemon first, auto-starts a stopped `container-apiserver` (Apple), clear error + start command for a stopped Docker daemon; `status` reports a non-ready runtime with its remedy (no auto-start) |
-| `config` | versions (table of all versions), show (platform info) |
-| `shell-setup` | Install shell wrapper function |
+These are the things that are wrong-by-default if you do not know them:
+
+- **`requirements.txt` is generated** from the shipped baseline plus
+  `requirements.local.txt`. Never hand-edit it, never commit a `requirements.txt` as
+  the source of truth — edit the overlay and run `odoodev requirements sync`.
+  Overlay and baseline match on `(PEP 503 name, environment marker)`, with a
+  name-level fallback only when one side is unmarked.
+- **`git_ops.clone_repo` / `switch_branch_and_update` return `(result, error)` tuples.**
+  A caller that ignores the second element swallows a failed clone silently.
+- **Every psql/pg_dump call may run through `docker exec`** into the container
+  publishing the target port (`resolve_pg_exec_mode`), because host pg clients are
+  often absent or version-mismatched. Pipe dumps via stdin — never `psql -f` — and
+  pass `stdin=subprocess.DEVNULL` to anything non-interactive, or the container's
+  `-i` flips the terminal into raw mode.
+- **Post-restore processing is OFF by default.** `db restore` leaves the database
+  untouched unless a flag or `--sanitize` opts in; explicit `--no-*` always wins.
+- **Playbook secrets belong in the 0600 `env_file`,** never in the YAML.
 
 ### Required files (user-provided)
 
@@ -97,32 +75,6 @@ uv build
 | `repos.yaml` | `vXX-dev/scripts/repos.yaml` | Repository definitions for git clone |
 | `requirements.local.txt` | `vXX-dev/devXX_native/requirements.local.txt` | Machine-local requirements overlay (v0.63.0); `requirements.txt` itself is now generated from this plus the shipped baseline — see `core/requirements_sync.py` |
 | `odooXX_template.conf` | `vXX-dev/conf/odooXX_template.conf` | Template for Odoo config generation |
-
-### Data flow
-
-```
-odoodev init → dirs + .env + docker-compose.yml + .venv + repos
-                                                          ↓
-                                                repos.yaml → git clone
-                                                          ↓
-                                             odoo_YYMMDD.conf generated
-                                                          ↓
-odoodev start → load .env → check prereqs → start odoo-bin
-               (DB_PORT,    (.venv, odoo-bin,  (with odoo_YYMMDD.conf)
-                PGUSER...)   odoo_*.conf, DB)
-```
-
-### Start prerequisites
-
-What `odoodev start` checks before launching Odoo:
-1. `.env` file exists in native_dir
-2. `.venv/` directory exists
-3. `odoo-bin` exists in server_dir
-4. `odoo_*.conf` exists in myconfs_dir (uses latest by date suffix)
-5. PostgreSQL port is reachable (offers to start Docker if not)
-6. `requirements.txt` SHA256 hash unchanged (offers update if changed; the hash is stored after a successful update since v0.59.0). Since v0.63.0 this runs after an automatic regeneration check (`ensure_generated_requirements`): when the shipped baseline moved on since the last sync, `requirements.txt` is regenerated from baseline + `requirements.local.txt` first, so the hash check always sees the current effective file.
-
-Since v0.59.0 the instance-info table (ports, database, config preview, dirs) is shown BEFORE the single confirmation prompt; checks 2-6 (`_run_preflight`) only run after the user confirms (or immediately with `--yes`/`--no-confirm`). Declining start + shell fallback leaves the system untouched.
 
 ### Path convention
 
@@ -144,8 +96,8 @@ Jinja2 templates for: `.env`, `docker-compose.yml`, `odoo.conf`, and shell activ
 
 ## Code Conventions
 
-- Python 3.10+, line length 120
-- Ruff rules: E, W, F, I, B, UP
+- Python 3.12+ (`requires-python = ">=3.12"`), line length 120, target `py312`
+- Ruff rules: E, W, F, I, B, UP, **S** (bandit security checks — `subprocess` calls need a justification comment or an explicit `# noqa: S`)
 - Double quotes (`"`)
 - isort with `known-first-party = ["odoodev"]`
 - Frozen dataclasses for configuration objects

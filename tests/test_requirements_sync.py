@@ -17,6 +17,7 @@ from odoodev.core.requirements_sync import (
     installed_packages,
     overlay_has_content,
     overlay_path,
+    prune_candidates,
     seed_overlay,
     sync_allowed,
     sync_version,
@@ -352,3 +353,66 @@ def test_bootstrap_is_blocked_by_a_hand_written_file(cfg, tmp_path, bundle):
     created, outcome = bootstrap_requirements("16", cfg)
     assert outcome.blocked_reason
     assert (tmp_path / "requirements.txt").read_text(encoding="utf-8") == "hand written\n"
+
+
+def test_prune_candidates_classifies_every_overlay_entry(cfg, tmp_path, monkeypatch):
+    """An overlay earns its keep only where it says something the baseline does not.
+
+    Three shapes contribute nothing and are what every hand-migrated environment
+    accumulated: a pin identical to the baseline, a pin holding a baseline bump
+    back, and an entry that silently drops the baseline's extras. Everything else
+    — a deliberately newer pin, a package the baseline never heard of, a
+    passthrough line — is the whole point of having an overlay and must survive.
+    """
+    base_file = tmp_path / "base.txt"
+    base_file.write_text(
+        "Babel==2.16.0\nWerkzeug==3.1.3\neq-chatbot-core[rag,security]>=3.0.0\nlxml==6.1.2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("odoodev.core.requirements_sync.get_base_requirements_path", lambda version: base_file)
+    (tmp_path / "requirements.local.txt").write_text(
+        "Babel==2.16.0\n"  # redundant — identical to the baseline
+        "Werkzeug==3.0.6\n"  # holds a baseline bump back
+        "eq-chatbot-core>=3.0.0\n"  # drops the baseline's extras
+        "lxml==6.2.0\n"  # ahead of the baseline — deliberate, keep
+        "fintech\n"  # baseline does not know it — keep
+        "-e ./local-pkg\n",  # passthrough — keep
+        encoding="utf-8",
+    )
+
+    report = prune_candidates("18", cfg)
+
+    assert {c.entry.name: c.reason for c in report.removable} == {
+        "Babel": "redundant",
+        "Werkzeug": "holds back",
+        "eq-chatbot-core": "drops extras",
+    }
+    assert [r.name for r in report.kept] == ["lxml", "fintech"]
+    assert report.passthrough == ("-e ./local-pkg",)
+
+
+def test_prune_candidates_flag_an_overlay_that_unpins_the_baseline(cfg, tmp_path, monkeypatch):
+    """Replacing an exact baseline pin with a range or nothing loses control.
+
+    The v18 baseline pins pyopenssl==26.4.0 because <26 dies on Odoo startup and
+    26.4.0 is the release that wants cryptography >=49,<51. An overlay entry of
+    `pyopenssl>=25.0.0` says strictly less than that while overriding it, and a
+    bare `PyYAML` says nothing at all.
+    """
+    base_file = tmp_path / "base.txt"
+    base_file.write_text("pyopenssl==26.4.0\nPyYAML==6.0.2\nparamiko>=3.5.0\nlxml>=5.0\n", encoding="utf-8")
+    monkeypatch.setattr("odoodev.core.requirements_sync.get_base_requirements_path", lambda version: base_file)
+    (tmp_path / "requirements.local.txt").write_text(
+        "pyopenssl>=25.0.0\nPyYAML\nparamiko\nlxml>=6.0\n", encoding="utf-8"
+    )
+
+    report = prune_candidates("18", cfg)
+
+    assert {c.entry.name: c.reason for c in report.removable} == {
+        "pyopenssl": "unpins",  # range over an exact pin
+        "PyYAML": "unpins",  # nothing over an exact pin
+        "paramiko": "unpins",  # nothing over a range — v18 pins PyYAML>=6.0.1,<7.0.0,
+        # and a bare name in the overlay re-admits the 7.x the baseline excludes
+    }
+    # lxml: the baseline itself is a range, so the overlay is not weakening a pin
+    assert [r.name for r in report.kept] == ["lxml"]

@@ -271,6 +271,7 @@ def three_way_report(version: str, version_cfg) -> list[DiffRow]:
 
 
 PRE_ADOPT_SUFFIX = ".pre-adopt"
+PRE_PRUNE_SUFFIX = ".pre-prune"
 
 
 @dataclass(frozen=True)
@@ -292,36 +293,117 @@ def adopt_candidates(version: str, version_cfg) -> list[AdoptCandidate]:
     base_text = get_base_requirements_path(version).read_text(encoding="utf-8")
     existing_text = _read(generated_path(version_cfg))
 
-    base_reqs = {}
-    base_by_name: dict[str, Requirement] = {}
-    for line in parse_requirements(base_text):
-        if line.requirement is None:
-            continue
-        base_reqs[line.requirement.merge_key] = line.requirement
-        base_by_name.setdefault(line.requirement.key, line.requirement)
+    base_reqs, base_by_name = _index_baseline(base_text)
 
     candidates: list[AdoptCandidate] = []
     for line in parse_requirements(existing_text):
         req = line.requirement
         if req is None:
             continue
-        # Fall back to the name when the marker differs: a hand-maintained file
-        # may carry `; sys_platform != 'win32'` on a package the baseline pins
-        # plainly. Reporting that as local-only would let --yes keep the old pin
-        # under the guise of an entry the baseline does not know.
-        base_req = base_reqs.get(req.merge_key)
-        if base_req is None:
-            # Only when one side carries no marker at all: an unmarked entry
-            # applies everywhere and therefore overlaps. Two different markers
-            # are complementary (the v17 python_version splits) and must stay
-            # side by side.
-            named = base_by_name.get(req.key)
-            if named is not None and (not named.marker or not req.marker):
-                base_req = named
+        base_req = _baseline_counterpart(req, base_reqs, base_by_name)
         if base_req is not None and base_req.specifier == req.specifier and base_req.extras == req.extras:
             continue
         candidates.append(AdoptCandidate(existing=req, base=base_req))
     return candidates
+
+
+def _index_baseline(base_text: str) -> tuple[dict[tuple[str, str], Requirement], dict[str, Requirement]]:
+    """Index a baseline by exact merge key and, as a fallback, by package name."""
+    from odoodev.core.requirements_merge import parse_requirements
+
+    by_key: dict[tuple[str, str], Requirement] = {}
+    by_name: dict[str, Requirement] = {}
+    for line in parse_requirements(base_text):
+        if line.requirement is None:
+            continue
+        by_key[line.requirement.merge_key] = line.requirement
+        by_name.setdefault(line.requirement.key, line.requirement)
+    return by_key, by_name
+
+
+def _baseline_counterpart(
+    req: Requirement,
+    by_key: dict[tuple[str, str], Requirement],
+    by_name: dict[str, Requirement],
+) -> Requirement | None:
+    """The baseline entry an overlay entry speaks about, if any.
+
+    Exact `(name, marker)` first. Failing that, the name alone — but only when
+    one of the two carries no marker: an unmarked entry applies everywhere and
+    therefore overlaps, while two *different* markers are complementary (the v17
+    python_version splits) and describe separate environments.
+    """
+    exact = by_key.get(req.merge_key)
+    if exact is not None:
+        return exact
+    named = by_name.get(req.key)
+    if named is not None and (not named.marker or not req.marker):
+        return named
+    return None
+
+
+@dataclass(frozen=True)
+class PruneCandidate:
+    """An overlay entry that contributes nothing the baseline does not already say."""
+
+    entry: Requirement
+    base: Requirement
+    reason: str
+
+
+@dataclass(frozen=True)
+class PruneReport:
+    """Outcome of classifying an overlay against its baseline."""
+
+    removable: tuple[PruneCandidate, ...]
+    kept: tuple[Requirement, ...]
+    passthrough: tuple[str, ...]
+
+
+def prune_candidates(version: str, version_cfg) -> PruneReport:
+    """Split an overlay into entries worth keeping and entries the baseline covers.
+
+    Removable are the three shapes a hand-migrated environment accumulates: a pin
+    identical to the baseline, a pin holding a baseline bump back, and an entry
+    that drops extras the baseline declares. A deliberately *newer* pin and any
+    package the baseline does not know are kept — that is what an overlay is for.
+    """
+    from odoodev.core.requirements_merge import drops_extras, holds_back, parse_requirements, unpins
+
+    base_text = get_base_requirements_path(version).read_text(encoding="utf-8")
+    by_key, by_name = _index_baseline(base_text)
+
+    removable: list[PruneCandidate] = []
+    kept: list[Requirement] = []
+    passthrough: list[str] = []
+
+    for line in parse_requirements(_read(overlay_path(version_cfg))):
+        req = line.requirement
+        if req is None:
+            stripped = line.raw.strip()
+            if stripped and not stripped.startswith("#"):
+                passthrough.append(stripped)
+            continue
+
+        base_req = _baseline_counterpart(req, by_key, by_name)
+        if base_req is None:
+            kept.append(req)
+            continue
+
+        if base_req.specifier == req.specifier and base_req.extras == req.extras:
+            reason = "redundant"
+        elif drops_extras(base_req, req):
+            reason = "drops extras"
+        elif holds_back(base_req, req):
+            reason = "holds back"
+        elif unpins(base_req, req):
+            reason = "unpins"
+        else:
+            kept.append(req)
+            continue
+        removable.append(PruneCandidate(entry=req, base=base_req, reason=reason))
+
+    return PruneReport(tuple(removable), tuple(kept), tuple(passthrough))
 
 
 def adopt_passthrough_lines(version_cfg) -> list[str]:
@@ -376,7 +458,7 @@ def backup_existing(version_cfg) -> str | None:
     return target
 
 
-def backup_overlay(version_cfg) -> str | None:
+def backup_overlay(version_cfg, suffix: str = PRE_ADOPT_SUFFIX) -> str | None:
     """Copy requirements.local.txt aside before adopt (over)writes it.
 
     Belt and braces alongside the `overlay_has_content` guard in the adopt
@@ -389,7 +471,7 @@ def backup_overlay(version_cfg) -> str | None:
     source = overlay_path(version_cfg)
     if not os.path.exists(source):
         return None
-    target = source + PRE_ADOPT_SUFFIX
+    target = source + suffix
     shutil.copy2(source, target)
     return target
 
