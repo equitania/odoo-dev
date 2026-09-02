@@ -1183,12 +1183,42 @@ def _build_recompute_script(triggers: dict[str, tuple[str, ...]]) -> str:
 
     Invalidates the ORM cache, marks the changed source fields as modified so
     their stored dependents are queued, then flushes — recomputing and
-    persisting them. ``odoo-bin shell`` rolls back on exit, so the script must
-    ``env.cr.commit()`` explicitly. Models/fields absent in this DB are skipped.
+    persisting them. ``odoo-bin shell`` rolls back on exit, so the script
+    ``env.cr.commit()``s explicitly. Models/fields absent in this DB are skipped.
+
+    Resilient since v0.66.0: a flush raises the moment ANY record fails a
+    constraint (seen in the wild: a partner whose stored Peppol endpoint was
+    already invalid in production, re-validated by ``_check_peppol_fields``
+    when ``vat`` changed). One such record used to abort the whole script with
+    nothing committed. Now every failure rolls back, the batch is bisected and
+    the single offending records are skipped and reported via
+    ``odoodev-recompute: skipped <model> id=<id>: <error>`` markers, while each
+    successful batch is committed on its own.
     """
     return textwrap.dedent(
         f"""\
         TRIGGERS = {triggers!r}
+        _skipped = []
+
+
+        def _recompute(_recs, _fields):
+            try:
+                _recs.invalidate_recordset()
+                _recs.modified(_fields)
+                env.flush_all()
+                env.cr.commit()
+            except Exception as _e:
+                env.cr.rollback()
+                _recs = env[_recs._name].with_context(active_test=False).browse(_recs.ids)
+                if len(_recs) <= 1:
+                    _msg = (str(_e).splitlines() or [type(_e).__name__])[0]
+                    _skipped.append((_recs._name, _recs.id, _msg))
+                    return
+                _half = len(_recs) // 2
+                _recompute(_recs[:_half], _fields)
+                _recompute(_recs[_half:], _fields)
+
+
         for _model, _fields in TRIGGERS.items():
             if _model not in env:
                 continue
@@ -1199,11 +1229,10 @@ def _build_recompute_script(triggers: dict[str, tuple[str, ...]]) -> str:
             _recs = _M.search([])
             if not _recs:
                 continue
-            _recs.invalidate_recordset()
-            _recs.modified(_f)
-        env.flush_all()
-        env.cr.commit()
-        print("odoodev-recompute: done")
+            _recompute(_recs, _f)
+        for _model, _id, _msg in _skipped:
+            print(f"odoodev-recompute: skipped {{_model}} id={{_id}}: {{_msg}}")
+        print(f"odoodev-recompute: done ({{len(_skipped)}} skipped)")
         """
     )
 
@@ -1406,6 +1435,11 @@ _PARTNER_COMMON_FIELDS: tuple[AnonField, ...] = (
     AnonField("city", lambda f, i: f.city()),
     AnonField("zip", lambda f, i: f.postcode()),
     AnonField("vat", lambda f, i: None),
+    # Derived from VAT / company registry (account_edi_ubl_cii). Left in place it
+    # is both an identifier and a trap: the recompute re-validates it via
+    # _check_peppol_fields, and one pre-existing invalid endpoint aborted the
+    # whole flush — no complete_name was ever committed (v0.66.0).
+    AnonField("peppol_endpoint", lambda f, i: None),
     AnonField("website", lambda f, i: None),
     AnonField("comment", lambda f, i: None),
     AnonField("eq_name2", lambda f, i: None),
@@ -1564,6 +1598,56 @@ WIPE_ORPHAN_REPAIR_SQL: tuple[tuple[str, str], ...] = (
         "WHERE a.path LIKE '/_custom/%' "
         "  AND NOT EXISTS (SELECT 1 FROM ir_attachment t WHERE t.url = a.path);",
     ),
+)
+
+# Binary-field attachments (res_field IS NOT NULL) that a wipe MUST take along.
+# The blanket res_field guard above exists for product images and branding, but
+# since Odoo 17 the legal invoice PDF is a Binary field too
+# (account.move.invoice_pdf_report_file) — a real v18 restore kept 1655 invoice
+# PDFs (250 MB) and 1847 EBICS bank files after --sanitize. An explicit model
+# list is used on purpose: an allowlist of what to keep is brittle across
+# modules, and an "images only" rule would hit company logos and report layouts.
+WIPE_BINARY_DELETE_MODELS: tuple[str, ...] = (
+    "account.move",
+    "account.move.line",
+    "account.payment",
+    "account.bank.statement",
+    "account.bank.statement.line",
+    "ebics.file",
+    "ebics.userid",
+    "hr.employee",
+    "hr.version",
+    "hr.contract",
+    "hr.applicant",
+    "hr.candidate",
+    "sign.request",
+    "sign.request.item",
+    "sign.document",
+)
+
+WIPE_BINARY_DELETE_SQL: str = (
+    "DELETE FROM ir_attachment "
+    "WHERE res_field IS NOT NULL "
+    "  AND res_model IN (" + ", ".join(f"'{m}'" for m in WIPE_BINARY_DELETE_MODELS) + ");"
+)
+
+# Contact photos are personal data: drop them for every partner the anonymizer
+# also touches, i.e. NOT for the partners behind res_users / res_company (those
+# keep their real name too, so the user list stays recognizable).
+WIPE_PARTNER_IMAGE_DELETE_SQL: str = (
+    "DELETE FROM ir_attachment "
+    "WHERE res_model = 'res.partner' "
+    "  AND res_field LIKE 'image_%' "
+    f"  AND res_id NOT IN ({_KEEP_PARTNER_DIRECT_SUBQUERY});"
+)
+
+# Shape of the per-model orphan sweep: Binary-field attachments whose owning
+# record no longer exists. Odoo removes them in unlink(); the SQL cascades of a
+# wipe (documents.document → its thumbnail) and a purge do not.
+_WIPE_ORPHAN_BINARY_SQL = (
+    "DELETE FROM ir_attachment a "
+    "WHERE a.res_field IS NOT NULL AND a.res_model = '{model}' "
+    "  AND NOT EXISTS (SELECT 1 FROM {table} t WHERE t.id = a.res_id);"
 )
 
 # HR PII wiped with constant values. One spec per table covers v16/v18/v19 because
@@ -1961,13 +2045,78 @@ def gc_filestore(
     return success, deleted
 
 
+@dataclass(frozen=True)
+class WipeResult:
+    """Outcome of :func:`wipe_database` — truthy on success, with counts for the log."""
+
+    success: bool
+    attachments_deleted: int = 0
+    files_removed: int = 0
+
+    def __bool__(self) -> bool:
+        return self.success
+
+
+_ROWS_AFFECTED_RE = re.compile(r"^(?:DELETE|UPDATE|INSERT \d+)\s+(\d+)\s*$", re.MULTILINE)
+
+
+def _rows_affected(psql_stdout: str) -> int:
+    """Sum the row counts from psql's ``DELETE n`` / ``UPDATE n`` command tags (0 if none)."""
+    return sum(int(m.group(1)) for m in _ROWS_AFFECTED_RE.finditer(psql_stdout or ""))
+
+
+_MODEL_NAME_RE = re.compile(r"^[a-z][a-z0-9_.]*$")
+
+
+def _sweep_orphaned_binary_attachments(
+    db_name: str,
+    host: str,
+    port: int,
+    user: str,
+) -> tuple[bool, int]:
+    """Delete Binary-field attachments whose owning record is gone (all models).
+
+    Resolves each ``res_model`` to its table by the Odoo convention
+    (``documents.document`` → ``documents_document``) and only emits a statement
+    when that table exists — abstract mixins and transient models are skipped.
+    Model names that do not look like Odoo model names are ignored rather than
+    interpolated.
+    """
+    ok, rows = _run_psql_tuples(
+        "SELECT DISTINCT res_model FROM ir_attachment "
+        "WHERE res_field IS NOT NULL AND res_model IS NOT NULL ORDER BY 1;",
+        db=db_name,
+        host=host,
+        port=port,
+        user=user,
+    )
+    if not ok:
+        return False, 0
+    success = True
+    deleted = 0
+    for parts in rows:
+        model = parts[0].strip() if parts else ""
+        if not _MODEL_NAME_RE.match(model):
+            continue
+        table = model.replace(".", "_")
+        if not _existing_columns(table, db_name, host=host, port=port, user=user):
+            continue
+        stmt = _WIPE_ORPHAN_BINARY_SQL.format(model=model, table=_check_identifier(table))
+        ok, out = _run_psql(stmt, db=db_name, host=host, port=port, user=user)
+        if ok:
+            deleted += _rows_affected(out)
+        else:
+            success = False
+    return success, deleted
+
+
 def wipe_database(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
     filestore_path: str | None = None,
-) -> bool:
+) -> WipeResult:
     """Delete message and attachment content after a restore (opt-in).
 
     Split out of :func:`anonymize_database` in v0.43.0 so deletion is a separate,
@@ -1982,6 +2131,12 @@ def wipe_database(
     (``WIPE_ORPHAN_REPAIR_SQL``) drops the dangling XML IDs and custom-asset
     records a v0.62.0 wipe left behind.
 
+    Since v0.66.0 Binary-field attachments go too where they are content, not
+    master data: invoice PDFs, bank files, HR documents and photos
+    (``WIPE_BINARY_DELETE_SQL``), contact photos except those of users and
+    companies (``WIPE_PARTNER_IMAGE_DELETE_SQL``), and every Binary-field
+    attachment whose owning record no longer exists.
+
     Non-fatal by design: tables missing in this Odoo version are skipped.
 
     Args:
@@ -1989,9 +2144,12 @@ def wipe_database(
             remove the attachment files from disk; omit it for a DB-only wipe.
 
     Returns:
-        True if every applicable statement succeeded.
+        A :class:`WipeResult` — truthy when every applicable statement succeeded,
+        carrying the number of deleted attachment rows and removed files.
     """
     success = True
+    attachments_deleted = 0
+    files_removed = 0
 
     # 1. Chatter + linkage tables, child-before-parent.
     for table in WIPE_DELETE_TABLES + ANONYMIZE_DELETE_TABLES:
@@ -2002,13 +2160,24 @@ def wipe_database(
             success = False
 
     # 2. Attachments (rows), keeping asset bundles, asset sources, module data
-    #    and Binary-field storage.
+    #    and Binary-field storage — except the Binary-field content listed
+    #    explicitly (invoice PDFs, bank files, HR documents, contact photos).
     if _existing_columns("ir_attachment", db_name, host=host, port=port, user=user):
-        ok, _ = _run_psql(WIPE_ATTACHMENT_DELETE_SQL, db=db_name, host=host, port=port, user=user)
-        if not ok:
+        for statement in (WIPE_ATTACHMENT_DELETE_SQL, WIPE_BINARY_DELETE_SQL, WIPE_PARTNER_IMAGE_DELETE_SQL):
+            ok, out = _run_psql(statement, db=db_name, host=host, port=port, user=user)
+            if ok:
+                attachments_deleted += _rows_affected(out)
+            else:
+                success = False
+
+        # 3. Binary-field attachments orphaned by the cascades above (e.g. the
+        #    thumbnails of documents.document rows that went with their file).
+        sweep_ok, swept = _sweep_orphaned_binary_attachments(db_name, host, port, user)
+        attachments_deleted += swept
+        if not sweep_ok:
             success = False
 
-        # 3. Repair leftovers from a v0.62.0 wipe (no-op on a healthy database).
+        # 4. Repair leftovers from a v0.62.0 wipe (no-op on a healthy database).
         for table, statement in WIPE_ORPHAN_REPAIR_SQL:
             if not _existing_columns(table, db_name, host=host, port=port, user=user):
                 continue
@@ -2016,15 +2185,15 @@ def wipe_database(
             if not ok:
                 success = False
 
-        # 4. Attachment files on disk — only meaningful once the rows are gone.
+        # 5. Attachment files on disk — only meaningful once the rows are gone.
         if filestore_path:
-            fs_ok, removed = gc_filestore(db_name, filestore_path, host=host, port=port, user=user)
-            if removed:
-                logger.info("Removed %d orphaned filestore file(s)", removed)
+            fs_ok, files_removed = gc_filestore(db_name, filestore_path, host=host, port=port, user=user)
+            if files_removed:
+                logger.info("Removed %d orphaned filestore file(s)", files_removed)
             if not fs_ok:
                 success = False
 
-    return success
+    return WipeResult(success=success, attachments_deleted=attachments_deleted, files_removed=files_removed)
 
 
 # Default dev password for opt-in res_users anonymization (hashed before storing).
@@ -2236,6 +2405,91 @@ def disable_user_2fa(
     if ok1 and ok2:
         return True, "TOTP secret cleared and trusted devices removed"
     return False, (out1 if not ok1 else out2)
+
+
+def reset_all_passwords(
+    db_name: str,
+    new_password: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, int]:
+    """Set ONE known password for every real user, ``admin`` and portal users included.
+
+    The dev counterpart of :func:`anonymize_users` without the login rename:
+    after restoring a production backup nobody knows the production passwords,
+    so every account gets the same Odoo-compatible ``pbkdf2_sha512`` hash. Only
+    the technical accounts (``__system__``, ``default``, ``public``,
+    ``portaltemplate``) are left alone. The plaintext never reaches SQL.
+
+    Returns:
+        Tuple of (success, number_of_updated_users).
+    """
+    pw_hash = _pbkdf2_sha512_hash(new_password)
+    stmt = (
+        f"UPDATE res_users SET password = {_sql_literal(pw_hash)} "
+        f"WHERE id > 0 AND login NOT IN {_USER_LIST_EXCLUDED_LOGINS};"
+    )
+    ok, out = _run_psql(stmt, db=db_name, host=host, port=port, user=user)
+    return ok, (_rows_affected(out) if ok else 0)
+
+
+def reset_all_2fa(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, str]:
+    """Disable TOTP two-factor authentication for every user.
+
+    Three schema-guarded steps: clear every ``totp_secret``, drop all trusted
+    devices (``auth_totp_device``) and remove the ``auth_totp.policy`` config
+    parameter of ``auth_totp_mail_enforce`` — an enforced policy would push
+    every user into a mail OTP that a neutralized database never delivers.
+    A database without ``auth_totp`` is a successful no-op.
+
+    Returns:
+        Tuple of (success, info_message).
+    """
+    user_cols = _existing_columns("res_users", db_name, host=host, port=port, user=user)
+    if "totp_secret" not in user_cols:
+        return True, "totp_secret column not present (auth_totp not installed) — nothing to disable"
+
+    success = True
+    ok, out = _run_psql(
+        "UPDATE res_users SET totp_secret = NULL WHERE totp_secret IS NOT NULL;",
+        db=db_name,
+        host=host,
+        port=port,
+        user=user,
+    )
+    cleared = _rows_affected(out) if ok else 0
+    success &= ok
+
+    devices = 0
+    if _existing_columns("auth_totp_device", db_name, host=host, port=port, user=user):
+        ok, out = _run_psql("DELETE FROM auth_totp_device;", db=db_name, host=host, port=port, user=user)
+        devices = _rows_affected(out) if ok else 0
+        success &= ok
+
+    policy_removed = False
+    if _existing_columns("ir_config_parameter", db_name, host=host, port=port, user=user):
+        ok, out = _run_psql(
+            "DELETE FROM ir_config_parameter WHERE key = 'auth_totp.policy';",
+            db=db_name,
+            host=host,
+            port=port,
+            user=user,
+        )
+        policy_removed = ok and _rows_affected(out) > 0
+        success &= ok
+
+    msg = f"2FA cleared for {cleared} user(s), {devices} trusted device(s) removed"
+    if policy_removed:
+        msg += ", enforcement policy (auth_totp.policy) removed"
+    if not success:
+        msg += " — some statements failed"
+    return success, msg
 
 
 def neutralize_bank_sync(

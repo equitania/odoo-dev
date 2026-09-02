@@ -273,7 +273,13 @@ dieser Reihenfolge aus:
 5. `wipe_database()` — Chatter + Anhaenge loeschen (Schicht 2b, `--wipe`); seit v0.62.0
    echtes DELETE der Chatter-Tabellen und Anhang-Zeilen plus `gc_filestore()` fuer die
    Dateien auf der Platte (vorher wurde nur der Nachrichten-Body maskiert, wodurch
-   Tracking-Historie, Follower und saemtliche Anhang-Dateien erhalten blieben)
+   Tracking-Historie, Follower und saemtliche Anhang-Dateien erhalten blieben); seit
+   v0.66.0 loescht der Schritt zusaetzlich die Binary-Feld-Anhaenge einer festen
+   Modul-Liste (`WIPE_BINARY_DELETE_MODELS`: Rechnungen, Zahlungen, Kontoauszuege,
+   EBICS, HR, Sign — der `res_field IS NOT NULL`-Schutz fuer Produktbilder liess z.B.
+   die seit Odoo 17 als Binary-Feld gespeicherte Rechnungs-PDF unangetastet), die
+   Kontaktfotos anonymisierter Partner und verwaiste Binary-Anhaenge; die Konsole meldet
+   jetzt `N attachment row(s), M filestore file(s) removed`
 6. `purge_master_data()` — Template-DB-Reset (Schicht 3, `--purge-master-data`, in
    `--sanitize` enthalten seit v0.48.0): loescht Bewegungsdaten + CRM/HR/Helpdesk/Mail
    + Kunden-Partner + deren Anhaenge in EINER Superuser-Transaktion; ersetzt in diesem
@@ -281,9 +287,23 @@ dieser Reihenfolge aus:
 6b. `purge_transactional_data()` — nur Bewegungsdaten (`--purge-transactions`,
    eigenstaendig, seit v0.44.0; uebersprungen, wenn `--purge-master-data` laeuft)
 7. `anonymize_users()` — nur bei `--anonymize-users` (optional)
+7b. `reset_all_passwords()` — nur bei `--reset-passwords` (optional, seit v0.66.0,
+   eigenstaendig, NICHT in `--sanitize`, laeuft nach `anonymize_users()`): setzt
+   `--user-password` (Default `ownerp`, geteilt mit `--anonymize-users`) fuer **alle**
+   Benutzer inkl. `admin`/Portal; Logins bleiben unveraendert, technische Konten
+   (`__system__`, `default`, `public`, `portaltemplate`) ausgenommen
+7c. `reset_all_2fa()` — nur bei `--reset-2fa` (optional, seit v0.66.0, eigenstaendig,
+   NICHT in `--sanitize`): leert `totp_secret`, loescht `auth_totp_device`-Zeilen und
+   entfernt den Config-Parameter `auth_totp.policy`; schema-geschuetzt (No-op ohne
+   `auth_totp`)
 8. `run_recompute()` — Stored-Computed-Felder neu berechnen; laeuft nur, wenn
    zusaetzlich `--anonymize` aktiv ist (automatisch, abschaltbar mit
-   `--no-recompute`, seit v0.44.0)
+   `--no-recompute`, seit v0.44.0). Seit v0.66.0 resilient: ein Datensatz, der an
+   einem Constraint scheitert (z.B. ein bereits ungueltiger, gespeicherter
+   Peppol-Endpoint, den `_check_peppol_fields` bei geaenderter `vat` neu prueft), wird
+   uebersprungen und als `[WARN] Recompute skipped <model> id=<id>: <error>` gemeldet,
+   statt den ganzen Lauf abzubrechen; `--anonymize` setzt zusaetzlich `peppol_endpoint`
+   auf NULL
 
 Jeder Schritt ist **eigenstaendig abschaltbar** und **non-fatal**: schlaegt
 ein Schritt fehl oder fehlt eine Voraussetzung, wird mit Warnung
@@ -297,9 +317,11 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 | `--deactivate-cron` / `--no-deactivate-cron` | **aus** | Schicht 1a (Cron/Mail/Fetchmail stilllegen) |
 | `--neutralize` / `--no-neutralize` | **aus** | Schicht 1b + 1c (`odoo-bin neutralize` + Bank-Sync) |
 | `--anonymize` / `--no-anonymize` | **aus** | Schicht 2 (Faker-Anonymisierung inkl. HR — nur Ersatzwerte) |
-| `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Chatter + Anhaenge loeschen: mail_message samt Tracking/Followern/Aktivitaeten, ir_attachment-Zeilen, Filestore-Dateien; Bild-/Binaerfelder und Asset-Bundles bleiben) |
+| `--wipe` / `--no-wipe` | **aus** | Schicht 2b (Chatter + Anhaenge loeschen: mail_message samt Tracking/Followern/Aktivitaeten, ir_attachment-Zeilen, Filestore-Dateien; Bild-/Binaerfelder und Asset-Bundles bleiben; seit v0.66.0 zusaetzlich Binary-Feld-Anhaenge der `WIPE_BINARY_DELETE_MODELS`-Liste, Kontaktfotos und verwaiste Anhaenge) |
 | `--purge-master-data` / `--no-purge-master-data` | **aus (an in `--sanitize`)** | Schicht 3 (seit v0.48.0): Template-DB-Reset — LOESCHT Bewegungsdaten + CRM/HR/Helpdesk/Mail + Kunden-/Lieferanten-/Kontakt-Partner + deren Anhaenge; behaelt Produkte, Preislisten, Benutzer, Firmen, Config. Superuser noetig; Bestaetigung per Partner-Anzahl (mit `-y` uebersprungen) |
 | `--anonymize-users` / `--no-anonymize-users` | **aus** | Zusaetzlich `res_users` (Login + Dev-Passwort); NICHT in `--sanitize` enthalten |
+| `--reset-passwords` / `--no-reset-passwords` | **aus** | Passwoerter **aller** Benutzer (inkl. `admin`/Portal) auf `--user-password` setzen; Logins unveraendert, technische Konten ausgenommen; eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.66.0) |
+| `--reset-2fa` / `--no-reset-2fa` | **aus** | `totp_secret` leeren, `auth_totp_device` loeschen, `auth_totp.policy` entfernen; schema-geschuetzt; eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.66.0) |
 | `--purge-transactions` / `--no-purge-transactions` | **aus** | Nur Bewegungsdaten loeschen (Partner behalten); NICHT in `--sanitize` enthalten |
 | `--user-password TEXT` | `ownerp` | Dev-Passwort fuer anonymisierte Benutzer |
 | `--recompute` / `--no-recompute` | **an nach `--anonymize`** | Stored-Computed-Felder neu berechnen (z.B. `complete_name`), seit v0.44.0 |
@@ -672,13 +694,30 @@ requires `--anonymize`.
 5. `wipe_database()` — chatter + attachment deletion (layer 2b, `--wipe`); since v0.62.0 a
    real DELETE of the chatter tables and attachment rows plus `gc_filestore()` for the files
    on disk (before that only the message body was masked, so the tracking history, followers
-   and every attachment file survived)
+   and every attachment file survived); since v0.66.0 the step also deletes the Binary-field
+   attachments of an explicit model list (`WIPE_BINARY_DELETE_MODELS`: invoices, payments,
+   bank statements, EBICS, HR, sign — the `res_field IS NOT NULL` guard meant for product
+   images had spared the invoice PDF, stored as a Binary field since Odoo 17), the contact
+   photos of anonymized partners, and orphaned Binary-field attachments; the console now
+   reports `N attachment row(s), M filestore file(s) removed`
 6. `purge_transactional_data()` — delete transactional data (`--purge-transactions`,
    standalone, since v0.44.0, see [db.md](db.md))
 7. `anonymize_users()` — only with `--anonymize-users` (optional)
+7b. `reset_all_passwords()` — only with `--reset-passwords` (optional, since v0.66.0,
+   standalone, NOT included in `--sanitize`, runs after `anonymize_users()`): sets
+   `--user-password` (default `ownerp`, shared with `--anonymize-users`) for **every** user
+   incl. `admin`/portal; logins stay unchanged, technical accounts (`__system__`, `default`,
+   `public`, `portaltemplate`) excluded
+7c. `reset_all_2fa()` — only with `--reset-2fa` (optional, since v0.66.0, standalone, NOT
+   included in `--sanitize`): clears `totp_secret`, deletes `auth_totp_device` rows and
+   removes the `auth_totp.policy` config parameter; schema-guarded (no-op without
+   `auth_totp`)
 8. `run_recompute()` — recompute stored computed fields; only runs when
    `--anonymize` is also enabled (automatic, disable with `--no-recompute`,
-   since v0.44.0)
+   since v0.44.0). Since v0.66.0 resilient: a record failing a constraint (e.g. an
+   already-invalid stored Peppol endpoint re-validated by `_check_peppol_fields` when `vat`
+   changed) is skipped and reported as `[WARN] Recompute skipped <model> id=<id>: <error>`
+   instead of aborting the whole run; `--anonymize` additionally nulls `peppol_endpoint`
 
 Each step is **independently switchable** and **non-fatal**: if a step
 fails or a prerequisite is missing, processing continues with a warning —
@@ -692,8 +731,10 @@ the restore still ends with "Database restore complete".
 | `--deactivate-cron` / `--no-deactivate-cron` | **off** | Layer 1a (quiet cron / mail / fetchmail) |
 | `--neutralize` / `--no-neutralize` | **off** | Layer 1b + 1c (`odoo-bin neutralize` + bank sync) |
 | `--anonymize` / `--no-anonymize` | **off** | Layer 2 (Faker anonymization incl. HR — replacement values only) |
-| `--wipe` / `--no-wipe` | **off** | Layer 2b (chatter + attachment deletion: mail_message incl. tracking/followers/activities, ir_attachment rows, filestore files; image/binary fields, asset bundles, asset sources (`url IS NOT NULL`) and attachments with an XML ID are kept) |
+| `--wipe` / `--no-wipe` | **off** | Layer 2b (chatter + attachment deletion: mail_message incl. tracking/followers/activities, ir_attachment rows, filestore files; image/binary fields, asset bundles, asset sources (`url IS NOT NULL`) and attachments with an XML ID are kept; since v0.66.0 additionally deletes the Binary-field attachments of the `WIPE_BINARY_DELETE_MODELS` list, contact photos, and orphaned attachments) |
 | `--anonymize-users` / `--no-anonymize-users` | **off** | Additionally `res_users` (login + dev password); NOT included in `--sanitize` |
+| `--reset-passwords` / `--no-reset-passwords` | **off** | Reset **every** user's (incl. `admin`/portal) password to `--user-password`; logins unchanged, technical accounts excluded; standalone, NOT included in `--sanitize` (since v0.66.0) |
+| `--reset-2fa` / `--no-reset-2fa` | **off** | Clear `totp_secret`, delete `auth_totp_device` rows, remove `auth_totp.policy`; schema-guarded; standalone, NOT included in `--sanitize` (since v0.66.0) |
 | `--user-password TEXT` | `ownerp` | Dev password set on anonymized users |
 | `--recompute` / `--no-recompute` | **on after `--anonymize`** | Recompute stored computed fields (e.g. `complete_name`), since v0.44.0 |
 

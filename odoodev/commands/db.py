@@ -43,6 +43,8 @@ from odoodev.core.database import (
     purge_master_data,
     purge_transactional_data,
     rename_database,
+    reset_all_2fa,
+    reset_all_passwords,
     resolve_purge_tables,
     restore_database,
     run_neutralize,
@@ -668,6 +670,8 @@ class RestoreOptions:
     recompute: bool
     anon_users: bool
     user_password: str
+    reset_passwords: bool = False
+    reset_2fa: bool = False
     uninstall_modules: list[str] = field(default_factory=list)
     yes_flag: bool = False
 
@@ -688,6 +692,8 @@ class RestoreOptions:
                 self.purge_transactions,
                 self.purge_master_data,
                 self.anon_users,
+                self.reset_passwords,
+                self.reset_2fa,
             )
         )
 
@@ -726,6 +732,8 @@ class RestorePipeline:
         self._purge_master_data_step()
         self._purge_step()
         self._anonymize_users_step()
+        self._reset_passwords_step()
+        self._reset_2fa_step()
         self._recompute_step()
         self._print_untouched_hint()
 
@@ -803,10 +811,12 @@ class RestorePipeline:
         # Pass the filestore so the attachment FILES go too — deleting only the
         # ir_attachment rows would leave every invoice PDF on disk.
         filestore_path = get_filestore_path(self.version, db_name=self.name)
-        if wipe_database(self.name, filestore_path=filestore_path, **self.params):
-            print_success("Chatter and attachments deleted (database + filestore)")
+        result = wipe_database(self.name, filestore_path=filestore_path, **self.params)
+        counts = f"{result.attachments_deleted} attachment row(s), {result.files_removed} filestore file(s) removed"
+        if result:
+            print_success(f"Chatter and attachments deleted — {counts}")
         else:
-            print_warning("Wipe partially failed — some tables may be missing (non-fatal)")
+            print_warning(f"Wipe partially failed — {counts}; some tables may be missing (non-fatal)")
 
     def _purge_master_data_step(self) -> None:
         if not self.opts.purge_master_data:
@@ -849,6 +859,26 @@ class RestorePipeline:
         else:
             print_warning("User anonymization failed (table issue) — non-fatal")
 
+    def _reset_passwords_step(self) -> None:
+        if not self.opts.reset_passwords:
+            return
+        print_info("Resetting every user's password (incl. admin and portal users)...")
+        ok, count = reset_all_passwords(self.name, self.opts.user_password, **self.params)
+        if ok:
+            print_success(f"Password reset for {count} user(s) — password: {self.opts.user_password}")
+        else:
+            print_warning("Password reset failed (non-fatal)")
+
+    def _reset_2fa_step(self) -> None:
+        if not self.opts.reset_2fa:
+            return
+        print_info("Disabling two-factor authentication for every user...")
+        ok, msg = reset_all_2fa(self.name, **self.params)
+        if ok:
+            print_success(msg)
+        else:
+            print_warning(f"2FA reset failed (non-fatal): {msg}")
+
     def _recompute_step(self) -> None:
         if not (self.opts.recompute and self.opts.anonymize):
             return
@@ -863,6 +893,7 @@ class RestorePipeline:
             print_info("Recomputing stored computed fields (odoo-bin shell)...")
             ok, msg = run_recompute(self.name, **inv)
             if ok:
+                _print_recompute_markers(msg)
                 print_success("Stored computed fields recomputed")
             else:
                 print_warning(f"Recompute failed (non-fatal): {msg.strip()}")
@@ -873,6 +904,15 @@ class RestorePipeline:
                 "Database left untouched — no post-restore processing selected "
                 "(use --sanitize, --purge-transactions, or --deactivate-cron/--neutralize/--anonymize/--wipe)"
             )
+
+
+def _print_recompute_markers(output: str) -> None:
+    """Surface the records the resilient recompute script had to skip (v0.66.0)."""
+    for line in output.splitlines():
+        if line.startswith("odoodev-recompute: skipped "):
+            print_warning(f"Recompute skipped {line[len('odoodev-recompute: skipped ') :]}")
+        elif line.startswith("odoodev-recompute: done") and "(0 skipped)" not in line:
+            print_warning(f"Recompute finished with skipped records — {line[len('odoodev-recompute: done ') :]}")
 
 
 def _restore_dry_run(
@@ -1004,7 +1044,19 @@ def _restore_dry_run(
     "--user-password",
     default=DEFAULT_DEV_PASSWORD,
     show_default=True,
-    help="Dev password set on anonymized users (only with --anonymize-users)",
+    help="Dev password set by --anonymize-users and --reset-passwords",
+)
+@click.option(
+    "--reset-passwords/--no-reset-passwords",
+    default=False,
+    help="Set --user-password for EVERY user incl. admin and portal users (logins unchanged) — "
+    "OFF by default, NOT included in --sanitize",
+)
+@click.option(
+    "--reset-2fa/--no-reset-2fa",
+    default=False,
+    help="Disable TOTP two-factor auth for every user (secrets, trusted devices, enforcement policy) — "
+    "OFF by default, NOT included in --sanitize",
 )
 @click.option(
     "--uninstall-modules",
@@ -1053,6 +1105,8 @@ def db_restore(
     recompute: bool | None,
     anon_users: bool,
     user_password: str,
+    reset_passwords: bool,
+    reset_2fa: bool,
     uninstall_modules_raw: str | None,
     yes_flag: bool,
     keep_temp: bool,
@@ -1126,6 +1180,8 @@ def db_restore(
                 (purge_transactions, "purge-transactions"),
                 (purge_master_data, "purge-master-data"),
                 (anon_users, "anonymize-users"),
+                (reset_passwords, "reset-passwords"),
+                (reset_2fa, "reset-2fa"),
                 (recompute and anonymize, "recompute"),
             )
             if enabled
@@ -1221,6 +1277,8 @@ def db_restore(
         recompute=recompute,
         anon_users=anon_users,
         user_password=user_password,
+        reset_passwords=reset_passwords,
+        reset_2fa=reset_2fa,
         uninstall_modules=uninstall_modules,
         yes_flag=yes_flag,
     )
@@ -1414,6 +1472,81 @@ def db_users(
 
     app = UsersTuiApp(db_name=name or "", host=params["host"], port=params["port"], user=params["user"])
     app.run()
+
+
+@db.command("reset-auth")
+@click.argument("version", required=False)
+@click.option("-n", "--name", help="Database name (interactive selection if omitted)")
+@click.option(
+    "--passwords", "do_passwords", is_flag=True, help="Set --user-password for every user (incl. admin, portal)"
+)
+@click.option("--2fa", "do_2fa", is_flag=True, help="Disable TOTP 2FA for every user (secrets, devices, policy)")
+@click.option(
+    "--user-password",
+    default=DEFAULT_DEV_PASSWORD,
+    show_default=True,
+    help="Password set by --passwords",
+)
+@click.option("-y", "--yes", "yes_flag", is_flag=True, help="Skip the confirmation prompt")
+@click.pass_context
+def db_reset_auth(
+    ctx: click.Context,
+    version: str | None,
+    name: str | None,
+    do_passwords: bool,
+    do_2fa: bool,
+    user_password: str,
+    yes_flag: bool,
+) -> None:
+    """Reset every user's password and/or 2FA in an already restored database.
+
+    Non-interactive counterpart of 'db users' and the standalone form of the
+    'db restore --reset-passwords / --reset-2fa' steps. Logins are unchanged.
+    """
+    if not (do_passwords or do_2fa):
+        print_error("Nothing selected — pass --passwords and/or --2fa")
+        raise SystemExit(1)
+
+    version = resolve_version(ctx, version)
+    version_cfg = get_version(version)
+    env_vars = _load_env_vars(version_cfg)
+    params = _get_db_params(version_cfg, env_vars)
+    _ensure_pg_reachable(version, params)
+
+    if not name:
+        name = _select_database(params)
+        if not name:
+            raise SystemExit(1)
+    if not _validate_db_name(name):
+        print_error(f"Invalid database name: '{name}'")
+        raise SystemExit(1)
+
+    actions = []
+    if do_passwords:
+        actions.append(f"set every user's password to '{user_password}'")
+    if do_2fa:
+        actions.append("disable 2FA for every user")
+    if not yes_flag and not confirm(f"Database '{name}': {' and '.join(actions)}?", default=False):
+        print_info("Aborted.")
+        raise SystemExit(1)
+
+    failed = False
+    if do_passwords:
+        ok, count = reset_all_passwords(name, user_password, **params)
+        if ok:
+            print_success(f"Password reset for {count} user(s) in '{name}'")
+        else:
+            print_error("Password reset failed")
+            failed = True
+    if do_2fa:
+        ok, msg = reset_all_2fa(name, **params)
+        if ok:
+            print_success(msg)
+        else:
+            print_error(f"2FA reset failed: {msg}")
+            failed = True
+    if failed:
+        raise SystemExit(1)
 
 
 @db.command("purge")

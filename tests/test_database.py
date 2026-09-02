@@ -21,6 +21,7 @@ from odoodev.core.database import (
     WIPE_DELETE_TABLES,
     WIPE_ORPHAN_REPAIR_SQL,
     AnonTable,
+    WipeResult,
     _build_anonymize_sql,
     _build_recompute_script,
     _build_static_update,
@@ -638,6 +639,8 @@ class TestWipeDatabase:
             "odoodev.core.database._run_psql",
             lambda query, **k: (psql_queries.append(query), (ok, ""))[1],
         )
+        # The orphan sweep (v0.66.0) lists res_models via _run_psql_tuples.
+        monkeypatch.setattr("odoodev.core.database._run_psql_tuples", lambda query, **k: (True, []))
         return psql_queries
 
     def test_deletes_chatter_rows_instead_of_blanking_them(self, monkeypatch):
@@ -645,7 +648,7 @@ class TestWipeDatabase:
         from odoodev.core.database import wipe_database
 
         psql_queries = self._capture(monkeypatch)
-        assert wipe_database("mydb") is True
+        assert wipe_database("mydb")
         joined = " ".join(psql_queries)
 
         # The chatter is emptied, not masked.
@@ -662,7 +665,7 @@ class TestWipeDatabase:
         from odoodev.core.database import wipe_database
 
         psql_queries = self._capture(monkeypatch)
-        assert wipe_database("mydb") is True
+        assert wipe_database("mydb")
         joined = " ".join(psql_queries)
 
         assert "DELETE FROM ir_attachment" in joined
@@ -677,6 +680,8 @@ class TestWipeDatabase:
         stmt = next(q for q in psql_queries if q.startswith("DELETE FROM ir_attachment"))
 
         # res_field IS NOT NULL == product images / avatars stored as attachments.
+        # (Since v0.66.0 a SECOND statement takes the transactional Binary fields —
+        # invoice PDFs, bank files — see test_wipe_binary_fields.py.)
         assert "res_field IS NULL" in stmt
         assert "ir.ui.view" in stmt
 
@@ -689,14 +694,15 @@ class TestWipeDatabase:
             "odoodev.core.database._run_psql",
             lambda query, **k: (psql_queries.append(query), (True, ""))[1],
         )
-        assert wipe_database("mydb") is True
+        monkeypatch.setattr("odoodev.core.database._run_psql_tuples", lambda query, **k: (True, []))
+        assert wipe_database("mydb")
         assert psql_queries == []
 
     def test_returns_false_on_failure(self, monkeypatch):
         from odoodev.core.database import wipe_database
 
         psql_queries = self._capture(monkeypatch, ok=False)
-        assert wipe_database("mydb") is False
+        assert not wipe_database("mydb")
         assert psql_queries  # it did try
 
     def test_runs_filestore_gc_when_path_given(self, monkeypatch, tmp_path):
@@ -710,7 +716,7 @@ class TestWipeDatabase:
         )
         fs = tmp_path / "mydb"
         fs.mkdir()
-        assert wipe_database("mydb", filestore_path=str(fs)) is True
+        assert wipe_database("mydb", filestore_path=str(fs))
         assert seen == {"db": "mydb", "path": str(fs)}
 
     def test_skips_filestore_gc_without_path(self, monkeypatch):
@@ -722,7 +728,7 @@ class TestWipeDatabase:
             "odoodev.core.database.gc_filestore",
             lambda db, path, **k: (called.append(path), (True, 0))[1],
         )
-        assert wipe_database("mydb") is True
+        assert wipe_database("mydb")
         assert called == []
 
 
@@ -1448,7 +1454,9 @@ class TestRestoreCliFlags:
             db_cmd, "anonymize_database", lambda name, **k: (calls.setdefault("anon", []).append(name), True)[1]
         )
         monkeypatch.setattr(
-            db_cmd, "wipe_database", lambda name, **k: (calls.setdefault("wipe", []).append(name), True)[1]
+            db_cmd,
+            "wipe_database",
+            lambda name, **k: (calls.setdefault("wipe", []).append(name), WipeResult(True))[1],
         )
         monkeypatch.setattr(
             db_cmd, "anonymize_users", lambda name, **k: (calls.setdefault("users", []).append(name), True)[1]

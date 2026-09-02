@@ -79,6 +79,14 @@ class TestRestoreDryRun:
         # recompute auto-runs with anonymize
         assert "recompute" in result.output
 
+    def test_reports_reset_steps(self, patched, backup_file):
+        """v0.66.0: the auth-reset steps show up in the planned-steps list."""
+        args = ["-n", "testdb", "-z", str(backup_file), "--reset-passwords", "--reset-2fa", "--dry-run", "-y"]
+        result = _invoke(args)
+        assert result.exit_code == 0, result.output
+        assert "reset-passwords" in result.output
+        assert "reset-2fa" in result.output
+
     def test_no_steps_reports_untouched(self, patched, backup_file):
         result = _invoke(["-n", "testdb", "-z", str(backup_file), "--dry-run", "-y"])
         assert result.exit_code == 0, result.output

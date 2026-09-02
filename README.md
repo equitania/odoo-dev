@@ -202,6 +202,23 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.66.0:**
+- **Neu:** `db restore --reset-passwords` / `--reset-2fa` — nach einem Restore bekommt jeder
+  Benutzer (inkl. `admin` und Portal) das `--user-password`, Logins bleiben; `--reset-2fa` löscht
+  TOTP-Geheimnisse, vertrauenswürdige Geräte und die erzwungene 2FA-Richtlinie. Beides opt-in,
+  nicht in `--sanitize`. Standalone: `db reset-auth 18 -n DB --passwords --2fa`. Playbooks
+  kennen jetzt auch `anonymize-users`, `user-password`, `reset-passwords`, `reset-2fa`.
+- **Behoben:** `--wipe` ließ jede Rechnungs-PDF und jede Bankdatei stehen — seit Odoo 17 ist die
+  Rechnungs-PDF ein Binary-Feld auf `account.move`, das die Bildschonung aus 0.62.0 pauschal
+  verschonte (1655 PDFs, 250 MB, in einem echten v18-Restore). Jetzt werden Binary-Anhänge der
+  Buchhaltungs-, Bank-, HR- und Sign-Modelle, Kontaktfotos und verwaiste Binary-Anhänge
+  mitgelöscht; Produktbilder, Logo, Themes und Layouts bleiben.
+- **Behoben:** Das Neuberechnen nach `--anonymize` brach an einem einzigen Datensatz mit
+  ungültigem Peppol-Endpunkt ab und committete nichts — Listen zeigten weiter die echten Namen.
+  Das Skript überspringt jetzt nur den fehlerhaften Datensatz (mit Warnung) und committet den
+  Rest; `--anonymize` leert zusätzlich `peppol_endpoint`.
+- **Geändert:** Der Wipe meldet gelöschte Anhangszeilen und entfernte Dateien auf der Konsole.
+
 **Version 0.65.0:**
 - **Neu:** `odoodev requirements prune` entfernt Overlay-Einträge, die die Baseline ohnehin
   abdeckt — identische Dubletten, zurückgehaltene Pins, Einträge die Baseline-Extras verlieren,

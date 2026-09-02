@@ -1,5 +1,56 @@
 # Release Notes
 
+## Version 0.66.0 (02.09.2026)
+
+### Added
+- **`db restore --reset-passwords` / `--reset-2fa`** — after restoring a production backup
+  nobody knows the production passwords, and a user with TOTP enabled cannot log in at all.
+  `--reset-passwords` sets `--user-password` (default `ownerp`) for **every** user — `admin`
+  and portal users included, logins unchanged; only the technical accounts (`__system__`,
+  `default`, `public`, `portaltemplate`) are left alone. `--reset-2fa` clears every
+  `totp_secret`, drops the trusted devices (`auth_totp_device`) and removes the
+  `auth_totp.policy` parameter of `auth_totp_mail_enforce` — an enforced policy would push
+  every user into a mail OTP that a neutralized database never delivers. Both are standalone
+  opt-ins, never implied by `--sanitize`, schema-guarded (no `auth_totp` → no-op), listed by
+  `--dry-run`, and run after `--anonymize-users` so the reset password wins.
+- **`odoodev db reset-auth VERSION -n DB --passwords --2fa [--user-password PW] [-y]`** — the
+  same two steps for an already restored database, non-interactive counterpart of the
+  `db users` TUI. Refuses to run without a selection; y/N confirmation unless `-y`.
+- **Playbook `db.restore`** now understands `anonymize-users`, `user-password`,
+  `reset-passwords` and `reset-2fa` (both spellings), and the assistant offers them. Before,
+  the CLI flag `--anonymize-users` had no playbook equivalent at all.
+
+### Fixed
+- **`--wipe` left every invoice PDF and bank file in place.** Since Odoo 17 the legal invoice
+  PDF is a Binary field (`account.move.invoice_pdf_report_file`), and the `res_field IS NOT
+  NULL` guard introduced in 0.62.0 to protect product images spared it wholesale — a real v18
+  restore still carried 1655 invoice PDFs (250 MB) and 1847 EBICS bank files after
+  `--sanitize`. The wipe now also deletes the Binary-field attachments of an explicit model
+  list (`WIPE_BINARY_DELETE_MODELS`: `account.move`, `account.payment`, bank statements,
+  `ebics.*`, `hr.employee`/`hr.version`/`hr.contract`/`hr.applicant`, `sign.*`), the contact
+  photos of every partner the anonymizer touches (not those behind `res_users`/`res_company`),
+  and every Binary-field attachment whose owning record no longer exists (the
+  `documents.document` thumbnails that survived their cascaded rows). Product images, company
+  logo, themes, report layouts and spreadsheets stay untouched. An explicit list is used on
+  purpose: an allowlist is brittle across modules, and an "images only" rule would hit logos.
+- **The recompute after `--anonymize` died on one bad record — and committed nothing.**
+  `flush_all()` raises the moment any record fails a constraint. Seen in the wild: a partner
+  whose stored Peppol endpoint was already invalid in production, re-validated by
+  `_check_peppol_fields` because `vat` changed. The script aborted, no `complete_name` was
+  ever written, and list/kanban views kept showing the real names after anonymization. The
+  recompute script now rolls back on failure, bisects the batch, skips the single offending
+  records (reported as `[WARN] Recompute skipped res.partner id=…: …`) and commits every
+  successful batch on its own. `--anonymize` additionally nulls `peppol_endpoint`, which is
+  derived from VAT / company registry anyway.
+- **The wipe reports what it did.** `[OK] Chatter and attachments deleted — 1655 attachment
+  row(s), 1650 filestore file(s) removed` instead of a bare `[OK]`; the file count used to go
+  to the debug log only, so the restore log could not answer "did it actually delete anything".
+
+### Changed
+- `wipe_database()` returns a `WipeResult` (truthy on success, with `attachments_deleted` and
+  `files_removed`) instead of a bare bool. Callers that only test truthiness keep working.
+- `--user-password` is now shared by `--anonymize-users` and `--reset-passwords`.
+
 ## Version 0.65.0 (31.08.2026)
 
 ### Added

@@ -511,7 +511,9 @@ def handle_db_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
 def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Restore a database from backup file (non-interactive)."""
     from odoodev.core.database import (
+        DEFAULT_DEV_PASSWORD,
         anonymize_database,
+        anonymize_users,
         check_restore_space,
         cleanup_restore_temp,
         create_database,
@@ -524,6 +526,8 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         move_filestore,
         parse_module_names,
         purge_transactional_data,
+        reset_all_2fa,
+        reset_all_passwords,
         restore_database,
         run_neutralize,
         run_recompute,
@@ -552,6 +556,11 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
     purge_flag = args.get("purge-transactions", args.get("purge_transactions", False))
     # Recompute defaults to on whenever anonymize ran.
     recompute_flag = args.get("recompute", anonymize_flag)
+    # User-account steps — all standalone opt-ins, never implied by sanitize (v0.66.0).
+    anon_users_flag = args.get("anonymize-users", args.get("anonymize_users", False))
+    reset_passwords_flag = args.get("reset-passwords", args.get("reset_passwords", False))
+    reset_2fa_flag = args.get("reset-2fa", args.get("reset_2fa", False))
+    user_password = str(args.get("user-password", args.get("user_password", DEFAULT_DEV_PASSWORD)))
     # Modules to uninstall before the sanitize steps (string or YAML list).
     uninstall_modules = parse_module_names(args.get("uninstall-modules", args.get("uninstall_modules")))
 
@@ -626,6 +635,17 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
             ok, msg = purge_transactional_data(name, **params)
             if not ok:
                 logger.warning("Transactional purge skipped (non-fatal): %s", msg)
+        if anon_users_flag and not anonymize_users(name, dev_password=user_password, **params):
+            logger.warning("User anonymization failed (non-fatal)")
+        if reset_passwords_flag:
+            ok, count = reset_all_passwords(name, user_password, **params)
+            if ok:
+                logger.info("Password reset for %d user(s)", count)
+            else:
+                logger.warning("Password reset failed (non-fatal)")
+        if reset_2fa_flag:
+            ok, msg = reset_all_2fa(name, **params)
+            (logger.info if ok else logger.warning)("%s", msg)
         if recompute_flag and anonymize_flag:
             from odoodev.commands.start import resolve_odoo_invocation
 

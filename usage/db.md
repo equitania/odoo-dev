@@ -164,9 +164,11 @@ jede Nachbehandlung muss explizit per Flag angefordert werden:
 | `--deactivate-cron` | Cron-Jobs, Mail- und Fetchmail-Server deaktivieren (psql-Baseline) |
 | `--neutralize` | Natives `odoo-bin neutralize` + Bank-Sync-Bereinigung |
 | `--anonymize` | DSGVO-Anonymisierung mit Faker (nur Ersatzwerte, keine Loeschung) |
-| `--wipe` | Chatter + Anhaenge loeschen: mail_message samt Tracking/Followern/Aktivitaeten, ir_attachment-Zeilen UND die zugehoerigen Filestore-Dateien (seit v0.62.0 echtes DELETE) |
+| `--wipe` | Chatter + Anhaenge loeschen: mail_message samt Tracking/Followern/Aktivitaeten, ir_attachment-Zeilen UND die zugehoerigen Filestore-Dateien (seit v0.62.0 echtes DELETE); seit v0.66.0 zusaetzlich die Binary-Feld-Anhaenge von Rechnungen/Zahlungen/Kontoauszuegen/EBICS/HR/Sign, Kontaktfotos und verwaiste Anhaenge (Konsole meldet Zeilen-/Dateizahl) |
 | `--sanitize` | Sammel-Flag: aktiviert alle vier obigen auf einmal; explizite `--no-*` gewinnen |
 | `--anonymize-users` | `res_users` anonymisieren — eigenstaendig, NICHT in `--sanitize` enthalten |
+| `--reset-passwords` | Passwoerter **aller** Benutzer (inkl. `admin` und Portal-Benutzer) auf `--user-password` setzen (geteilt mit `--anonymize-users`, Default `ownerp`); Logins bleiben unveraendert, technische Konten (`__system__`, `default`, `public`, `portaltemplate`) ausgenommen — eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.66.0) |
+| `--reset-2fa` | `totp_secret` leeren, `auth_totp_device`-Zeilen loeschen und den Config-Parameter `auth_totp.policy` entfernen; schema-geschuetzt (No-op ohne `auth_totp`) — eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.66.0) |
 | `--purge-transactions` | Transaktionsdaten loeschen (Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS) fuer eine saubere Stresstest-DB — eigenstaendig, NICHT in `--sanitize` enthalten (seit v0.44.0) |
 | `--recompute` | Stored-Computed-Felder neu berechnen (z.B. `complete_name`) — automatisch nach `--anonymize`, abschaltbar mit `--no-recompute` (seit v0.44.0) |
 | `--uninstall-modules` | Module VOR den Sanitize-Schritten deinstallieren (kommagetrennte technische Namen); ohne Flag fragt der interaktive Modus nach, wenn ein Sanitize-Schritt aktiv ist (seit v0.45.0) |
@@ -180,6 +182,7 @@ odoodev db restore 18 -n v18_test -z prod.zip --sanitize        # Template-Reset
 odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-purge-master-data  # nur anonymisieren (altes --sanitize)
 odoodev db restore 18 -n v18_test -z prod.zip --neutralize      # nur neutralisieren
 odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-wipe  # alles ausser Inhalts-Loeschung
+odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --reset-passwords --reset-2fa  # zusaetzlich Passwoerter/2FA zuruecksetzen (v0.66.0)
 
 # Template-DB-Reset auf einer bereits wiederhergestellten DB (eigenstaendig)
 odoodev db purge-master-data 18 -n v18_test --dry-run           # Vorschau, loescht nichts
@@ -239,6 +242,22 @@ Bewusst **erhalten** bleiben: Anhaenge mit `res_field IS NOT NULL` (Odoo speiche
 `fields.Image` in `ir_attachment` — ein pauschales Loeschen wuerde alle Produktbilder und
 Avatare entfernen) sowie die kompilierten Asset-Bundles auf `ir.ui.view` / `ir.ui.menu`.
 
+**Seit v0.66.0 loescht `--wipe` zusaetzlich gezielt Binary-Feld-Anhaenge.** Odoo speichert seit
+Version 17 die rechtsverbindliche Rechnungs-PDF als Binary-Feld
+(`account.move.invoice_pdf_report_file`) — der `res_field IS NOT NULL`-Schutz fuer Produktbilder
+liess sie deshalb unangetastet: ein realer v18-Restore behielt nach `--sanitize` noch 1655
+Rechnungs-PDFs (250 MB) und 1847 EBICS-Dateien. `--wipe` loescht jetzt zusaetzlich die
+Binary-Feld-Anhaenge einer festen Modul-Liste (`WIPE_BINARY_DELETE_MODELS`: `account.move`,
+`account.move.line`, `account.payment`, `account.bank.statement(.line)`, `ebics.file`,
+`ebics.userid`, `hr.employee`, `hr.version`, `hr.contract`, `hr.applicant`, `hr.candidate`,
+`sign.request(.item)`, `sign.document`), die Kontaktfotos der anonymisierten Partner
+(`res.partner`-Felder `image_%`, ausser hinter `res_users`/`res_company`) sowie jeden
+Binary-Feld-Anhang, dessen Datensatz nicht mehr existiert (z. B. verwaiste
+`documents.document`-Thumbnails). Erhalten bleiben weiterhin Produktbilder, Firmenlogo, Themes,
+Report-Layouts, Spreadsheets, Asset-Bundles/-Sources und Anhaenge mit XML-ID. Die Konsole meldet
+jetzt konkrete Zahlen: `[OK] Chatter and attachments deleted — N attachment row(s), M filestore
+file(s) removed`.
+
 Die Ersatzwerte werden mit **Faker** (`de_DE`, pro Datensatz-ID geseedet → reproduzierbar)
 erzeugt. E-Mail- und Login-Felder werden bewusst **nicht** aus Faker generiert, sondern auf
 reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}`).
@@ -252,7 +271,7 @@ reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}
 | `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | Gehalt (`wage` → 0), sensible Personaldaten (v19) |
 | `employee_bank_account_rel` (v19) | `--wipe` | M2M-Verknuepfung komplett geloescht |
 | `mail_message` + `mail_tracking_value`, `mail_notification`, `mail_followers`, `mail_activity`, rel-Tabellen | `--wipe` | Zeilen komplett geloescht (Kind vor Eltern) — der Chatter ist danach leer |
-| `ir_attachment` | `--wipe` | Zeilen geloescht, ausser `res_field IS NOT NULL` (Bild-/Binaerfelder) und Asset-Bundles (`ir.ui.view`/`ir.ui.menu`) |
+| `ir_attachment` | `--wipe` | Zeilen geloescht, ausser `res_field IS NOT NULL` (Bild-/Binaerfelder) und Asset-Bundles (`ir.ui.view`/`ir.ui.menu`) — seit v0.66.0 zusaetzlich geloescht: Binary-Feld-Anhaenge der `WIPE_BINARY_DELETE_MODELS`-Liste (Rechnungen, Zahlungen, Kontoauszuege, EBICS, HR, Sign), Kontaktfotos (`res.partner` `image_%`, ausser hinter `res_users`/`res_company`) und verwaiste Binary-Anhaenge |
 | Filestore | `--wipe` | Verwaiste Dateien werden von der Platte entfernt (`gc_filestore`) |
 
 > **`res_users` wird per Default NICHT anonymisiert** — Logins bleiben testbar. Opt-in via
@@ -270,10 +289,20 @@ reservierte, nicht zustellbare Werte gesetzt (`p{id}@example.invalid`, `user{id}
 > `odoodev db recompute 18 -n v18_test`. Wird mit Warnung uebersprungen, wenn die Dev-Umgebung
 > (venv/odoo-bin/odoo_*.conf) nicht bereitsteht.
 
+> **Seit v0.66.0 ist das Recompute-Skript resilient.** Vorher brach `flush_all()` den kompletten
+> Lauf ab, sobald ein einzelner Datensatz an einem Constraint scheiterte (realer Fall: ein
+> bereits ungueltiger, gespeicherter Peppol-Endpoint, den `_check_peppol_fields` bei geaenderter
+> `vat` neu prueft) — es wurde nichts committet. Das Skript rollt jetzt bei einem Fehler zurueck,
+> halbiert den Batch (Bisektion), ueberspringt nur den einzelnen betroffenen Datensatz (gemeldet
+> als `[WARN] Recompute skipped <model> id=<id>: <error>`) und committet jeden erfolgreichen Batch
+> fuer sich. `--anonymize` setzt zusaetzlich `peppol_endpoint` auf NULL — der Wert wird ohnehin aus
+> USt-IdNr./Handelsregister abgeleitet.
+
 ```bash
 odoodev db restore 18 -n v18_test -z prod_backup.zip                    # Rohdaten (Default seit v0.43.0)
 odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize --wipe # anonymisieren + Inhalte loeschen
 odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --anonymize-users # alles inkl. res_users
+odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --reset-passwords --reset-2fa # Passwoerter/2FA zuruecksetzen (v0.66.0)
 ```
 
 Bei `odoodev db drop` wird der Filestore-Ordner ebenfalls entfernt (mit Hinweis in der Bestaetigungsabfrage).
@@ -336,6 +365,26 @@ odoodev db users 18 -n v18_test     # direkt in die Benutzerliste
 Die 2FA-Spalte zeigt `totp_secret IS NOT NULL`; Datenbanken ohne `auth_totp`-Modul werden
 schema-geschuetzt behandelt (Deaktivieren ist dann ein No-op). Technische Konten
 (`__system__`, `public`, ...) sind ausgeblendet, `admin` bleibt sichtbar.
+
+### Passwoerter & 2FA nicht-interaktiv zuruecksetzen (`db reset-auth`, seit v0.66.0)
+
+Nicht-interaktives Gegenstueck zu `db users` fuer Skripte und Playbooks — z. B. direkt nach
+einem Restore, ohne die TUI zu oeffnen:
+
+```bash
+odoodev db reset-auth 18 -n v18_test --passwords --2fa
+odoodev db reset-auth 18 -n v18_test --passwords --user-password geheim123
+odoodev db reset-auth 18 -n v18_test --2fa -y   # ohne Rueckfrage
+```
+
+Verweigert die Ausfuehrung ohne mindestens `--passwords` oder `--2fa`; fragt sonst eine
+y/N-Bestaetigung ab (ausser mit `-y`); Exit-Code 1 bei Fehlschlag. `--passwords` setzt fuer
+**alle** Benutzer (inkl. `admin` und Portal-Benutzer) das Passwort auf `--user-password`
+(geteilt mit `--anonymize-users`, Default `ownerp`) — Logins bleiben unveraendert, nur die
+technischen Konten (`__system__`, `default`, `public`, `portaltemplate`) werden ausgenommen.
+`--2fa` leert `totp_secret`, loescht `auth_totp_device`-Zeilen (vertrauenswuerdige Geraete) und
+entfernt den Config-Parameter `auth_totp.policy` — schema-geschuetzt (No-op ohne
+`auth_totp`-Modul).
 
 ### Transaktionsdaten purgen (`db purge` / `--purge-transactions`, seit v0.44.0)
 
@@ -560,9 +609,11 @@ post-processing step must be requested explicitly:
 | `--deactivate-cron` | Deactivate cron jobs, mail and fetchmail servers (psql baseline) |
 | `--neutralize` | Native `odoo-bin neutralize` + bank-sync cleanup |
 | `--anonymize` | GDPR anonymization with Faker (replacement values only, no deletion) |
-| `--wipe` | Delete chatter + attachments: mail_message incl. tracking/followers/activities, ir_attachment rows AND their filestore files (a real DELETE since v0.62.0) |
+| `--wipe` | Delete chatter + attachments: mail_message incl. tracking/followers/activities, ir_attachment rows AND their filestore files (a real DELETE since v0.62.0); since v0.66.0 also the Binary-field attachments of invoices/payments/bank statements/EBICS/HR/sign, contact photos and orphaned attachments (console reports row/file counts) |
 | `--sanitize` | Convenience flag: enables all four above at once; explicit `--no-*` flags win |
 | `--anonymize-users` | Anonymize `res_users` — standalone, NOT included in `--sanitize` |
+| `--reset-passwords` | Set **every** user's (incl. `admin` and portal users) password to `--user-password` (shared with `--anonymize-users`, default `ownerp`); logins stay unchanged, technical accounts (`__system__`, `default`, `public`, `portaltemplate`) excluded — standalone, NOT included in `--sanitize` (since v0.66.0) |
+| `--reset-2fa` | Clear `totp_secret`, delete `auth_totp_device` rows and remove the `auth_totp.policy` config parameter; schema-guarded (no-op without `auth_totp`) — standalone, NOT included in `--sanitize` (since v0.66.0) |
 | `--purge-transactions` | Delete transactional data (stock/sales/purchase/accounting/MRP/POS) for a clean stress-test DB — standalone, NOT included in `--sanitize` (since v0.44.0) |
 | `--recompute` | Recompute stored computed fields (e.g. `complete_name`) — automatic after `--anonymize`, disable with `--no-recompute` (since v0.44.0) |
 | `--uninstall-modules` | Uninstall modules BEFORE the sanitize steps (comma-separated technical names); without the flag the interactive mode asks when a sanitize step is enabled (since v0.45.0) |
@@ -575,6 +626,7 @@ odoodev db restore 18 -n v18_test -z prod.zip                  # plain restore, 
 odoodev db restore 18 -n v18_test -z prod.zip --sanitize        # fully defused
 odoodev db restore 18 -n v18_test -z prod.zip --neutralize      # neutralize only
 odoodev db restore 18 -n v18_test -z prod.zip --sanitize --no-wipe  # everything except deletion
+odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --reset-passwords --reset-2fa  # also reset passwords/2FA (v0.66.0)
 ```
 
 **Cron/mail deactivation (`--deactivate-cron`, psql baseline):**
@@ -658,6 +710,21 @@ and avatar), the compiled asset bundles on `ir.ui.view` / `ir.ui.menu`, every at
 >  GROUP BY 1;
 > ```
 
+**Since v0.66.0 `--wipe` also deletes specific Binary-field attachments on purpose.** Since Odoo
+17 the legal invoice PDF is a Binary field (`account.move.invoice_pdf_report_file`) — the
+`res_field IS NOT NULL` guard meant for product images spared it wholesale, and a real v18
+restore still carried 1655 invoice PDFs (250 MB) and 1847 EBICS bank files after `--sanitize`.
+`--wipe` now also deletes the Binary-field attachments of an explicit model list
+(`WIPE_BINARY_DELETE_MODELS`: `account.move`, `account.move.line`, `account.payment`,
+`account.bank.statement(.line)`, `ebics.file`, `ebics.userid`, `hr.employee`, `hr.version`,
+`hr.contract`, `hr.applicant`, `hr.candidate`, `sign.request(.item)`, `sign.document`), the
+contact photos of the anonymized partners (`res.partner` `image_%` fields, except the ones
+behind `res_users`/`res_company`), and every Binary-field attachment whose owning record no
+longer exists (e.g. orphaned `documents.document` thumbnails). Still untouched: product images,
+company logo, themes, report layouts, spreadsheets, asset bundles/sources and attachments with
+an XML ID. The console now reports concrete numbers: `[OK] Chatter and attachments deleted — N
+attachment row(s), M filestore file(s) removed`.
+
 Replacement values are generated with **Faker** (`de_DE`, seeded per row id → reproducible).
 E-mail and login columns are deliberately **not** taken from Faker but forced onto reserved,
 non-deliverable values (`p{id}@example.invalid`, `user{id}`).
@@ -671,7 +738,7 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 | `hr_version` (v19) / `hr_contract` (v16/v18) | `--anonymize` | wage → 0, sensitive personnel data (v19) |
 | `employee_bank_account_rel` (v19) | `--wipe` | M2M link deleted entirely |
 | `mail_message` + `mail_tracking_value`, `mail_notification`, `mail_followers`, `mail_activity`, rel tables | `--wipe` | rows deleted entirely (child before parent) — the chatter is empty afterwards |
-| `ir_attachment` | `--wipe` | rows deleted, except `res_field IS NOT NULL` (image/binary fields), asset bundles (`ir.ui.view`/`ir.ui.menu`), asset sources (`url IS NOT NULL`) and attachments with an XML ID (`ir_model_data`) |
+| `ir_attachment` | `--wipe` | rows deleted, except `res_field IS NOT NULL` (image/binary fields), asset bundles (`ir.ui.view`/`ir.ui.menu`), asset sources (`url IS NOT NULL`) and attachments with an XML ID (`ir_model_data`) — since v0.66.0 also deleted: Binary-field attachments of the `WIPE_BINARY_DELETE_MODELS` list (invoices, payments, bank statements, EBICS, HR, sign), contact photos (`res.partner` `image_%`, except behind `res_users`/`res_company`) and orphaned Binary-field attachments |
 | `ir_model_data`, `ir_asset` | `--wipe` | repair pass: XML IDs pointing at a deleted attachment and `/_custom/%` assets without a source attachment are removed (no-op on a healthy DB) |
 | Filestore | `--wipe` | orphaned files removed from disk (`gc_filestore`) |
 
@@ -689,10 +756,19 @@ non-deliverable values (`p{id}@example.invalid`, `user{id}`).
 > standalone via `odoodev db recompute 18 -n v18_test`. Skipped with a warning when the dev env
 > (venv/odoo-bin/odoo_*.conf) is not ready.
 
+> **Since v0.66.0 the recompute script is resilient.** Before, `flush_all()` aborted the whole
+> run the moment a single record failed a constraint (seen in the wild: a partner whose stored
+> Peppol endpoint was already invalid in production, re-validated by `_check_peppol_fields`
+> because `vat` changed) — nothing got committed. The script now rolls back on failure, bisects
+> the batch, skips only the single offending record (reported as `[WARN] Recompute skipped
+> <model> id=<id>: <error>`) and commits every successful batch on its own. `--anonymize`
+> additionally nulls `peppol_endpoint`, which is derived from VAT / company registry anyway.
+
 ```bash
 odoodev db restore 18 -n v18_test -z prod_backup.zip                    # raw data (default since v0.43.0)
 odoodev db restore 18 -n v18_test -z prod_backup.zip --anonymize --wipe # anonymize + delete content
 odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --anonymize-users # everything incl. res_users
+odoodev db restore 18 -n v18_test -z prod_backup.zip --sanitize --reset-passwords --reset-2fa # reset passwords/2FA too (v0.66.0)
 ```
 
 When running `odoodev db drop`, the filestore directory is also removed (with notice in the confirmation prompt).
@@ -755,6 +831,25 @@ odoodev db users 18 -n v18_test     # straight into the user list
 The 2FA column shows `totp_secret IS NOT NULL`; databases without the `auth_totp` module
 are schema-guarded (disabling is a no-op there). Technical accounts (`__system__`,
 `public`, ...) are hidden, `admin` stays visible.
+
+### Non-interactive password & 2FA reset (`db reset-auth`, since v0.66.0)
+
+Non-interactive counterpart of `db users` for scripts and playbooks — e.g. right after a
+restore, without opening the TUI:
+
+```bash
+odoodev db reset-auth 18 -n v18_test --passwords --2fa
+odoodev db reset-auth 18 -n v18_test --passwords --user-password secret123
+odoodev db reset-auth 18 -n v18_test --2fa -y   # no confirmation prompt
+```
+
+Refuses to run without at least `--passwords` or `--2fa`; otherwise asks a y/N confirmation
+(unless `-y`); exit code 1 on failure. `--passwords` sets **every** user's (incl. `admin` and
+portal users) password to `--user-password` (shared with `--anonymize-users`, default
+`ownerp`) — logins stay unchanged, only the technical accounts (`__system__`, `default`,
+`public`, `portaltemplate`) are excluded. `--2fa` clears `totp_secret`, deletes
+`auth_totp_device` rows (trusted devices) and removes the `auth_totp.policy` config
+parameter — schema-guarded (no-op without the `auth_totp` module).
 
 ### Purge transactional data (`db purge` / `--purge-transactions`, since v0.44.0)
 

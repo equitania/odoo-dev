@@ -65,7 +65,8 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db purge-master-data` | Full template-DB reset: delete movement + CRM/HR/helpdesk/mail data + customer/vendor/contact partners + their attachments; keep products, pricelists, users, companies, config. Superuser role required. | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
 | `odoodev db recompute` | Recompute stored computed fields (e.g. `complete_name`) via `odoo-bin shell`. | [VERSION], -n/--name TEXT |
 | `odoodev db rename` | Rename a database (incl. filestore directory). | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
-| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default; `--sanitize` = full template reset incl. master-data deletion). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --purge-master-data/--no-purge-master-data, --anonymize-users/--no-anonymize-users, --user-password TEXT, --uninstall-modules TEXT, -y/--yes, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup, --dry-run (validate file/target/space + list planned steps, change nothing, exit 0/1) |
+| `odoodev db reset-auth` | Non-interactive password/2FA reset on an already restored database — CLI counterpart of the `db users` TUI. | [VERSION], -n/--name TEXT, --passwords, --2fa, --user-password TEXT (default `ownerp`), -y/--yes |
+| `odoodev db restore` | Restore a database from backup file (post-processing OFF by default; `--sanitize` = full template reset incl. master-data deletion). | [VERSION], -n/--name TEXT, -z/--backup-file PATH, --drop/--no-drop, --sanitize, --deactivate-cron/--no-deactivate-cron, --neutralize/--no-neutralize, --anonymize/--no-anonymize, --wipe/--no-wipe, --purge-master-data/--no-purge-master-data, --anonymize-users/--no-anonymize-users, --reset-passwords/--no-reset-passwords, --reset-2fa/--no-reset-2fa, --user-password TEXT, --uninstall-modules TEXT, -y/--yes, --purge-transactions/--no-purge-transactions, --recompute/--no-recompute, --keep-temp, --check-space/--no-check-space, --delete-backup, --keep-backup, --dry-run (validate file/target/space + list planned steps, change nothing, exit 0/1) |
 | `odoodev db uninstall` | Uninstall modules via `odoo-bin shell` (`button_immediate_uninstall`) — e.g. modules that conflict with the sanitize steps. | [VERSION], -n/--name TEXT, -m/--modules TEXT (comma-separated technical names), -y/--yes |
 | `odoodev db users` | Interactive TUI: user list with 2FA status; reset passwords (pbkdf2_sha512) and disable TOTP 2FA. | [VERSION], -n/--name TEXT (DB picker inside the TUI if omitted) |
 | `odoodev docker down` | Stop the local PostgreSQL service (data volume kept). | [VERSION], --runtime docker\|apple |
@@ -147,6 +148,7 @@ odoodev db restore 18 -n v18_restored -z backup.zip --sanitize --uninstall-modul
 odoodev db purge-master-data 18 -n v18_restored --dry-run        # preview the full reset on an existing DB
 odoodev db uninstall 18 -n v18_restored -m mod1,mod2 -y          # uninstall modules on an existing DB
 odoodev db users 18 -n v18_restored                              # TUI: reset passwords / disable 2FA
+odoodev db reset-auth 18 -n v18_restored --passwords --2fa -y    # non-interactive counterpart of db users (v0.66.0)
 odoodev db drop 18 -m                                            # checkbox multi-select of databases to drop
 odoodev db drop 18 --all --filter test_                          # bulk-drop all test_* databases (y/N confirmation)
 ```
@@ -157,7 +159,16 @@ mail_message, mail_tracking_value, mail_notification, mail_followers, mail_activ
 tables — plus the ir_attachment rows AND their filestore files; keeps `res_field IS NOT NULL`
 image/binary storage, `ir.ui.view`/`ir.ui.menu` asset bundles, and since v0.62.2 also the asset
 SOURCES (`url IS NOT NULL`) and every attachment with an XML ID — deleting those broke SCSS
-compilation and produced a permanent "style error" banner),
+compilation and produced a permanent "style error" banner; since v0.66.0 also deletes the
+Binary-field attachments of an explicit model list — `account.move`/`.move.line`, `account.payment`,
+`account.bank.statement(.line)`, `ebics.file`/`.userid`, `hr.employee`/`.version`/`.contract`/
+`.applicant`/`.candidate`, `sign.request(.item)`, `sign.document` (`WIPE_BINARY_DELETE_MODELS`,
+closes the gap where the Odoo 17+ invoice PDF Binary field `account.move.invoice_pdf_report_file`
+survived a `--sanitize` restore — 1655 PDFs / 250 MB + 1847 EBICS files in a real case) — plus
+contact photos (`res.partner` `image_%`, except behind `res_users`/`res_company`) and every
+Binary-field attachment whose record no longer exists; still kept: product images, company logo,
+themes, report layouts, spreadsheets. Console now reports `N attachment row(s), M filestore
+file(s) removed`; `wipe_database()` returns a `WipeResult`),
 `--purge-master-data`, or `--sanitize` for all of them at once (explicit
 `--no-*` flags win). **Since v0.48.0 `--sanitize` includes `--purge-master-data`** — a full
 "template DB from production" reset that DELETES movement data, CRM/HR/helpdesk/mail content,
@@ -169,15 +180,28 @@ e.g. `account_payment_register`) that reference a to-be-deleted partner are clea
 automatically; it only aborts cleanly (rollback) if a protected table or a **non-transient**
 unhandled RESTRICT/NO-ACTION FK would be hit. Escape with `--no-purge-master-data`. Standalone: `db purge-master-data`.
 `--anonymize-users` is a separate opt-in (works standalone, NOT included in `--sanitize`);
-its default dev login password is `ownerp` (override with `--user-password`).
+its default dev login password is `ownerp` (override with `--user-password`). **Since v0.66.0**,
+`--reset-passwords`/`--reset-2fa` are two more standalone opt-ins (NOT in `--sanitize`), run
+after `--anonymize-users`: `--reset-passwords` sets `--user-password` (shared default `ownerp`)
+for every user incl. `admin`/portal (logins unchanged; `__system__`/`default`/`public`/
+`portaltemplate` excluded), `--reset-2fa` clears `totp_secret`, deletes `auth_totp_device` rows
+and removes the `auth_totp.policy` config parameter (schema-guarded no-op without `auth_totp`).
+Both are listed by `--dry-run`. Standalone CLI equivalent for an already-restored DB:
+`odoodev db reset-auth VERSION -n DB --passwords --2fa [--user-password PW] [-y]` — refuses
+without `--passwords`/`--2fa`, y/N confirmation unless `-y`, exit 1 on failure.
 `--purge-transactions` (v0.44.0) is a separate movement-only opt-in, NOT included in `--sanitize`:
 it deletes stock/sales/purchase/accounting/MRP/POS movement data for a clean stress-test DB
 while keeping products, pricelists, partners, users and config. Since v0.44.0, `--anonymize`
 also auto-recomputes stored computed fields (e.g. `complete_name`) via `odoo-bin shell` so
-kanban/list overviews show the anonymized values (disable with `--no-recompute`).
+kanban/list overviews show the anonymized values (disable with `--no-recompute`); since v0.66.0
+the recompute script is resilient — a record failing a constraint (e.g. an already-invalid
+stored Peppol endpoint re-validated by `_check_peppol_fields` when `vat` changed) is skipped and
+reported as `[WARN] Recompute skipped <model> id=<id>: <error>` instead of aborting the whole
+run, and `--anonymize` additionally nulls `peppol_endpoint`.
 
 ```bash
 odoodev db restore 18 -n v18_test -z prod.zip --purge-transactions --anonymize   # anonymized, movement-free stress-test DB
+odoodev db restore 18 -n v18_test -z prod.zip --sanitize --reset-passwords --reset-2fa   # also reset passwords/2FA (v0.66.0)
 ```
 
 ### Update repos + regenerate the Odoo config
@@ -200,7 +224,10 @@ odoodev run --list                                   # list discoverable playboo
 are **not** name-resolvable — run them via an explicit path or copy them into a discovered dir.
 A playbook step's `command` uses dotted names mirroring the CLI groups (`docker.up`, `db.backup`,
 `repos`); step `args` use the long option names (e.g. `config-only: true`). Pass variables with
-`--var KEY=VALUE`.
+`--var KEY=VALUE`. Since v0.66.0 the `db.restore` step also understands `anonymize-users`,
+`user-password`, `reset-passwords` and `reset-2fa` (both hyphen and underscore spellings), and
+`odoodev playbook create` offers them in the dev-mode interview — before, `--anonymize-users`
+had no playbook equivalent at all.
 
 ### Server-mode playbooks (live→test mirror on customer servers, v0.50.0)
 Top-level sections: `targets:` (named container pairs: `db_container`, `odoo_container`, `db_name`,
