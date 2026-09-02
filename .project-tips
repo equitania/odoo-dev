@@ -1,4 +1,4 @@
-# odoodev-equitania v0.65.0 | python/uv
+# odoodev-equitania v0.66.0 | python/uv
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ▸ Setup:   uv venv --python 3.12 && venv+ && uv pip install -e ".[dev]"
 ▸ Test:    pytest                    # single: pytest tests/test_database.py::test_name
@@ -12,4 +12,5 @@
 ▸ Export:  odoodev export modules -d DB --json   # Releasemanager CSV via XML-RPC
 ▸ Reqs:    odoodev requirements sync|diff|adopt|prune  # baseline + requirements.local.txt overlay
            adopt --yes = baseline wins, --keep-local = local pins win (never edit requirements.txt)
+▸ DB-Auth: odoodev db reset-auth 18 -n DB --passwords --2fa -y  # or db restore --reset-passwords/--reset-2fa
 ▸ Python:  3.12/3.13 tested, >=3.12 (pyproject.toml); line-length 120, double quotes
