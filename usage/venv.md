@@ -63,6 +63,8 @@ Nicht-interaktiver JSON-Output — geeignet fuer Skripte und AI-Agenten:
   "is_symlink": false,
   "python_version": "3.13.2",
   "python_matches": true,
+  "python_pin": "3.13.2",
+  "python_pin_source": "file",
   "requirements_current": true
 }
 ```
@@ -166,14 +168,48 @@ Exit code 1 when the venv is missing (`"exists": false`).
 
 ### Python Patch Version
 
-`odoodev venv check` and `odoodev start` check if a newer Python patch version is available on the system:
+The version registry only knows `major.minor` (`python: "3.13"`). `uv venv --python 3.13`
+resolves that to whichever 3.13 uv prefers — normally its own managed build under
+`~/.local/share/uv/python/`, even when a newer 3.13 is installed. So when a newer patch
+release shows up, `odoodev venv check` and `odoodev start` say so:
 
 ```
-[WARNING] Newer Python available: venv has 3.13.10, system has 3.13.12
-[INFO] Run: odoodev venv setup 18 --force
+[WARNING] Newer Python available: venv has 3.13.12, system has 3.13.15
+[INFO] Run: odoodev venv setup 19 --force --python-version 3.13.15
+[INFO] Or pin it: echo 3.13.12 > ~/gitbase/v19/v19-dev/dev19_native/.python-version
 ```
 
-During `venv check`, an interactive offer to recreate the venv is shown.
+`venv check` additionally offers to recreate the venv right away.
+
+Note the full version in the suggested command: a plain `--force` would re-resolve `3.13`
+from the registry and rebuild the identical interpreter, reinstalling only the requirements.
+
+### Pinning an interpreter: `.python-version`
+
+A `.python-version` file next to the venv pins the exact interpreter for that one
+environment and overrides the registry everywhere — `venv setup`, `venv check`, `start`'s
+preflight, `init` and the `venv.setup` playbook step:
+
+```fish
+printf '3.13.15\n' > ~/gitbase/v19/v19-dev/dev19_native/.python-version
+odoodev venv setup 19 --force
+```
+
+Rules:
+
+- Blank lines and `#` comments are skipped, the first remaining line wins
+- uv's spellings are accepted: `3.13.15`, `3.13`, `cpython@3.13.15`,
+  `cpython-3.13.15-macos-aarch64-none`
+- Anything else — a leading `-`, an interpreter path, inner whitespace — is refused with a
+  warning, and the registry value is used instead
+- A pin from another release series than the registry expects (say `3.14.7` under Odoo 19)
+  is honoured, but reported on every run
+- With an **exact** pin the "newer Python available" advisory falls silent: pinning 3.13.12
+  is a decision, not a lag. Only a venv that deviates from the pin is reported
+
+Pinning a Homebrew interpreter (`3.13.15` above) is deliberate but not free: `brew upgrade
+python@3.13` moves the Cellar path and breaks the venv — `check_venv_interpreter` catches
+that at the next start. uv's own managed builds are stable across upgrades.
 
 ### Interactive Mode
 

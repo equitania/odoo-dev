@@ -518,22 +518,38 @@ def _check_venv(
         print_info(f"Fix: odoodev venv setup {version} --force")
         raise SystemExit(1)
 
-    # Check venv Python version matches configuration
-    python_version = version_cfg.python
-    if not check_venv_python_matches(venv_dir, python_version):
+    # Check venv Python version against the effective pin (.python-version wins
+    # over the registry, which only carries major.minor)
+    from odoodev.core.venv_manager import (
+        PYTHON_VERSION_FILENAME,
+        get_full_python_version,
+        get_system_python_version,
+        resolve_python_pin,
+    )
+
+    pin = resolve_python_pin(version_cfg.paths.native_dir, version_cfg.python)
+    if pin.warning:
+        print_warning(pin.warning)
+
+    if not check_venv_python_matches(venv_dir, pin.major_minor):
         actual = get_venv_python_version(venv_dir) or "unknown"
-        print_error(f"Venv Python version mismatch: found {actual}, expected {python_version}")
+        print_error(f"Venv Python version mismatch: found {actual}, expected {pin.major_minor}")
         print_info(f"Run: odoodev venv setup {version} --force")
         raise SystemExit(1)
 
-    # Advisory: check for newer Python patch version
-    from odoodev.core.venv_manager import get_full_python_version, get_system_python_version
-
     venv_full = get_full_python_version(venv_dir)
-    system_full = get_system_python_version(python_version)
-    if venv_full and system_full and venv_full != system_full:
-        print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
-        print_info(f"Run: odoodev venv setup {version} --force")
+    if pin.is_exact:
+        # Deliberately pinned: a newer patch release on the system is not a finding.
+        if venv_full and venv_full != pin.version:
+            print_warning(f"Venv Python {venv_full} does not match {pin.version} pinned by {PYTHON_VERSION_FILENAME}")
+            print_info(f"Run: odoodev venv setup {version} --force")
+    else:
+        system_full = get_system_python_version(pin.major_minor)
+        if venv_full and system_full and venv_full != system_full:
+            print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
+            print_info(f"Run: odoodev venv setup {version} --force --python-version {system_full}")
+            pin_path = os.path.join(version_cfg.paths.native_dir, PYTHON_VERSION_FILENAME)
+            print_info(f"Or pin it: echo {venv_full} > {pin_path}")
 
     # Odoo 16/17 require pkg_resources (from setuptools)
     try:

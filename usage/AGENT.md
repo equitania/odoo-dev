@@ -101,10 +101,10 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev start` | Start Odoo server for the given version. Since v0.59.0: instance-info table (ports, database, config, dirs) prints FIRST, then ONE confirmation, then the side-effecting preflight checks — `-y/--yes` skips only the prompt (info still prints). | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, -y/--yes (alias for --no-confirm), [EXTRA_ARGS] |
 | `odoodev stop` | Stop Odoo server and Docker services for the given version. | [VERSION], --keep-docker, --force |
 | `odoodev venv activate` | Print the venv activation command for current shell. | [VERSION] |
-| `odoodev venv check` | Check venv status and requirements freshness. | [VERSION], --json |
+| `odoodev venv check` | Check venv status and requirements freshness. `--json` carries `python_pin` + `python_pin_source` (`file`\|`registry`) since v0.67.0. | [VERSION], --json |
 | `odoodev venv path` | Print the venv directory path. | [VERSION] |
 | `odoodev venv remove` | Remove the virtual environment for a version. | [VERSION], --yes/-y |
-| `odoodev venv setup` | Create virtual environment with UV and install requirements. | [VERSION], --force, --python-version TEXT (full Python version override) |
+| `odoodev venv setup` | Create virtual environment with UV and install requirements. Interpreter precedence: `--python-version` > `.python-version` in `devXX_native/` > registry `major.minor`. | [VERSION], --force, --python-version TEXT (full Python version override) |
 
 Anything after a bare `--` on `odoodev start` is passed straight to `odoo-bin`.
 

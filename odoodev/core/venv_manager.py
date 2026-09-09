@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
+from dataclasses import dataclass
 
 from odoodev.output import print_info, print_warning
 
@@ -281,3 +283,114 @@ def get_activate_command(venv_dir: str, shell: str) -> str:
     if shell == "fish":
         return f"source {venv_dir}/bin/activate.fish"
     return f"source {venv_dir}/bin/activate"
+
+
+# =============================================================================
+# .python-version pin
+# =============================================================================
+
+PYTHON_VERSION_FILENAME = ".python-version"
+
+# uv accepts bare versions ("3.13.15"), implementation requests ("cpython@3.13")
+# and full keys ("cpython-3.13.15-macos-aarch64-none"). Everything else — most
+# importantly a leading "-", which would reach uv's argv as a flag, and an
+# interpreter path — is refused; the registry value is used instead.
+_PIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]*$")
+
+
+@dataclass(frozen=True)
+class PythonPin:
+    """The Python version one environment should be built with.
+
+    `version` is handed to ``uv venv --python`` verbatim. It comes either from a
+    `.python-version` file in the environment directory (`source == "file"`) or
+    from the version registry (`source == "registry"`), which only carries
+    major.minor and therefore lets uv pick any patch level it likes.
+    """
+
+    version: str
+    source: str
+    path: str | None = None
+    warning: str | None = None
+
+    @property
+    def is_exact(self) -> bool:
+        """True when the pin names a patch level, so a venv can be compared to it."""
+        return len(self.major_minor_parts) >= 3
+
+    @property
+    def major_minor(self) -> str:
+        """The `3.13` part of the pin — what a venv's interpreter must match."""
+        return ".".join(self.major_minor_parts[:2])
+
+    @property
+    def major_minor_parts(self) -> list[str]:
+        """Numeric version parts, with any uv implementation prefix stripped."""
+        value = self.version
+        for separator in ("@", "-"):
+            if separator in value:
+                head, _, tail = value.partition(separator)
+                if not head[:1].isdigit():
+                    value = tail
+        parts: list[str] = []
+        for part in value.split("."):
+            digits = part.split("-")[0]
+            if not digits.isdigit():
+                break
+            parts.append(digits)
+        return parts
+
+
+def read_python_version_file(native_dir: str) -> tuple[str | None, str | None]:
+    """Read the pin from `<native_dir>/.python-version`.
+
+    Blank lines and `#` comments are skipped; the first remaining line wins.
+
+    Returns:
+        (value, error) — exactly one of the two is set, both are None when the
+        file does not exist.
+    """
+    path = os.path.join(native_dir, PYTHON_VERSION_FILENAME)
+    if not os.path.isfile(path):
+        return None, None
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except (OSError, UnicodeDecodeError) as e:
+        return None, f"Cannot read {PYTHON_VERSION_FILENAME}: {e}"
+
+    for line in lines:
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        if not _PIN_RE.match(candidate):
+            return None, f"Ignoring {PYTHON_VERSION_FILENAME}: {candidate!r} is not a valid Python version"
+        return candidate, None
+
+    return None, f"Ignoring {PYTHON_VERSION_FILENAME}: file contains no version"
+
+
+def resolve_python_pin(native_dir: str, registry_python: str) -> PythonPin:
+    """Determine which Python version an environment should be built with.
+
+    A readable `.python-version` always wins over the registry — it is the more
+    specific statement about this one machine. A pin from a different release
+    series than the registry expects is honoured but reported, since that is
+    either a deliberate experiment or a typo.
+    """
+    value, error = read_python_version_file(native_dir)
+    if value is None:
+        return PythonPin(version=registry_python, source="registry", warning=error)
+
+    pin = PythonPin(version=value, source="file", path=os.path.join(native_dir, PYTHON_VERSION_FILENAME))
+    if pin.major_minor and pin.major_minor != registry_python:
+        pin = PythonPin(
+            version=pin.version,
+            source=pin.source,
+            path=pin.path,
+            warning=(
+                f"{PYTHON_VERSION_FILENAME} pins Python {pin.version}, "
+                f"but the registry expects {registry_python} for this Odoo version"
+            ),
+        )
+    return pin

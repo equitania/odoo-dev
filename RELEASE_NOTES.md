@@ -1,5 +1,31 @@
 # Release Notes
 
+## Version 0.67.0 (09.09.2026)
+
+### Added
+- **`.python-version` per environment.** The registry only carries `major.minor`
+  (`python: "3.13"`), which `uv venv --python 3.13` resolves to whatever 3.13 it happens to
+  prefer — usually its own managed build, not the newest one installed. A `.python-version`
+  file in `vXX-dev/devXX_native/` now pins the exact interpreter for that one environment and
+  wins over the registry in `venv setup`, `venv check`, `start`'s preflight, `init` and the
+  `venv.setup` playbook step. Blank lines and `#` comments are skipped; uv's own spellings
+  (`3.13.15`, `cpython@3.13.15`, `cpython-3.13.15-macos-aarch64-none`) are accepted. A value
+  that is not a version — a leading `-` would reach uv's argv as a flag, an interpreter path,
+  anything with inner whitespace — is refused with a warning and the registry value is used.
+  A pin from a different release series than the registry expects is honoured but reported.
+- **`venv check --json`** gained `python_pin` and `python_pin_source` (`file`|`registry`);
+  `python_matches` now compares against the pin's `major.minor` instead of the registry's.
+
+### Fixed
+- **The "Newer Python available" advisory suggested a command that could not fix it.** Both
+  `start` and `venv check` printed `Run: odoodev venv setup VERSION --force`, but that call
+  re-resolved `major.minor` from the registry and produced the very same patch version again —
+  only the requirements were reinstalled. `start` now names the full version
+  (`--force --python-version 3.13.15`) and offers the `.python-version` alternative.
+- **The advisory no longer fires against a deliberate pin.** With an exact `.python-version`,
+  a newer patch release on the system is not a finding; only a venv that deviates from the pin
+  is reported.
+
 ## Version 0.66.0 (02.09.2026)
 
 ### Added

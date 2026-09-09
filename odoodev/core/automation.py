@@ -767,14 +767,20 @@ def handle_venv_check(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
 @_timed
 def handle_venv_setup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Create or update virtual environment."""
-    from odoodev.core.venv_manager import create_venv, install_requirements, store_requirements_hash
+    from odoodev.core.venv_manager import (
+        create_venv,
+        install_requirements,
+        resolve_python_pin,
+        store_requirements_hash,
+    )
 
     venv_dir = os.path.join(version_cfg.paths.native_dir, ".venv")
     requirements = os.path.join(version_cfg.paths.native_dir, "requirements.txt")
 
     prompt = f"odoo-v{version_cfg.version}"
+    pin = resolve_python_pin(version_cfg.paths.native_dir, version_cfg.python)
 
-    if not create_venv(venv_dir, version_cfg.python, prompt):
+    if not create_venv(venv_dir, pin.version, prompt):
         return _step_error("venv.setup", "venv.setup", "Failed to create venv", 0)
 
     if os.path.exists(requirements):

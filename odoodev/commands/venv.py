@@ -84,10 +84,16 @@ def venv_setup(ctx: click.Context, version: str | None, force: bool, python_ver:
                 print_info("Keeping existing venv.")
                 return
 
-    # Use explicit patch version if provided, otherwise major.minor from config
-    python_version = python_ver or version_cfg.python
+    # Precedence: explicit option > .python-version file > registry major.minor
+    from odoodev.core.venv_manager import PYTHON_VERSION_FILENAME, resolve_python_pin
+
+    pin = resolve_python_pin(native_dir, version_cfg.python)
+    if pin.warning:
+        print_warning(pin.warning)
+    python_version = python_ver or pin.version
     env_name = version_cfg.env_name
-    print_info(f"Creating UV venv with Python {python_version}...")
+    origin = f" (pinned by {PYTHON_VERSION_FILENAME})" if pin.source == "file" and not python_ver else ""
+    print_info(f"Creating UV venv with Python {python_version}{origin}...")
 
     cmd = ["uv", "venv", "--python", python_version, "--prompt", env_name]
     if os.path.exists(venv_dir):
@@ -145,8 +151,14 @@ def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
         import json
         import sys
 
-        from odoodev.core.venv_manager import check_venv_python_matches, get_full_python_version, hash_requirements
+        from odoodev.core.venv_manager import (
+            check_venv_python_matches,
+            get_full_python_version,
+            hash_requirements,
+            resolve_python_pin,
+        )
 
+        pin = resolve_python_pin(version_cfg.paths.native_dir, version_cfg.python)
         exists = os.path.isdir(venv_dir)
         python_bin = os.path.join(venv_dir, "bin", "python3")
         requirements_current: bool | None = None
@@ -162,10 +174,10 @@ def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
             "is_symlink": os.path.islink(venv_dir),
             "python_version": get_full_python_version(venv_dir) if exists else None,
             "python_matches": (
-                check_venv_python_matches(venv_dir, version_cfg.python)
-                if exists and os.path.exists(python_bin)
-                else None
+                check_venv_python_matches(venv_dir, pin.major_minor) if exists and os.path.exists(python_bin) else None
             ),
+            "python_pin": pin.version,
+            "python_pin_source": pin.source,
             "requirements_current": requirements_current,
         }
         sys.stdout.write(json.dumps(payload) + "\n")
@@ -184,29 +196,48 @@ def venv_check(ctx: click.Context, version: str | None, as_json: bool) -> None:
     if os.path.islink(venv_dir):
         print_warning(".venv is a symlink — may cause issues with native development")
 
-    # Check Python version and validate against configuration
+    # Check Python version and validate against the effective pin
+    from odoodev.core.venv_manager import (
+        PYTHON_VERSION_FILENAME,
+        check_venv_python_matches,
+        get_full_python_version,
+        get_system_python_version,
+        resolve_python_pin,
+    )
+
+    pin = resolve_python_pin(version_cfg.paths.native_dir, version_cfg.python)
+    if pin.warning:
+        print_warning(pin.warning)
+
     python_bin = os.path.join(venv_dir, "bin", "python3")
     if os.path.exists(python_bin):
         result = subprocess.run([python_bin, "--version"], capture_output=True, text=True)
         print_info(f"Python: {result.stdout.strip()}")
 
-        from odoodev.core.venv_manager import check_venv_python_matches
-
-        if not check_venv_python_matches(venv_dir, version_cfg.python):
-            print_warning(f"Python version mismatch! Expected {version_cfg.python}")
+        if not check_venv_python_matches(venv_dir, pin.major_minor):
+            print_warning(f"Python version mismatch! Expected {pin.major_minor}")
             print_info(f"Run: odoodev venv setup {version} --force")
     else:
         print_warning("Python binary not found in venv")
 
-    # Check if a newer patch version is available on the system
-    from odoodev.core.venv_manager import get_full_python_version, get_system_python_version
-
     venv_full = get_full_python_version(venv_dir)
-    system_full = get_system_python_version(version_cfg.python)
-    if venv_full and system_full and venv_full != system_full:
-        print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
-        if confirm(f"Recreate venv with Python {system_full}?", default=False):
-            ctx.invoke(venv_setup, version=version, force=True, python_ver=system_full)
+    if pin.is_exact:
+        # An exact pin is the answer to "which interpreter" — a newer patch
+        # release on the system is not news, only a deviation from the pin is.
+        if venv_full and venv_full != pin.version:
+            print_warning(f"Venv Python {venv_full} does not match {pin.version} pinned by {PYTHON_VERSION_FILENAME}")
+            if confirm(f"Recreate venv with Python {pin.version}?", default=False):
+                ctx.invoke(venv_setup, version=version, force=True, python_ver=pin.version)
+        elif venv_full:
+            print_success(f"Python {venv_full} as pinned by {PYTHON_VERSION_FILENAME}")
+    else:
+        system_full = get_system_python_version(pin.major_minor)
+        if venv_full and system_full and venv_full != system_full:
+            print_warning(f"Newer Python available: venv has {venv_full}, system has {system_full}")
+            pin_path = os.path.join(version_cfg.paths.native_dir, PYTHON_VERSION_FILENAME)
+            print_info(f"Pin one for good: echo {venv_full} > {pin_path}")
+            if confirm(f"Recreate venv with Python {system_full}?", default=False):
+                ctx.invoke(venv_setup, version=version, force=True, python_ver=system_full)
 
     # Check requirements hash
     if os.path.exists(requirements):

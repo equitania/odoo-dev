@@ -149,10 +149,14 @@ def init(
     venv_dir = os.path.join(native_dir, ".venv")
     if os.path.exists(venv_dir):
         # Check if venv Python version matches configuration
-        from odoodev.core.venv_manager import check_venv_python_matches, get_venv_python_version
+        from odoodev.core.venv_manager import (
+            check_venv_python_matches,
+            get_venv_python_version,
+            resolve_python_pin,
+        )
 
         actual_python = get_venv_python_version(venv_dir)
-        expected_python = version_cfg.python
+        expected_python = resolve_python_pin(native_dir, version_cfg.python).major_minor
         if actual_python and not check_venv_python_matches(venv_dir, expected_python):
             print_warning(f"Venv Python version mismatch: found {actual_python}, expected {expected_python}")
             if non_interactive or confirm("Recreate venv with correct Python version?"):

@@ -202,6 +202,23 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.67.0:**
+- **Neu:** Eine `.python-version` in `vXX-dev/devXX_native/` legt den exakten Interpreter für
+  genau diese Umgebung fest und schlägt die Registry — in `venv setup`, `venv check`, im
+  Preflight von `start`, in `init` und im Playbook-Schritt `venv.setup`. Die Registry kennt nur
+  `major.minor`, weshalb `uv venv --python 3.13` bisher irgendeine 3.13 wählte (meist uv's
+  eigene, nicht die neueste installierte). Leerzeilen und `#`-Kommentare werden übersprungen,
+  uv's Schreibweisen (`3.13.15`, `cpython@3.13.15`, `cpython-3.13.15-macos-aarch64-none`) sind
+  erlaubt; alles andere fällt mit Warnung auf die Registry zurück.
+- **Behoben:** Der Hinweis „Newer Python available" empfahl `venv setup --force` — einen Befehl,
+  der die Patch-Version gar nicht ändern konnte, weil er `major.minor` erneut aus der Registry
+  auflöste und nur die Requirements neu installierte. Jetzt nennt er die volle Version
+  (`--force --python-version 3.13.15`) und die Pin-Datei als Alternative.
+- **Behoben:** Mit exaktem Pin schweigt der Hinweis — 3.13.12 festzuhalten ist eine Entscheidung,
+  kein Rückstand. Gemeldet wird nur noch eine venv, die vom Pin abweicht.
+- **Geändert:** `venv check --json` führt `python_pin` und `python_pin_source` (`file`|`registry`);
+  `python_matches` misst gegen den Pin statt gegen die Registry.
+
 **Version 0.66.0:**
 - **Neu:** `db restore --reset-passwords` / `--reset-2fa` — nach einem Restore bekommt jeder
   Benutzer (inkl. `admin` und Portal) das `--user-password`, Logins bleiben; `--reset-2fa` löscht
