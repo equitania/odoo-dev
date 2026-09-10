@@ -51,6 +51,23 @@ def test_sync_check_exits_0_when_current(env):
     CliRunner().invoke(cli, ["requirements", "sync", "16"])
     result = CliRunner().invoke(cli, ["requirements", "sync", "16", "--check"])
     assert result.exit_code == 0
+    assert "already current" in result.output
+
+
+def test_sync_check_says_stale_when_stale(env):
+    """A stale file must not be reported as current just because --check writes nothing."""
+    result = CliRunner().invoke(cli, ["requirements", "sync", "16", "--check"])
+    assert "already current" not in result.output
+    assert "stale" in result.output
+
+
+def test_sync_check_says_stale_after_the_baseline_moved(env):
+    CliRunner().invoke(cli, ["requirements", "sync", "16"])
+    (env / "requirements.base.txt").write_text("Babel==2.16.0\nWerkzeug==3.1.4\n", encoding="utf-8")
+    result = CliRunner().invoke(cli, ["requirements", "sync", "16", "--check"])
+    assert result.exit_code == 1
+    assert "already current" not in result.output
+    assert "stale" in result.output
 
 
 def test_sync_blocked_exits_1_and_keeps_the_file(env):

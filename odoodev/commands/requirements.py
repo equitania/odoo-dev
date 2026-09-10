@@ -28,6 +28,11 @@ def _print_sync_outcome(outcome: SyncOutcome) -> None:
 
     if outcome.written:
         print_success(f"v{outcome.version}: {outcome.path} regenerated")
+    elif outcome.stale:
+        # Only reachable with --check: a normal sync writes whenever the file is stale.
+        print_warning(
+            f"v{outcome.version}: {outcome.path} is stale — run 'odoodev requirements sync {outcome.version}'"
+        )
     else:
         print_info(f"v{outcome.version}: already current")
 
