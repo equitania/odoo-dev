@@ -202,6 +202,16 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.67.1:**
+- **Behoben:** Die v18-Baseline ließ sich mit eq-chatbot-core 3.3.0 nicht auflösen — dessen
+  `docs`-Extra verlangt `openpyxl>=3.1.5`, die Baseline hielt Odoos 3.1.2. v18 pinnt jetzt
+  `openpyxl==3.1.5` wie schon v19.
+- **Behoben:** `requirements sync --check` meldete eine veraltete Datei als „already current“;
+  nur der Exit-Code stimmte. Jetzt erscheint eine Warnung mit dem passenden `sync`-Befehl.
+- **Geändert:** Die Baselines v16, v18 und v19 verlangen `eq-chatbot-core>=3.3.0`, weil
+  `eq_chatbot_mcp` `allow_private_ranges=` an `get_mcp_client()` übergibt — ältere Versionen
+  brechen den MCP-Connect mit einem `TypeError` ab.
+
 **Version 0.67.0:**
 - **Neu:** Eine `.python-version` in `vXX-dev/devXX_native/` legt den exakten Interpreter für
   genau diese Umgebung fest und schlägt die Registry — in `venv setup`, `venv check`, im

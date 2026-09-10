@@ -1,5 +1,24 @@
 # Release Notes
 
+## Version 0.67.1 (10.09.2026)
+
+### Fixed
+- **The v18 baseline could not be resolved together with eq-chatbot-core 3.3.0.** Its `docs`
+  extra declares `openpyxl>=3.1.5` (since 3.2.1), while the baseline still pinned Odoo's 3.1.2,
+  so `venv setup 18` failed with "No solution found". With the old `>=3.0.0` floor uv fell back
+  to eq-chatbot-core 3.2.0 instead, where reading `.xlsx` through markitdown and pandas aborts at
+  runtime. v18 now pins `openpyxl==3.1.5`, as v19 already did.
+- **`requirements sync --check` reported a stale file as "already current".** Check mode never
+  writes, so the output always took the "current" branch; only the exit code (1) was right. A
+  stale file now gets a warning naming the `sync` command to run.
+
+### Changed
+- **v16, v18 and v19 baselines require `eq-chatbot-core>=3.3.0`.** `eq_chatbot_mcp` passes
+  `allow_private_ranges=` to `get_mcp_client()`, which older releases reject with a `TypeError`
+  when a remote MCP server is connected. Environments pick the new baseline up on the next
+  `venv setup` or `start`; a local overlay pin for either package can be dropped with
+  `odoodev requirements prune`.
+
 ## Version 0.67.0 (09.09.2026)
 
 ### Added
