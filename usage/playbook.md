@@ -34,20 +34,20 @@ odoodev playbook validate playbooks/mirror.yaml --json
 #### Sprachwahl (seit v0.56.0)
 
 Ist keine Sprache explizit konfiguriert (`--lang`, `ODOODEV_LANG`, `cli.language` in
-`~/.config/odoodev/config.yaml`), beginnt der Assistent mit **„Sprache / Language?"**
+`~/.config/odoodev/config.yaml`), beginnt der Assistent mit **„Sprache / Language?“**
 (Deutsch/English, Vorbelegung aus der Shell-Locale) und bietet an, die Wahl als
 odoodev-weiten Standard zu speichern. Danach führt er in nummerierten Schritten durch
-den Ablauf („Schritt 1/6 — Grundlagen" … „Schritt 6/6 — Zusammenfassung";
+den Ablauf („Schritt 1/6 — Grundlagen“ … „Schritt 6/6 — Zusammenfassung“;
 Dev-Zweig: 4 Schritte).
 
 #### Server-Branch: Quelle → Ziel → Optionen (seit v0.55.0)
 
 Der Server-Zweig folgt dem Mirror-Modell **Quelle → Ziel**: erst die Quelle, dann das
 Ziel, dann die Optionen — `server.restore` ist immer Teil des Mirrors. Der Quell-Block
-fragt „Quell-Name", der Ziel-Block „Ziel-Name"; das generische „Target-Name" gibt es
+fragt „Quell-Name“, der Ziel-Block „Ziel-Name“; das generische „Target-Name“ gibt es
 nur noch für optionale Zusatz-Targets:
 
-1. **„Was ist die QUELLE des Mirrors?"** (Auswahl):
+1. **„Was ist die QUELLE des Mirrors?“** (Auswahl):
    - **Frisches Backup vom laufenden Quellsystem** — fragt das Quell-Target
      (z. B. `live` / `live-db` / `live-odoo`) und das Backup-Verzeichnis; der
      Restore verwendet automatisch die in diesem Lauf erzeugte Backup-Datei
@@ -56,7 +56,7 @@ nur noch für optionale Zusatz-Targets:
    - **Bestehende Backup-Datei** — fragt nur den Pfad; kein Backup-Step.
    - **Neueste Backup-Datei aus einem Verzeichnis** — fragt Verzeichnis + Pattern;
      kein Backup-Step.
-2. **„Was ist das ZIEL?"** — das Ziel-Target (z. B. `test` / `test-db` / `test-odoo`).
+2. **„Was ist das ZIEL?“** — das Ziel-Target (z. B. `test` / `test-db` / `test-odoo`).
    **Self-Mirror-Guard:** Nutzt das Ziel denselben DB-Container wie die Quelle,
    warnt der Assistent und fragt explizit nach (Default: Nein → Ziel neu eingeben) —
    sonst würde der Restore das gerade gesicherte System überschreiben.
@@ -70,11 +70,11 @@ nur noch für optionale Zusatz-Targets:
    **Website-Domain tauschen**, freies SQL) · `container.start` ·
    `server.update-all` · `rpc.execute`
 4. **Restore-Details** — `template`, `drop`, dann die EINE Frage **„Was soll mit
-   der wiederhergestellten Datenbank passieren?"** (`deactivate_cron`,
+   der wiederhergestellten Datenbank passieren?“** (`deactivate_cron`,
    `neutralize`, `anonymize`, `wipe`, `purge_transactions`; seit v0.57.0 deckt
    `neutralize` hier die komplette Neutralisierung ab — psql-Sanitize-Flag UND
    der `server.neutralize`-Step nach `container.start`; ohne „nach dem Restore
-   starten" entfällt der Step mit Warnung) plus separater Confirm für
+   starten“ entfällt der Step mit Warnung) plus separater Confirm für
    `purge_master_data`
 
 Danach: freie Zusatz-Schritte (Escape-Hatch), RPC-Verbindungsblock, Variablen,

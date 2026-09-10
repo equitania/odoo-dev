@@ -330,7 +330,7 @@ weitergemacht — der Restore endet trotzdem mit "Database restore complete".
 unangetastet.
 
 > **BREAKING seit v0.48.0: `--sanitize` ist jetzt ein vollstaendiger
-> „Template-DB-aus-Produktion"-Reset.** Es anonymisiert nicht nur, sondern LOESCHT
+> „Template-DB-aus-Produktion“-Reset.** Es anonymisiert nicht nur, sondern LOESCHT
 > zusaetzlich (Schicht 3, `--purge-master-data`) alle Bewegungsdaten, CRM-Leads,
 > HR-Mitarbeiter, Helpdesk-Tickets, Nachrichten/Aktivitaeten, die Kunden-/Lieferanten-/
 > Kontakt-Partner und deren Anhaenge. Behalten bleiben nur Produkte, Preislisten,

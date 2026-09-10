@@ -119,13 +119,13 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
 1. **Speicherplatz-Vorpruefung** (`--check-space`, Default an): die entpackte Groesse wird
    geschaetzt (ZIP exakt, komprimierte Formate konservativ `Groesse × 3`) und gegen den freien
    Platz auf Temp- und Filestore-Dateisystem geprueft. Bei Knappheit: Warnung mit konkreten
-   Zahlen + Rueckfrage „Continue anyway?" (Default Nein). Abschaltbar mit `--no-check-space`.
+   Zahlen + Rueckfrage „Continue anyway?“ (Default Nein). Abschaltbar mit `--no-check-space`.
 2. Backup wird extrahiert (ZIP, 7z, tar, tar.zst, gz, SQL)
 3. SQL-Dump wird in neue Datenbank eingespielt
 4. Filestore wird nach `~/odoo-share/filestore/{db_name}/` **verschoben** (`shutil.move` —
    Rename auf demselben Dateisystem = instant, keine doppelte Datenhaltung). Mit `--keep-temp`
    wird stattdessen kopiert, damit das entpackte Temp-Verzeichnis zum Debuggen erhalten bleibt.
-5. Optional am Ende: Rueckfrage „Delete original backup file?" (Default Nein — ein Backup wird
+5. Optional am Ende: Rueckfrage „Delete original backup file?“ (Default Nein — ein Backup wird
    nie automatisch geloescht). Steuerbar per `--delete-backup` (loeschen ohne Frage) und
    `--keep-backup` (nie fragen/loeschen, fuer Skripte).
 
@@ -202,7 +202,7 @@ Prod-Kopie keine Crons/Mails ausloest.
 Mit `--neutralize` ruft `odoodev db restore` nach dem Import Odoos eingebautes `odoo-bin
 neutralize` auf. Das fuehrt pro installiertem Modul dessen `data/neutralize.sql` aus und deckt
 damit weit mehr ab als die psql-Baseline: **Payment-Provider, IAP-Accounts, Webhooks,
-Mass-Mailing, OAuth-Tokens, das „NEUTRALIZED"-Banner** sowie jedes Custom-Modul mit eigener
+Mass-Mailing, OAuth-Tokens, das „NEUTRALIZED“-Banner** sowie jedes Custom-Modul mit eigener
 `neutralize.sql` (inkl. der hauseigenen Nextcloud-/Office365-Module — daher gibt es keine
 separate Cloud-Deaktivierung mehr).
 

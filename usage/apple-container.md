@@ -23,10 +23,10 @@ Damit `--runtime` nicht bei jedem Aufruf nötig ist, den Modus einmalig persisti
 
 ```bash
 odoodev config set container_runtime apple   # schreibt nach ~/.config/odoodev/config.yaml
-odoodev config show                           # Zeile „Container Runtime | apple"
+odoodev config show                           # Zeile „Container Runtime | apple“
 ```
 
-Alternativ über den interaktiven Assistenten: `odoodev setup` (Schritt „Container runtime").
+Alternativ über den interaktiven Assistenten: `odoodev setup` (Schritt „Container runtime“).
 
 Danach nutzt jeder `odoodev start` automatisch Apple Container — ohne weitere Flags.
 
@@ -37,7 +37,7 @@ Danach nutzt jeder `odoodev start` automatisch Apple Container — ohne weitere 
 odoodev start 18
 
 # Einmaliger Override; weicht er vom gespeicherten Standard ab, fragt odoodev:
-#   „Save 'apple' as default runtime?" → bei „ja" wird es persistiert
+#   „Save 'apple' as default runtime?“ → bei „ja“ wird es persistiert
 odoodev start 18 --runtime apple
 ```
 
@@ -85,7 +85,7 @@ odoodev docker down 18 --runtime apple
 - **Ctrl+C stoppt Odoo nicht (ältere Versionen):** In v0.35.0 behoben — der Server läuft in
   einer eigenen Session und wird per Prozessgruppen-Signal beendet. `uv pip install -e .`
   aktualisiert einen veralteten Editable-Install.
-- **`config show` zeigt keine „Container Runtime"-Zeile:** Installierte Version ist älter als
+- **`config show` zeigt keine „Container Runtime“-Zeile:** Installierte Version ist älter als
   der Code — `uv pip install -e .` neu ziehen.
 
 ---

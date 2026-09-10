@@ -92,7 +92,7 @@ Der gesamte Ablauf vom ersten Setup bis zum Merge-Request:
 
 #### Port-Übersicht aller Versionen
 
-Jede Odoo-Version verwendet einen eigenen Port-Bereich. **Im Browser exakt den Port der gestarteten Version öffnen — Verwechslung führt zu „Connection refused".**
+Jede Odoo-Version verwendet einen eigenen Port-Bereich. **Im Browser exakt den Port der gestarteten Version öffnen — Verwechslung führt zu „Connection refused“.**
 
 | Version | Web | DB | Mailpit Web | Gevent |
 |---|---|---|---|---|
@@ -640,7 +640,7 @@ Nach `odoodev start 18 --dev -d v18_devcopy -i eq_hello_world` im Browser unter 
 - [ ] Hauptmenü **Hello World** ist sichtbar
 - [ ] Untermenü **Entries** öffnet die Listenansicht
 - [ ] Neuer Eintrag kann angelegt, gespeichert und wieder gelöscht werden
-- [ ] Default-Wert „Hello, World!" steht im Feld `message`
+- [ ] Default-Wert „Hello, World!“ steht im Feld `message`
 - [ ] Keine Fehler im Odoo-Log (Konsole oder TUI)
 - [ ] Ein zweiter Start mit `-u eq_hello_world` läuft sauber durch (Modul-Update funktioniert)
 
@@ -669,7 +669,7 @@ Damit endet der Entwickler-Workflow. Die Promotion auf weitere Stages erfolgt an
 | Symptom | Ursache | Lösung |
 |---|---|---|
 | `odoodev: command not found` | UV-Tools nicht im PATH | `uv tool update-shell` oder Shell neu laden |
-| Browser zeigt „Connection refused" / weiße Seite | Falscher Port aufgerufen oder Server nicht lokal erreichbar | Port aus dem Start-Panel des CLI verwenden (Port-Tabelle s. Abschnitt 2). Falls auf Remote/Terminal-Server gestartet: dortigen Hostname statt `localhost` öffnen |
+| Browser zeigt „Connection refused“ / weiße Seite | Falscher Port aufgerufen oder Server nicht lokal erreichbar | Port aus dem Start-Panel des CLI verwenden (Port-Tabelle s. Abschnitt 2). Falls auf Remote/Terminal-Server gestartet: dortigen Hostname statt `localhost` öffnen |
 | `Insecure default credentials` blockt `odoodev start` | `.env` enthält Placeholder `CHANGE_AT_FIRST` | `odoodev setup` ausführen oder `PGPASSWORD` in `~/gitbase/v{N}/v{N}-dev/dev{N}_native/.env` direkt setzen |
 | `[ERROR] PostgreSQL port 18432 not reachable` | Docker nicht gestartet | `odoodev docker up 18` |
 | `[ERROR] No odoo-bin found` | Server-Repo fehlt | `odoodev repos 18 --server-only` |
@@ -798,7 +798,7 @@ End-to-end flow from the initial setup to the merge request:
 
 #### Port overview across versions
 
-Each Odoo version uses its own port range. **Open exactly the port of the version you started — mixing them up results in „Connection refused".**
+Each Odoo version uses its own port range. **Open exactly the port of the version you started — mixing them up results in „Connection refused“.**
 
 | Version | Web | DB | Mailpit Web | Gevent |
 |---|---|---|---|---|
@@ -1375,7 +1375,7 @@ This concludes the developer workflow. Promotion to further stages is then handl
 | Symptom | Cause | Fix |
 |---|---|---|
 | `odoodev: command not found` | UV tools not on PATH | `uv tool update-shell` or reload shell |
-| Browser shows „Connection refused" / blank page | Wrong port called or server not reachable locally | Use the port shown in the CLI start panel (port table in section 2). If you started on a remote/terminal server: open the remote hostname instead of `localhost` |
+| Browser shows „Connection refused“ / blank page | Wrong port called or server not reachable locally | Use the port shown in the CLI start panel (port table in section 2). If you started on a remote/terminal server: open the remote hostname instead of `localhost` |
 | `Insecure default credentials` blocks `odoodev start` | `.env` still has placeholder `CHANGE_AT_FIRST` | Run `odoodev setup` or set `PGPASSWORD` directly in `~/gitbase/v{N}/v{N}-dev/dev{N}_native/.env` |
 | `[ERROR] PostgreSQL port 18432 not reachable` | Docker not running | `odoodev docker up 18` |
 | `[ERROR] No odoo-bin found` | Server repo missing | `odoodev repos 18 --server-only` |
