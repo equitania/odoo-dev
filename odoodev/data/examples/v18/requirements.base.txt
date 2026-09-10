@@ -30,7 +30,12 @@ lxml-html-clean
 MarkupSafe==2.1.5
 num2words==0.5.13
 ofxparse==0.21
-openpyxl==3.1.2
+# 3.1.5 is the floor pandas declares for its Excel extra, and markitdown reads
+# .xlsx through pandas — with Odoo's 3.1.2 the converter aborts with "Pandas
+# requires version '3.1.5' or newer of 'openpyxl'". eq-chatbot-core >=3.2.1
+# declares openpyxl>=3.1.5 in its docs extra, so 3.1.2 makes this file
+# unresolvable. Same minor as Odoo's pin; 3.1.5 is the newest release of the line.
+openpyxl==3.1.5
 passlib==1.7.4
 Pillow==12.3.0  # 17 advisories: heap OOB writes in ImageCms / ImagingExpand /
                 # paste-crop, PSD OOB write, several decompression bombs
@@ -108,7 +113,10 @@ xmltodict==0.13.0
 #   security -> puremagic; without it FileValidator silently degrades to
 #               extension-only checks on chatbot uploads (MIME spoofing)
 #   docs     -> markitdown + pymupdf for services/document_extractor
-eq-chatbot-core[rag,security,docs]>=3.0.0
+#
+# Floor 3.3.0: eq_chatbot_mcp passes allow_private_ranges= to get_mcp_client(),
+# which older releases reject with a TypeError on connect.
+eq-chatbot-core[rag,security,docs]>=3.3.0
 
 # Declared as an external_dependency by eq_chatbot_rag and imported directly.
 qdrant-client>=1.12.0,<2.0.0

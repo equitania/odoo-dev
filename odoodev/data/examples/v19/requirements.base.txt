@@ -115,7 +115,10 @@ oauthlib==3.3.1           # OCA auth modules
 #               eq_chatbot_core.services.document_extractor
 # NOTE: the docs extra pulls in pymupdf (AGPL-3.0-or-later). Distributing an
 # installation that includes it requires a commercial PyMuPDF license.
-eq-chatbot-core[rag,security,docs]>=3.2.1
+#
+# Floor 3.3.0: eq_chatbot_mcp passes allow_private_ranges= to get_mcp_client(),
+# which older releases reject with a TypeError on connect.
+eq-chatbot-core[rag,security,docs]>=3.3.0
 
 # Declared as an external_dependency by eq_chatbot_rag and imported directly,
 # so it stays explicit even though [rag] already provides it.

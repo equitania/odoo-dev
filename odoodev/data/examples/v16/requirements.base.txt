@@ -68,7 +68,9 @@ openai                    # v16-ai, v16-equitania, v16-supedio import it directl
 # install. Same version as v18/v19; v16 runs on Python 3.12, which meets the >=3.12
 # floor. Azure, Vertex and NovaSonic (removed in 3.0.0) are not used in the v16
 # tree, and the pricing_catalog import is try/except-guarded.
-eq-chatbot-core[rag,security,docs]>=3.0.0
+# Floor 3.3.0: eq_chatbot_mcp passes allow_private_ranges= to get_mcp_client(),
+# which older releases reject with a TypeError on connect.
+eq-chatbot-core[rag,security,docs]>=3.3.0
 
 # Declared by eq_chatbot_rag. Until now it only arrived transitively through
 # langchain-qdrant, which is gone with the langchain block below.
