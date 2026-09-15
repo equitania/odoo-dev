@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.68.1 (15.09.2026)
+
+### Changed
+- **v19 baseline: a comment listed a customer repository by name.** The note on the packages
+  removed on 19.08.2026 enumerated the repositories that were checked, including one customer
+  repository that belongs under "the customer repos" like the others. Comment-only change — no
+  pin moved. Because the baseline hash covers the whole file, v19 environments regenerate
+  `requirements.txt` on the next `start` and ask once "Update packages now?"; the install
+  changes nothing.
+
 ## Version 0.68.0 (15.09.2026)
 
 ### Added

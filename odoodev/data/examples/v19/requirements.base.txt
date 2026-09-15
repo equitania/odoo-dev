@@ -149,7 +149,7 @@ schwifty==2024.4.0        # OCA base_bank_from_iban pins this exact version; a n
 
 # Removed on 19.08.2026 — no import in v19-server, v19-oca or any addons repo
 # (checked across addons, chatbot, equitania, 3rd-party, fast-report, themes,
-# website, mrp, biwe, enterprise, oca and the customer repos):
+# website, mrp, enterprise, oca and the customer repos):
 #   nextcloud-api-wrapper, parse-accept-language, holidays, python-gitlab,
 #   pypandoc, python-docx, pyotp, pandas, deepl, dicttoxml, xmltodict,
 #   xmlschema, msal (v19-microsoft365 is commented out in repos.yaml),

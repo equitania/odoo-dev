@@ -202,6 +202,11 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.68.1:**
+- **Geändert:** Ein Kommentar in der v19-Baseline nennt kein Kunden-Repository mehr beim Namen.
+  Keine Paketversion ändert sich; v19-Umgebungen fragen beim nächsten `start` einmal
+  „Update packages now?“, die Installation bleibt unverändert.
+
 **Version 0.68.0:**
 - **Neu:** `odoodev db update` führt `-u all` (oder `-u eq_base,eq_sale`) nacheinander auf
   mehreren Datenbanken aus — Auswahl wie bei `db drop` (`-n`, `-m`, `--all`, `--filter`). Eine
@@ -699,6 +704,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.68.1:**
+- **Changed:** a comment in the v19 baseline no longer names a customer repository. No package
+  pin changes; v19 environments ask "Update packages now?" once on the next `start`, the install
+  stays the same.
 
 **Version 0.68.0:**
 - **Added:** `odoodev db update` runs `-u all` (or `-u eq_base,eq_sale`) sequentially on many
