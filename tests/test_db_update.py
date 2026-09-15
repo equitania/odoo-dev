@@ -480,3 +480,79 @@ class TestExecuteUpdatesCallbacks:
         )
         assert [(s[0], s[1], s[2]) for s in seen] == [("v19_a", 1, 2), ("v19_b", 2, 2)]
         assert [s[3] for s in seen] == [r.log_path for r in results]
+
+
+def _events(result) -> list[dict]:
+    """Every stdout line must be a JSON object — json.loads raises otherwise."""
+    return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+class TestNdjson:
+    def test_help_lists_output_option(self):
+        result = CliRunner().invoke(cli, ["db", "update", "--help"])
+        assert "--output" in result.output and "ndjson" in result.output
+
+    def test_event_order_for_a_mixed_run(self, env):
+        cfg, runner = env
+        runner.outcomes["v19_a"] = {"warnings": 1, "issues": [("WARNING", "odoo.addons.base: dubious")]}
+        runner.outcomes["v19_b"] = {"exit_code": 2, "errors": 1, "last_error": "odoo.registry: dead"}
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1, result.output
+        events = _events(result)
+        assert [e["event"] for e in events] == [
+            "plan", "start", "issue", "result", "start", "result", "start", "result", "summary",
+        ]  # fmt: skip
+        assert events[0] == {
+            "event": "plan",
+            "version": "19",
+            "modules": "all",
+            "targets": [
+                {"database": "v19_a", "reason": "never updated"},
+                {"database": "v19_b", "reason": "never updated"},
+                {"database": "v19_c", "reason": "never updated"},
+            ],
+            "skipped_current": [],
+            "server_running": False,
+        }
+        starts = [(e["database"], e["index"], e["total"]) for e in events if e["event"] == "start"]
+        assert starts == [("v19_a", 1, 3), ("v19_b", 2, 3), ("v19_c", 3, 3)]
+        assert events[2] == {
+            "event": "issue", "database": "v19_a", "level": "WARNING", "text": "odoo.addons.base: dubious",
+        }  # fmt: skip
+        failed = events[5]
+        assert set(failed) == {
+            "event", "database", "ok", "exit_code", "duration_s",
+            "warnings", "errors", "last_error", "timed_out", "log",
+        }  # fmt: skip
+        assert failed["database"] == "v19_b" and failed["ok"] is False and failed["exit_code"] == 2
+        assert failed["last_error"] == "odoo.registry: dead"
+        summary = events[-1]
+        assert summary["exit_code"] == 1 and len(summary["results"]) == 3 and summary["skipped_current"] == []
+
+    def test_dry_run_emits_the_plan_only(self, env):
+        cfg, runner = env
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--dry-run", "--output", "ndjson"])
+        assert result.exit_code == 0, result.output
+        assert [e["event"] for e in _events(result)] == ["plan"]
+        assert runner.calls == []
+
+    def test_nothing_to_do_emits_plan_and_empty_summary(self, env):
+        cfg, runner = env
+        CliRunner().invoke(cli, ["db", "update", "19", "--all", "-y"])
+        runner.calls.clear()
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--stale", "--output", "ndjson"])
+        assert result.exit_code == 0, result.output
+        events = _events(result)
+        assert [e["event"] for e in events] == ["plan", "summary"]
+        assert events[0]["targets"] == [] and events[0]["skipped_current"] == ["v19_a", "v19_b", "v19_c"]
+        assert events[1] == {
+            "event": "summary", "results": [], "skipped_current": ["v19_a", "v19_b", "v19_c"], "exit_code": 0,
+        }  # fmt: skip
+        assert runner.calls == []
+
+    def test_stdout_carries_only_events(self, env):
+        cfg, runner = env
+        result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "-n", "nope", "--output", "ndjson"])
+        assert result.exit_code == 0, result.output
+        assert [e["event"] for e in _events(result)] == ["plan", "start", "result", "summary"]
+        assert "does not exist" in result.stderr

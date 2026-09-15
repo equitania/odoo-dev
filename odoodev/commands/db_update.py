@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import json
 import os
 import sys
 from collections.abc import Callable
@@ -203,6 +204,24 @@ def print_summary(results: list[UpdateResult], modules: str) -> None:
     console.print(table)
 
 
+class _EventSink:
+    """One JSON object per line on the real stdout (``--output ndjson``).
+
+    Flushes after every event — a GUI reads the pipe live. Remembers which
+    events it sent and which database is running, for the failure paths.
+    """
+
+    def __init__(self, out: Any) -> None:
+        self.out = out
+        self.current: str | None = None
+        self.sent: set[str] = set()
+
+    def emit(self, event: str, **fields: Any) -> None:
+        self.out.write(json.dumps({"event": event, **fields}) + "\n")
+        self.out.flush()
+        self.sent.add(event)
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -221,14 +240,20 @@ def update_databases(
     dry_run: bool = False,
     as_json: bool = False,
     yes: bool = False,
+    ndjson: bool = False,
 ) -> int:
     """Interactive orchestration behind ``db update`` and ``pull --update``.
 
     Returns the process exit code (0 = every database updated cleanly or
     nothing to do, 1 = at least one failure or a preflight problem, 130 =
     interrupted). With ``as_json`` stdout carries exactly one JSON line; every
-    human-readable message goes to stderr.
+    human-readable message goes to stderr. With ndjson stdout carries one JSON
+    event per line.
     """
+    if ndjson:
+        return _run_ndjson(
+            version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, as_json
+        )
     if not as_json:
         return _update_databases(
             version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, False,
@@ -239,6 +264,27 @@ def update_databases(
         return _update_databases(
             version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, True,
             True, json_out=json_out,
+        )  # fmt: skip
+
+
+def _run_ndjson(
+    version: str,
+    names: tuple[str, ...],
+    multi: bool,
+    select_all: bool,
+    name_filter: str | None,
+    stale: bool,
+    modules: str,
+    stop_on_error: bool,
+    timeout: int,
+    dry_run: bool,
+    as_json: bool,
+) -> int:
+    sink = _EventSink(sys.stdout)
+    with contextlib.redirect_stdout(sys.stderr):
+        return _update_databases(
+            version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, False,
+            True, json_out=sink.out, sink=sink,
         )  # fmt: skip
 
 
@@ -256,6 +302,7 @@ def _update_databases(
     as_json: bool,
     yes: bool,
     json_out: Any,
+    sink: _EventSink | None = None,
 ) -> int:
     if sum([bool(names), multi, select_all]) > 1:
         print_error("Choose only one selection mode: -n/--name, -m/--multi, or --all")
@@ -266,9 +313,11 @@ def _update_databases(
     if not modules.strip():
         print_error("-u/--modules must not be empty")
         return 1
-    if as_json and (multi or not (names or select_all or stale)):
+    machine = as_json or sink is not None
+    if machine and (multi or not (names or select_all or stale)):
         # A prompt would block a GUI/agent (and write to stdout) — refuse up front.
-        print_error("--json needs an explicit selection: -n/--name, --all or --stale (no -m, no interactive select)")
+        flag = "--output ndjson" if sink is not None else "--json"
+        print_error(f"{flag} needs an explicit selection: -n/--name, --all or --stale (no -m, no interactive select)")
         return 1
 
     # Looked up through the module so tests (and conftest's PG-precheck stub)
@@ -302,6 +351,16 @@ def _update_databases(
         skipped_current = [db for db in targets if reasons[db] is None]
         targets = [db for db in targets if reasons[db] is not None]
 
+    if sink is not None:
+        sink.emit(
+            "plan",
+            version=version,
+            modules=modules,
+            targets=[{"database": db, "reason": reasons.get(db)} for db in targets],
+            skipped_current=skipped_current,
+            server_running=server_running,
+        )
+
     if not targets:
         if stale and skipped_current:
             print_success(f"All {len(skipped_current)} database(s) are up to date — nothing to update.")
@@ -309,9 +368,11 @@ def _update_databases(
             print_info("No databases selected — nothing to update.")
         if as_json:
             _emit_json(json_out, version, modules, [], skipped_current, server_running)
+        if sink is not None:
+            sink.emit("summary", results=[], skipped_current=skipped_current, exit_code=0)
         return 0
 
-    if not as_json:
+    if not machine:
         _print_plan(targets, reasons, skipped_current, modules)
     if server_running:
         print_warning("An Odoo server is running on this version — restart it after the update.")
@@ -325,7 +386,11 @@ def _update_databases(
         return 0
 
     try:
-        if as_json:
+        if sink is not None:
+            results = _run_with_events(
+                sink, version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
+            )
+        elif as_json:
             results = execute_updates(
                 version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
             )
@@ -336,6 +401,11 @@ def _update_databases(
     except KeyboardInterrupt:
         print_warning("Interrupted — the running odoo-bin was stopped; that database is not marked current.")
         return 130
+
+    if sink is not None:
+        rc = 0 if all(r.ok for r in results) else 1
+        sink.emit("summary", results=[r.to_dict() for r in results], skipped_current=skipped_current, exit_code=rc)
+        return rc
 
     if as_json:
         _emit_json(json_out, version, modules, results, skipped_current, server_running)
@@ -402,6 +472,45 @@ def _run_with_progress(
         )
 
 
+def _run_with_events(
+    sink: _EventSink,
+    version: str,
+    invocation: dict[str, Any],
+    targets: list[str],
+    modules: str,
+    heads: dict[str, str],
+    state: dict[str, Any],
+    state_path: str,
+    timeout: int,
+    stop_on_error: bool,
+) -> list[UpdateResult]:
+    def on_start(db: str, index: int, total: int, log: str) -> None:
+        sink.current = db
+        sink.emit("start", database=db, index=index, total=total, log=log)
+
+    def on_issue(db: str, level: str, text: str) -> None:
+        sink.emit("issue", database=db, level=level, text=text)
+
+    def on_result(result: UpdateResult) -> None:
+        sink.current = None
+        sink.emit("result", **result.to_dict())
+
+    return execute_updates(
+        version,
+        invocation,
+        targets,
+        modules,
+        heads,
+        state,
+        state_path,
+        timeout,
+        stop_on_error,
+        on_issue=on_issue,
+        on_result=on_result,
+        on_start=on_start,
+    )
+
+
 def _print_plan(targets: list[str], reasons: dict[str, str | None], skipped: list[str], modules: str) -> None:
     print_info(f"Databases to update with -u {modules}:")
     for db in targets:
@@ -461,6 +570,14 @@ def _emit_json(
 @click.option("--timeout", default=DEFAULT_TIMEOUT, show_default=True, help="Seconds per database before giving up")
 @click.option("--dry-run", is_flag=True, help="Show the databases that would be updated, run nothing")
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable result (implies --yes, no progress output)")
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["text", "ndjson"]),
+    default="text",
+    show_default=True,
+    help="ndjson: one JSON event per line on stdout for GUIs (implies --yes; needs -n, --all or --stale)",
+)
 @click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
 @click.pass_context
 def db_update(
@@ -476,6 +593,7 @@ def db_update(
     timeout: int,
     dry_run: bool,
     as_json: bool,
+    output_format: str,
     yes: bool,
 ) -> None:
     """Run odoo-bin -u on one or many databases (sequentially).
@@ -504,6 +622,7 @@ def db_update(
         dry_run=dry_run,
         as_json=as_json,
         yes=yes,
+        ndjson=output_format == "ndjson",
     )
     if rc:
         raise SystemExit(rc)
