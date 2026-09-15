@@ -204,6 +204,43 @@ def print_summary(results: list[UpdateResult], modules: str) -> None:
     console.print(table)
 
 
+class _LastLineTee:
+    """stderr stand-in that forwards everything and remembers the last non-empty line.
+
+    A helper that aborts with ``SystemExit`` (PostgreSQL unreachable, invalid
+    names) has already printed its reason; NDJSON mode reports that line as the
+    ``error`` event's message.
+    """
+
+    def __init__(self, target: Any) -> None:
+        self.target = target
+        self.last_line = ""
+        self.encoding = getattr(target, "encoding", "utf-8") or "utf-8"
+
+    def write(self, text: str) -> int:
+        self.target.write(text)
+        for line in text.splitlines():
+            if line.strip():
+                self.last_line = line.strip()
+        return len(text)
+
+    def flush(self) -> None:
+        self.target.flush()
+
+    def isatty(self) -> bool:
+        return False
+
+
+def _fail(sink: _EventSink | None, message: str, hint: str | None = None) -> int:
+    """Report a preflight failure on stderr (and as an ``error`` event in NDJSON mode)."""
+    print_error(message)
+    if hint:
+        print_info(hint)
+    if sink is not None:
+        sink.emit("error", message=message)
+    return 1
+
+
 class _EventSink:
     """One JSON object per line on the real stdout (``--output ndjson``).
 
@@ -281,11 +318,20 @@ def _run_ndjson(
     as_json: bool,
 ) -> int:
     sink = _EventSink(sys.stdout)
-    with contextlib.redirect_stdout(sys.stderr):
-        return _update_databases(
-            version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, False,
-            True, json_out=sink.out, sink=sink,
-        )  # fmt: skip
+    if as_json:
+        return _fail(sink, "--json and --output ndjson cannot be combined")
+    tee = _LastLineTee(sys.stderr)
+    with contextlib.redirect_stdout(tee), contextlib.redirect_stderr(tee):
+        try:
+            return _update_databases(
+                version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run,
+                False, True, json_out=sink.out, sink=sink,
+            )  # fmt: skip
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            if code and not sink.sent & {"plan", "error"}:
+                sink.emit("error", message=tee.last_line.removeprefix("[ERROR]").strip() or "preflight failed")
+            return code
 
 
 def _update_databases(
@@ -305,20 +351,18 @@ def _update_databases(
     sink: _EventSink | None = None,
 ) -> int:
     if sum([bool(names), multi, select_all]) > 1:
-        print_error("Choose only one selection mode: -n/--name, -m/--multi, or --all")
-        return 1
+        return _fail(sink, "Choose only one selection mode: -n/--name, -m/--multi, or --all")
     if name_filter and names:
-        print_error("--filter cannot be combined with explicit -n/--name")
-        return 1
+        return _fail(sink, "--filter cannot be combined with explicit -n/--name")
     if not modules.strip():
-        print_error("-u/--modules must not be empty")
-        return 1
+        return _fail(sink, "-u/--modules must not be empty")
     machine = as_json or sink is not None
     if machine and (multi or not (names or select_all or stale)):
         # A prompt would block a GUI/agent (and write to stdout) — refuse up front.
         flag = "--output ndjson" if sink is not None else "--json"
-        print_error(f"{flag} needs an explicit selection: -n/--name, --all or --stale (no -m, no interactive select)")
-        return 1
+        return _fail(
+            sink, f"{flag} needs an explicit selection: -n/--name, --all or --stale (no -m, no interactive select)"
+        )
 
     # Looked up through the module so tests (and conftest's PG-precheck stub)
     # can patch them in one place.
@@ -329,9 +373,11 @@ def _update_databases(
 
     invocation = resolve_invocation(version_cfg, env_vars)
     if invocation is None:
-        print_error("Development environment not ready — need .venv, odoo-bin and a generated odoo_*.conf")
-        print_info(f"Run: odoodev venv setup {version}  /  odoodev repos {version}")
-        return 1
+        return _fail(
+            sink,
+            "Development environment not ready — need .venv, odoo-bin and a generated odoo_*.conf",
+            hint=f"Run: odoodev venv setup {version}  /  odoodev repos {version}",
+        )
 
     # --stale without another mode means: consider every database — and having
     # none at all is "nothing to do", not an error (pull --update on a fresh
@@ -400,6 +446,8 @@ def _update_databases(
             )
     except KeyboardInterrupt:
         print_warning("Interrupted — the running odoo-bin was stopped; that database is not marked current.")
+        if sink is not None:
+            sink.emit("interrupted", database=sink.current)
         return 130
 
     if sink is not None:

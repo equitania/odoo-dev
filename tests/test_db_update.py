@@ -556,3 +556,56 @@ class TestNdjson:
         assert result.exit_code == 0, result.output
         assert [e["event"] for e in _events(result)] == ["plan", "start", "result", "summary"]
         assert "does not exist" in result.stderr
+
+
+class TestNdjsonFailures:
+    def test_env_not_ready_is_an_error_event(self, env, monkeypatch):
+        monkeypatch.setattr(mod, "resolve_invocation", lambda c, e: None)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1
+        assert _events(result) == [
+            {
+                "event": "error",
+                "message": "Development environment not ready — need .venv, odoo-bin and a generated odoo_*.conf",
+            }
+        ]
+
+    def test_systemexit_in_a_helper_becomes_an_error_event(self, env, monkeypatch):
+        from odoodev.output import print_error
+
+        def unreachable(version, params):
+            print_error("PostgreSQL on 127.0.0.1:19432 is not reachable")
+            raise SystemExit(1)
+
+        monkeypatch.setattr("odoodev.commands.db._ensure_pg_reachable", unreachable)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1
+        assert _events(result) == [{"event": "error", "message": "PostgreSQL on 127.0.0.1:19432 is not reachable"}]
+
+    def test_interrupt_emits_interrupted_and_exits_130(self, env, monkeypatch):
+        cfg, runner = env
+
+        def flaky(db_name, *args, **kwargs):
+            if db_name == "v19_b":
+                raise KeyboardInterrupt
+            return runner(db_name, *args, **kwargs)
+
+        monkeypatch.setattr(mod, "run_module_update", flaky)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 130
+        events = _events(result)
+        assert [e["event"] for e in events] == ["plan", "start", "result", "start", "interrupted"]
+        assert events[-1] == {"event": "interrupted", "database": "v19_b"}
+
+    @pytest.mark.parametrize("args", [["19", "--output", "ndjson"], ["19", "-m", "--output", "ndjson"]])
+    def test_explicit_selection_required(self, env, args):
+        result = CliRunner().invoke(cli, ["db", "update", *args])
+        assert result.exit_code == 1
+        events = _events(result)
+        assert [e["event"] for e in events] == ["error"]
+        assert "explicit selection" in events[0]["message"]
+
+    def test_json_and_ndjson_cannot_be_combined(self, env):
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--json", "--output", "ndjson"])
+        assert result.exit_code == 1
+        assert _events(result) == [{"event": "error", "message": "--json and --output ndjson cannot be combined"}]
