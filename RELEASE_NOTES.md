@@ -29,6 +29,29 @@
   `stop_on_error`, `timeout`) — non-interactive, no progress output, per-database results in the
   step details.
 
+### Safeguards (from the pre-release review)
+- **Interrupting is safe.** Odoo runs in its own process group, which Ctrl+C from the terminal
+  never reaches — an interrupted `db update`, or a GUI ending odoodev, used to leave
+  `odoo-bin -u all` running on the database in the background until it finished. The runner now
+  kills the whole group before the interruption propagates; the command exits 130 and the
+  interrupted database is not marked current.
+- **The update record follows the database.** `db restore` (CLI and playbook) forgets the record
+  before dropping, so a freshly restored production backup is never skipped by `--stale` as
+  "current". `db rename` moves the record, `db copy` duplicates it, and the `db.drop` playbook
+  step forgets it like `db drop` already did.
+- **Uncommitted changes count.** A repository with local edits is recorded as
+  `<sha>+dirty-<digest>` (digest over `git status` and `git diff HEAD`), so a database updated
+  against a dirty tree becomes stale again with the next edit or commit. Edits inside an untracked
+  file are not seen; adding one is.
+- **`--json` is safe to parse.** It requires an explicit selection (`-n`, `--all` or `--stale`;
+  `-m` and the interactive picker are refused), every human-readable message goes to stderr, and
+  stdout carries exactly one JSON line, now with `server_running`.
+- **`--stale` with no databases at all is "nothing to do" (exit 0)**, so `pull --update` on a fresh
+  version no longer fails; an explicit `--all` without databases still exits 1.
+- A timed-out database reports `exit_code: 124` (was the `-15` SIGTERM left behind); on platforms
+  without process groups the child is terminated directly. The `db.update` step skips system
+  databases, reports `server_running` in its details, and the playbook assistant offers `timeout`.
+
 ## Version 0.67.1 (10.09.2026)
 
 ### Fixed

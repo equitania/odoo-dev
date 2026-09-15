@@ -155,6 +155,21 @@ class TestStale:
         assert runner.calls == []
         assert "up to date" in result.output
 
+    def test_stale_without_any_database_is_not_a_failure(self, env, monkeypatch):
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db.list_databases", lambda **kw: [])
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--stale", "-y"])
+        assert result.exit_code == 0, result.output
+        assert runner.calls == []
+        as_json = CliRunner().invoke(cli, ["db", "update", "19", "--stale", "--json"])
+        assert as_json.exit_code == 0, as_json.output
+        assert json.loads(as_json.stdout)["results"] == []
+
+    def test_explicit_all_without_databases_still_fails(self, env, monkeypatch):
+        monkeypatch.setattr("odoodev.commands.db.list_databases", lambda **kw: [])
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "-y"])
+        assert result.exit_code == 1
+
     def test_partial_module_update_does_not_mark_current(self, env):
         cfg, runner = env
         CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "-u", "eq_base", "-y"])
@@ -211,6 +226,41 @@ class TestOutput:
         assert [r["database"] for r in payload["results"]] == ["v19_a", "v19_b", "v19_c"]
         assert payload["results"][1]["ok"] is False and payload["results"][1]["exit_code"] == 2
         assert payload["skipped_current"] == []
+        assert payload["server_running"] is False
+
+    def test_json_stdout_is_pure_json(self, env):
+        """Warnings (e.g. a missing -n database) go to stderr, stdout carries exactly one JSON line."""
+        cfg, runner = env
+        result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "-n", "nope", "--json"])
+        assert result.exit_code == 0, result.output
+        lines = result.stdout.strip().splitlines()
+        assert len(lines) == 1
+        payload = json.loads(lines[0])
+        assert [r["database"] for r in payload["results"]] == ["v19_a"]
+        assert "does not exist" in result.stderr
+
+    def test_json_requires_explicit_selection(self, env, monkeypatch):
+        cfg, runner = env
+        monkeypatch.setattr(
+            "odoodev.commands.db.select", lambda *a, **kw: pytest.fail("interactive prompt in --json mode")
+        )
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--json"])
+        assert result.exit_code == 1
+        assert "explicit selection" in result.stderr
+        assert result.stdout == ""
+        assert runner.calls == []
+
+    def test_json_multi_is_rejected(self, env):
+        result = CliRunner().invoke(cli, ["db", "update", "19", "-m", "--json"])
+        assert result.exit_code == 1
+        assert "explicit selection" in result.stderr
+
+    def test_json_reports_running_server(self, env, monkeypatch):
+        monkeypatch.setattr(mod, "_odoo_port_busy", lambda c, e: True)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--json"])
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        assert payload["server_running"] is True
+        assert "restart it after the update" in result.stderr
 
     def test_running_server_warning(self, env, monkeypatch):
         monkeypatch.setattr(mod, "_odoo_port_busy", lambda c, e: True)
@@ -243,6 +293,39 @@ class TestDbListMarkers:
         result = CliRunner().invoke(cli, ["db", "drop", "19", "-n", "v19_a", "-y"])
         assert result.exit_code == 0, result.output
         assert "v19_a" not in load_update_state(mod.update_state_path(cfg))["databases"]
+
+    def test_restore_forgets_state_before_dropping(self, env, monkeypatch, tmp_path):
+        """A restored database is a new database — it must never inherit 'current'."""
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db.get_version", lambda v: cfg)
+        CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "-y"])
+        backup = tmp_path / "prod.zip"
+        backup.write_bytes(b"x")
+        # Stop the restore right after the drop: the state must already be gone by then.
+        monkeypatch.setattr("odoodev.commands.db.drop_database", lambda name, **kw: False)
+        result = CliRunner().invoke(cli, ["db", "restore", "19", "-n", "v19_a", "-z", str(backup), "-y"])
+        assert result.exit_code == 1
+        assert "v19_a" not in load_update_state(mod.update_state_path(cfg))["databases"]
+
+    def test_rename_moves_and_copy_duplicates_state(self, env, monkeypatch, tmp_path):
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db.get_version", lambda v: cfg)
+        monkeypatch.setattr("odoodev.commands.db._ensure_no_connections", lambda *a, **kw: None)
+        monkeypatch.setattr("odoodev.commands.db._resolve_copy_names", lambda p, s, d: (s, d))
+        monkeypatch.setattr("odoodev.commands.db.rename_database", lambda s, d, **kw: True)
+        monkeypatch.setattr("odoodev.commands.db.copy_database", lambda s, d, **kw: True)
+        monkeypatch.setattr("odoodev.commands.db.get_filestore_path", lambda v, db_name: str(tmp_path / "fs" / db_name))
+        CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "-y"])
+
+        renamed = CliRunner().invoke(cli, ["db", "rename", "19", "-s", "v19_a", "-d", "v19_x", "-y"])
+        assert renamed.exit_code == 0, renamed.output
+        dbs = load_update_state(mod.update_state_path(cfg))["databases"]
+        assert "v19_a" not in dbs and "v19_x" in dbs
+
+        copied = CliRunner().invoke(cli, ["db", "copy", "19", "-s", "v19_x", "-d", "v19_y", "-y"])
+        assert copied.exit_code == 0, copied.output
+        dbs = load_update_state(mod.update_state_path(cfg))["databases"]
+        assert dbs["v19_x"] == dbs["v19_y"]
 
 
 class TestPullUpdate:
@@ -320,3 +403,62 @@ class TestAutomation:
         monkeypatch.setattr(mod, "resolve_invocation", lambda c, e: None)
         result = handle_db_update(cfg, {"all": True})
         assert result.status == "error"
+
+    def test_system_databases_are_never_updated(self, env, monkeypatch):
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db._get_db_params", lambda c, e: {"host": "h", "port": 1, "user": "u"})
+        monkeypatch.setattr("odoodev.commands.db.database_exists", lambda name, **kw: True)
+        result = handle_db_update(cfg, {"name": ["postgres", "v19_a"]})
+        assert result.status == "ok", result.message
+        assert [c[0] for c in runner.calls] == ["v19_a"]
+
+    def test_timeout_and_running_server_reach_the_step(self, env, monkeypatch):
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db._get_db_params", lambda c, e: {"host": "h", "port": 1, "user": "u"})
+        monkeypatch.setattr(mod, "_odoo_port_busy", lambda c, e: True)
+        seen: list[int] = []
+        original = runner.__call__
+
+        def spy(*a, timeout=3600, **kw):
+            seen.append(timeout)
+            return original(*a, timeout=timeout, **kw)
+
+        monkeypatch.setattr(mod, "run_module_update", spy)
+        result = handle_db_update(cfg, {"name": "v19_a", "timeout": 120})
+        assert seen == [120]
+        assert result.details["server_running"] is True
+
+    def test_timeout_is_offered_in_the_wizard_schema(self):
+        from odoodev.core.playbook_schema import STEP_ARG_SPECS
+
+        args = {a.name: a for a in STEP_ARG_SPECS["db.update"].args}
+        assert args["timeout"].type == "int"
+
+
+class TestAutomationStateCleanup:
+    def test_drop_step_forgets_state(self, env, monkeypatch):
+        from odoodev.core.automation import handle_db_drop
+
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db._get_db_params", lambda c, e: {"host": "h", "port": 1, "user": "u"})
+        handle_db_update(cfg, {"name": "v19_a"})
+        monkeypatch.setattr("odoodev.core.database.drop_database", lambda name, **kw: True)
+        assert handle_db_drop(cfg, {"name": "v19_a"}).status == "ok"
+        assert "v19_a" not in load_update_state(mod.update_state_path(cfg))["databases"]
+
+    def test_restore_step_forgets_state(self, env, monkeypatch, tmp_path):
+        from odoodev.core.automation import handle_db_restore
+
+        cfg, runner = env
+        monkeypatch.setattr("odoodev.commands.db._get_db_params", lambda c, e: {"host": "h", "port": 1, "user": "u"})
+        handle_db_update(cfg, {"name": "v19_a"})
+        backup = tmp_path / "prod.zip"
+        backup.write_bytes(b"x")
+        monkeypatch.setattr("odoodev.core.database.drop_database", lambda name, **kw: True)
+        monkeypatch.setattr("odoodev.core.database.get_restore_temp_dir", lambda f: str(tmp_path / "extract"))
+        monkeypatch.setattr("odoodev.core.database.check_restore_space", lambda *a: (True, "", 0))
+        monkeypatch.setattr("odoodev.core.database.extract_backup", lambda f, p: False)
+        monkeypatch.setattr("odoodev.core.database.cleanup_restore_temp", lambda p: None)
+        result = handle_db_restore(cfg, {"name": "v19_a", "backup-file": str(backup)})
+        assert result.status == "error"  # extraction stubbed to fail — the state is gone regardless
+        assert "v19_a" not in load_update_state(mod.update_state_path(cfg))["databases"]

@@ -567,6 +567,11 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
     env_vars = _load_env_vars(version_cfg)
     params = _get_db_params(version_cfg, env_vars)
 
+    # A restored database never inherits the `db update` record of the one it replaces.
+    from odoodev.commands.db import _forget_update_state
+
+    _forget_update_state(version_cfg, [name])
+
     # Drop existing
     if do_drop:
         drop_database(name, **params)
@@ -676,6 +681,9 @@ def handle_db_drop(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResu
     params = _get_db_params(version_cfg, env_vars)
 
     if drop_database(name, host=params["host"], port=params["port"], user=params["user"]):
+        from odoodev.commands.db import _forget_update_state
+
+        _forget_update_state(version_cfg, [name])
         return _step_ok("db.drop", "db.drop", f"Database '{name}' dropped", 0)
     return _step_error("db.drop", "db.drop", f"Failed to drop database '{name}'", 0)
 
@@ -690,18 +698,25 @@ def handle_db_update(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
     ``stop_on_error`` (default false), ``timeout`` seconds per database.
     """
     from odoodev.commands import db as db_cmd
+    from odoodev.commands import db_update as update_cmd
     from odoodev.commands.db_update import execute_updates, plan_stale, resolve_invocation
     from odoodev.core.module_update import DEFAULT_TIMEOUT
 
     raw_names = args.get("name") or args.get("names") or []
     if isinstance(raw_names, str):
         raw_names = [n.strip() for n in raw_names.split(",") if n.strip()]
+    system = [n for n in raw_names if n in db_cmd._SYSTEM_DBS]
+    if system:
+        logger.warning("db.update: refusing system database(s): %s", ", ".join(system))
+        raw_names = [n for n in raw_names if n not in db_cmd._SYSTEM_DBS]
     select_all = bool(args.get("all", False))
     stale = bool(args.get("stale", False))
     modules = str(args.get("modules") or "all")
     stop_on_error = bool(args.get("stop_on_error", args.get("stop-on-error", False)))
     timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
     if not raw_names and not select_all and not stale:
+        if system:
+            return _step_ok("db.update", "db.update", "Nothing to update (system databases are never updated)", 0)
         return _step_error("db.update", "db.update", "Need 'name', 'all: true' or 'stale: true'", 0)
 
     env_vars = db_cmd._load_env_vars(version_cfg)
@@ -726,10 +741,17 @@ def handle_db_update(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
     if not targets:
         return _step_ok("db.update", "db.update", "Nothing to update", 0, skipped_current=skipped)
 
+    server_running = update_cmd._odoo_port_busy(version_cfg, env_vars)
+    if server_running:
+        logger.warning("db.update: an Odoo server is running on this version — restart it after the update")
     results = execute_updates(
         version_cfg.version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
     )
-    details = {"results": [r.to_dict() for r in results], "skipped_current": skipped}
+    details = {
+        "results": [r.to_dict() for r in results],
+        "skipped_current": skipped,
+        "server_running": server_running,
+    }
     failed = [r.db_name for r in results if not r.ok]
     if failed:
         return StepResult(

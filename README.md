@@ -214,6 +214,11 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
   deren Repositories sich seither geändert haben; `db list` markiert sie mit `(stale: …)`.
 - **Neu:** `odoodev pull --update` hängt `db update --stale` direkt an den Pull an; der
   Playbook-Schritt `db.update` macht dasselbe unbeaufsichtigt.
+- **Absicherung:** Ein Abbruch (Strg+C oder eine GUI, die odoodev beendet) stoppt das laufende
+  `odoo-bin` samt Prozessgruppe, statt es im Hintergrund weiterlaufen zu lassen. `db restore`
+  vergisst den Update-Stand der ersetzten Datenbank, `db rename` und `db copy` übernehmen ihn;
+  nicht committete Änderungen in einem Repository zählen als Änderung. `--json` verlangt eine
+  explizite Auswahl und schreibt auf stdout nur noch die JSON-Zeile.
 
 **Version 0.67.1:**
 - **Behoben:** Die v18-Baseline ließ sich mit eq-chatbot-core 3.3.0 nicht auflösen — dessen
@@ -706,6 +711,11 @@ The full version history is available in the [Release Notes](RELEASE_NOTES.md).
   repositories changed since; `db list` marks them with `(stale: …)`.
 - **Added:** `odoodev pull --update` chains `db update --stale` onto the pull; the playbook step
   `db.update` does the same unattended.
+- **Safeguards:** interrupting (Ctrl+C, or a GUI ending odoodev) stops the running `odoo-bin` with
+  its process group instead of leaving it running in the background. `db restore` forgets the
+  replaced database's update record, `db rename` and `db copy` carry it over; uncommitted changes
+  in a repository count as a change. `--json` requires an explicit selection and writes only the
+  JSON line to stdout.
 
 **Version 0.63.0:**
 - **Added:** Requirements are now a shipped baseline plus a local overlay (`requirements.local.txt`,

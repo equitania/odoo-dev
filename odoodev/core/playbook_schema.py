@@ -640,6 +640,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("stale", "confirm", default=False),
                 _a("modules", "text", default="all"),
                 _a("stop_on_error", "confirm", default=False),
+                _a("timeout", "int"),
             ),
         ),
         StepSpec("env.check", "dev"),

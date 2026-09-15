@@ -460,6 +460,18 @@ def _forget_update_state(version_cfg, dropped: list[str]) -> None:
     save_update_state(state_path, state)
 
 
+def _carry_update_state(version_cfg, src: str, dst: str, keep_src: bool) -> None:
+    """Follow a rename (``keep_src=False``) or copy (``True``) in the `db update` state file."""
+    from odoodev.core.module_update import load_update_state, move_database_state, save_update_state, update_state_path
+
+    state_path = update_state_path(version_cfg)
+    if not os.path.exists(state_path):
+        return
+    state = load_update_state(state_path)
+    move_database_state(state, src, dst, keep_src=keep_src)
+    save_update_state(state_path, state)
+
+
 def _drop_one_with_filestore(name: str, version: str, params: dict, terminate: bool) -> bool:
     """Drop a single database and its filestore. Returns True on success.
 
@@ -650,6 +662,7 @@ def db_copy(
         print_error("Database copy failed (see log for details)")
         raise SystemExit(1)
     print_success(f"Database '{dst}' created from '{src}'")
+    _carry_update_state(version_cfg, src, dst, keep_src=True)
 
     src_fs = get_filestore_path(version, db_name=src)
     if os.path.isdir(src_fs):
@@ -690,6 +703,7 @@ def db_rename(
         print_error("Database rename failed (see log for details)")
         raise SystemExit(1)
     print_success(f"Database '{src}' renamed to '{dst}'")
+    _carry_update_state(version_cfg, src, dst, keep_src=False)
 
     src_fs = get_filestore_path(version, db_name=src)
     if os.path.isdir(src_fs):
@@ -1246,6 +1260,10 @@ def db_restore(
 
     backup_file = os.path.abspath(backup_file)
     print_info(f"Restoring database '{name}' from {os.path.basename(backup_file)}")
+
+    # A restored database is a new database: it must never inherit the "current"
+    # record of the one it replaces (db update --stale would skip it).
+    _forget_update_state(version_cfg, [name])
 
     # Drop existing
     if drop:

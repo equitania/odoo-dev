@@ -15,8 +15,10 @@ non-interactive core (``plan_stale``, ``execute_updates``) also serves the
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import os
+import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -217,15 +219,38 @@ def update_databases(
     """Interactive orchestration behind ``db update`` and ``pull --update``.
 
     Returns the process exit code (0 = every database updated cleanly or
-    nothing to do, 1 = at least one failure or a preflight problem).
+    nothing to do, 1 = at least one failure or a preflight problem, 130 =
+    interrupted). With ``as_json`` stdout carries exactly one JSON line; every
+    human-readable message goes to stderr.
     """
-    # Looked up through the module so tests (and conftest's PG-precheck stub)
-    # can patch them in one place.
-    version_cfg = get_version(version)
-    env_vars = db_cmd._load_env_vars(version_cfg)
-    params = db_cmd._get_db_params(version_cfg, env_vars)
-    db_cmd._ensure_pg_reachable(version, params)
+    if not as_json:
+        return _update_databases(
+            version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, False,
+            yes, json_out=sys.stdout,
+        )  # fmt: skip
+    json_out = sys.stdout
+    with contextlib.redirect_stdout(sys.stderr):
+        return _update_databases(
+            version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run, True,
+            True, json_out=json_out,
+        )  # fmt: skip
 
+
+def _update_databases(
+    version: str,
+    names: tuple[str, ...],
+    multi: bool,
+    select_all: bool,
+    name_filter: str | None,
+    stale: bool,
+    modules: str,
+    stop_on_error: bool,
+    timeout: int,
+    dry_run: bool,
+    as_json: bool,
+    yes: bool,
+    json_out: Any,
+) -> int:
     if sum([bool(names), multi, select_all]) > 1:
         print_error("Choose only one selection mode: -n/--name, -m/--multi, or --all")
         return 1
@@ -235,6 +260,17 @@ def update_databases(
     if not modules.strip():
         print_error("-u/--modules must not be empty")
         return 1
+    if as_json and (multi or not (names or select_all or stale)):
+        # A prompt would block a GUI/agent (and write to stdout) — refuse up front.
+        print_error("--json needs an explicit selection: -n/--name, --all or --stale (no -m, no interactive select)")
+        return 1
+
+    # Looked up through the module so tests (and conftest's PG-precheck stub)
+    # can patch them in one place.
+    version_cfg = get_version(version)
+    env_vars = db_cmd._load_env_vars(version_cfg)
+    params = db_cmd._get_db_params(version_cfg, env_vars)
+    db_cmd._ensure_pg_reachable(version, params)
 
     invocation = resolve_invocation(version_cfg, env_vars)
     if invocation is None:
@@ -242,13 +278,18 @@ def update_databases(
         print_info(f"Run: odoodev venv setup {version}  /  odoodev repos {version}")
         return 1
 
-    # --stale without another mode means: consider every database.
-    if stale and not (names or multi or select_all):
+    # --stale without another mode means: consider every database — and having
+    # none at all is "nothing to do", not an error (pull --update on a fresh
+    # version). An explicit --all without databases still fails like db drop.
+    implicit_all = stale and not (names or multi or select_all)
+    if implicit_all:
         select_all = True
-    if as_json:
-        yes = True
+    server_running = _odoo_port_busy(version_cfg, env_vars)
 
-    targets = db_cmd._resolve_multi_targets(params, names, multi, select_all, name_filter, verb="update")
+    if implicit_all and not db_cmd._candidate_databases(params, name_filter):
+        targets: list[str] = []
+    else:
+        targets = db_cmd._resolve_multi_targets(params, names, multi, select_all, name_filter, verb="update")
     reasons, state, state_path, heads = plan_stale(version_cfg, targets)
     skipped_current: list[str] = []
     if stale:
@@ -256,38 +297,44 @@ def update_databases(
         targets = [db for db in targets if reasons[db] is not None]
 
     if not targets:
-        if as_json:
-            _emit_json(version, modules, [], skipped_current)
-        elif stale and skipped_current:
+        if stale and skipped_current:
             print_success(f"All {len(skipped_current)} database(s) are up to date — nothing to update.")
         else:
             print_info("No databases selected — nothing to update.")
+        if as_json:
+            _emit_json(json_out, version, modules, [], skipped_current, server_running)
         return 0
 
     if not as_json:
         _print_plan(targets, reasons, skipped_current, modules)
-        if _odoo_port_busy(version_cfg, env_vars):
-            print_warning("An Odoo server is running on this version — restart it after the update.")
-        if dry_run:
-            print_info("Dry run — nothing executed.")
-            return 0
-        if not yes and not confirm(f"Update {len(targets)} database(s) with -u {modules} now?", default=True):
-            print_info("Aborted.")
-            return 0
-    elif dry_run:
-        _emit_json(version, modules, [], skipped_current, planned=targets)
+    if server_running:
+        print_warning("An Odoo server is running on this version — restart it after the update.")
+    if dry_run:
+        print_info("Dry run — nothing executed.")
+        if as_json:
+            _emit_json(json_out, version, modules, [], skipped_current, server_running, planned=targets)
+        return 0
+    if not yes and not confirm(f"Update {len(targets)} database(s) with -u {modules} now?", default=True):
+        print_info("Aborted.")
         return 0
 
+    try:
+        if as_json:
+            results = execute_updates(
+                version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
+            )
+        else:
+            results = _run_with_progress(
+                version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
+            )
+    except KeyboardInterrupt:
+        print_warning("Interrupted — the running odoo-bin was stopped; that database is not marked current.")
+        return 130
+
     if as_json:
-        results = execute_updates(
-            version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
-        )
-        _emit_json(version, modules, results, skipped_current)
+        _emit_json(json_out, version, modules, results, skipped_current, server_running)
         return 0 if all(r.ok for r in results) else 1
 
-    results = _run_with_progress(
-        version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
-    )
     print_summary(results, modules)
     failed = [r for r in results if not r.ok]
     if failed:
@@ -369,24 +416,26 @@ def _odoo_port_busy(version_cfg: Any, env_vars: dict[str, str]) -> bool:
 
 
 def _emit_json(
+    out: Any,
     version: str,
     modules: str,
     results: list[UpdateResult],
     skipped_current: list[str],
+    server_running: bool,
     planned: list[str] | None = None,
 ) -> None:
     import json
-    import sys
 
     payload: dict[str, Any] = {
         "version": version,
         "modules": modules,
         "results": [r.to_dict() for r in results],
         "skipped_current": skipped_current,
+        "server_running": server_running,
     }
     if planned is not None:
         payload["planned"] = planned
-    sys.stdout.write(json.dumps(payload) + "\n")
+    out.write(json.dumps(payload) + "\n")
 
 
 # ---------------------------------------------------------------------------

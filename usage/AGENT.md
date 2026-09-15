@@ -221,6 +221,8 @@ odoodev db update 19 --all --dry-run     # show the plan with the stale reason p
 odoodev db update 19 -n v19_a -n v19_b -u eq_base,eq_sale   # specific modules on specific DBs
 odoodev db update 19 --all --json        # per-DB results for GUIs/agents (implies -y)
 # Sequential on purpose; a DB is marked current only after exit 0 with no ERROR logged.
+# The record follows the DB: restore forgets it, rename moves it, copy duplicates it, drop forgets it.
+# Uncommitted edits in a repo count as a change (recorded as <sha>+dirty-<digest>).
 # Playbook: - name: update
 #             command: db.update
 #             args: { stale: true, all: true, modules: all, stop_on_error: false }
@@ -364,8 +366,12 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 - `odoodev db list --json` → array of databases; plus `stale: {db: reason}` once a `db update` state
   file exists.
 - `odoodev db update --json` → `{version, modules, results: [{database, ok, exit_code, duration_s,
-  warnings, errors, last_error, timed_out, log}], skipped_current: [...]}` (with `--dry-run`: `planned`
-  instead of results). Exit 1 if any database failed.
+  warnings, errors, last_error, timed_out, log}], skipped_current: [...], server_running: bool}` (with
+  `--dry-run`: empty `results` plus `planned`). Needs an explicit selection (`-n`, `--all` or
+  `--stale`; `-m` is refused); stdout carries exactly this one line, every message goes to stderr.
+  Printed once at the end — no per-database progress. Exit 1 if any database failed, 130 if
+  interrupted (the running `odoo-bin` is killed with its process group). A timed-out database
+  reports `exit_code: 124`.
 - `odoodev config versions --json` → full version registry (ports, paths, git). Since 0.58.0 each
   version also carries `effective_ports` (registry defaults overridden by the version's `.env`
   `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/`MAILPIT_PORT`) — on multi-user hosts every user has an own

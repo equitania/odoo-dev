@@ -76,7 +76,10 @@ interleave their logs; sequential runs take 2–5 min per database and stay read
   database failed. `--stop-on-error` aborts after the first failure; default continues.
 - Logs: `~/odoodev-logs/update_v<version>_<db>_<timestamp>.log`.
 - `--json`: single-line `{version, modules, results: [{database, ok, exit_code,
-  duration_s, warnings, errors, last_error, log}], stale_skipped: [...]}`.
+  duration_s, warnings, errors, last_error, timed_out, log}], skipped_current: [...],
+  server_running}`. Requires an explicit selection (`-n`, `--all`, `--stale`); human-readable
+  output goes to stderr. *(Amended during review: the key shipped as `skipped_current`;
+  `server_running` and the stdout/selection rules were added.)*
 
 ### `db list`
 

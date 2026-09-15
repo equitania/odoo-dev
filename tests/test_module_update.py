@@ -15,6 +15,7 @@ from odoodev.core.module_update import (
     collect_repo_heads,
     format_duration,
     load_update_state,
+    move_database_state,
     record_update,
     run_module_update,
     save_update_state,
@@ -139,6 +140,64 @@ class TestCollectRepoHeads:
 
         assert collect_repo_heads(config, str(tmp_path), Cfg()) == {"v19-addons": "?"}
 
+    def test_uncommitted_changes_make_the_head_differ(self, tmp_path):
+        repo = tmp_path / "v19-addons"
+        sha = _git_repo(repo)
+        tracked = repo / "__manifest__.py"
+        tracked.write_text("{'version': '1'}\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "m"], cwd=repo, check=True
+        )
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        config = {"addons": [{"key": "v19-addons", "path": "v19-addons", "use": True}]}
+
+        class Paths:
+            server_subdir = "v19-server"
+
+        class Cfg:
+            paths = Paths()
+
+        assert collect_repo_heads(config, str(tmp_path), Cfg()) == {"v19-addons": sha}
+
+        tracked.write_text("{'version': '2'}\n", encoding="utf-8")
+        first = collect_repo_heads(config, str(tmp_path), Cfg())["v19-addons"]
+        assert first.startswith(f"{sha}+dirty-")
+        assert collect_repo_heads(config, str(tmp_path), Cfg())["v19-addons"] == first  # stable
+
+        tracked.write_text("{'version': '3'}\n", encoding="utf-8")
+        assert collect_repo_heads(config, str(tmp_path), Cfg())["v19-addons"] != first
+
+        tracked.write_text("{'version': '1'}\n", encoding="utf-8")
+        (repo / "new_module").mkdir()
+        (repo / "new_module" / "__init__.py").write_text("", encoding="utf-8")
+        assert collect_repo_heads(config, str(tmp_path), Cfg())["v19-addons"].startswith(f"{sha}+dirty-")
+
+
+class TestMoveDatabaseState:
+    def test_rename_moves_the_entry(self):
+        state: dict = {"databases": {}}
+        record_update(state, "v19_old", {"server": "a"}, when="t")
+        move_database_state(state, "v19_old", "v19_new", keep_src=False)
+        assert list(state["databases"]) == ["v19_new"]
+        assert state["databases"]["v19_new"]["repos"] == {"server": "a"}
+
+    def test_copy_duplicates_the_entry(self):
+        state: dict = {"databases": {}}
+        record_update(state, "v19_a", {"server": "a"}, when="t")
+        move_database_state(state, "v19_a", "v19_b", keep_src=True)
+        assert state["databases"]["v19_a"] == state["databases"]["v19_b"]
+        state["databases"]["v19_b"]["repos"]["server"] = "changed"
+        assert state["databases"]["v19_a"]["repos"]["server"] == "a"  # independent copy
+
+    def test_unknown_source_clears_a_stale_destination_entry(self):
+        state: dict = {"databases": {}}
+        record_update(state, "v19_b", {"server": "old"}, when="t")
+        move_database_state(state, "v19_never", "v19_b", keep_src=False)
+        assert "v19_b" not in state["databases"]
+
 
 # ---------------------------------------------------------------------------
 # Runner
@@ -252,7 +311,72 @@ class TestRunModuleUpdate:
         result = run_module_update("v19_a", "all", inv, str(tmp_path / "run.log"), version="18", timeout=1)
         assert result.ok is False
         assert result.timed_out is True
+        assert result.exit_code == 124
         assert "timed out" in (result.last_error or "")
+
+    def test_abort_kills_the_odoo_process_group(self, tmp_path):
+        """Ctrl+C (or a GUI killing odoodev) must not leave -u all running on the database."""
+        pid_file = tmp_path / "odoo.pid"
+        done_file = tmp_path / "finished"
+        body = f"""
+import os, time
+open({str(pid_file)!r}, "w").write(str(os.getpid()))
+print("2026-09-15 10:00:00,001 1 WARNING v19_a odoo.x: before abort", flush=True)
+time.sleep(5)
+open({str(done_file)!r}, "w").write("ran to completion")
+"""
+        inv = _fake_odoo_bin(tmp_path, body)
+
+        def abort(level, text):
+            raise KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            run_module_update("v19_a", "all", inv, str(tmp_path / "run.log"), version="18", on_issue=abort)
+
+        pid = int(pid_file.read_text())
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+        assert not done_file.exists()
+
+    @pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX signals")
+    def test_sigterm_to_odoodev_kills_the_odoo_process_group(self, tmp_path):
+        """A GUI ending odoodev sends SIGTERM — Python would otherwise exit without any cleanup."""
+        import signal
+
+        pid_file = tmp_path / "odoo.pid"
+        done_file = tmp_path / "finished"
+        body = f"""
+import os, time
+open({str(pid_file)!r}, "w").write(str(os.getpid()))
+print("2026-09-15 10:00:00,001 1 WARNING v19_a odoo.x: before sigterm", flush=True)
+time.sleep(5)
+open({str(done_file)!r}, "w").write("ran to completion")
+"""
+        inv = _fake_odoo_bin(tmp_path, body)
+        before = signal.getsignal(signal.SIGTERM)
+
+        with pytest.raises(KeyboardInterrupt):
+            run_module_update(
+                "v19_a",
+                "all",
+                inv,
+                str(tmp_path / "run.log"),
+                version="18",
+                on_issue=lambda level, text: os.kill(os.getpid(), signal.SIGTERM),
+            )
+
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+        assert not done_file.exists()
+        assert signal.getsignal(signal.SIGTERM) is before  # handler restored
+
+    def test_kill_without_process_groups_falls_back(self, tmp_path, monkeypatch):
+        """Platforms without os.killpg (Windows) still end the process on timeout."""
+        monkeypatch.delattr(os, "killpg", raising=False)
+        inv = _fake_odoo_bin(tmp_path, _SLEEP_BODY)
+        result = run_module_update("v19_a", "all", inv, str(tmp_path / "run.log"), version="18", timeout=1)
+        assert result.timed_out is True
+        assert result.exit_code == 124
 
     def test_missing_binary_is_a_failure_not_a_crash(self, tmp_path):
         inv = {
