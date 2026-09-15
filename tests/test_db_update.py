@@ -462,3 +462,21 @@ class TestAutomationStateCleanup:
         result = handle_db_restore(cfg, {"name": "v19_a", "backup-file": str(backup)})
         assert result.status == "error"  # extraction stubbed to fail — the state is gone regardless
         assert "v19_a" not in load_update_state(mod.update_state_path(cfg))["databases"]
+
+
+class TestExecuteUpdatesCallbacks:
+    def test_on_start_precedes_each_database_with_its_log_path(self, env, tmp_path):
+        cfg, runner = env
+        seen: list[tuple[str, int, int, str]] = []
+        results = mod.execute_updates(
+            "19",
+            {"venv_python": "py"},
+            ["v19_a", "v19_b"],
+            "all",
+            {"server": "abc"},
+            {"databases": {}},
+            str(tmp_path / "state.yaml"),
+            on_start=lambda db, index, total, log: seen.append((db, index, total, log)),
+        )
+        assert [(s[0], s[1], s[2]) for s in seen] == [("v19_a", 1, 2), ("v19_b", 2, 2)]
+        assert [s[3] for s in seen] == [r.log_path for r in results]

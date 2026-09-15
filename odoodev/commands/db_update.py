@@ -106,15 +106,21 @@ def execute_updates(
     stop_on_error: bool = False,
     on_issue: Callable[[str, str, str], None] | None = None,
     on_result: Callable[[UpdateResult], None] | None = None,
+    on_start: Callable[[str, int, int, str], None] | None = None,
 ) -> list[UpdateResult]:
     """Run ``-u <modules>`` on every target in order; record clean ``all`` runs.
 
-    ``on_issue(db, level, text)`` receives the forwarded warnings/errors,
-    ``on_result`` every finished database. The state file is saved after each
-    clean run so an aborted batch keeps what it achieved.
+    ``on_start(db, index, total, log_path)`` fires before each database (index
+    1-based), ``on_issue(db, level, text)`` receives the forwarded
+    warnings/errors, ``on_result`` every finished database. The state file is
+    saved after each clean run so an aborted batch keeps what it achieved.
     """
     results: list[UpdateResult] = []
-    for db_name in targets:
+    total = len(targets)
+    for index, db_name in enumerate(targets, start=1):
+        log_path = log_path_for(version, db_name)
+        if on_start is not None:
+            on_start(db_name, index, total, log_path)
         per_db_issue: IssueCallback | None = None
         if on_issue is not None:
             per_db_issue = functools.partial(on_issue, db_name)
@@ -122,7 +128,7 @@ def execute_updates(
             db_name,
             modules,
             invocation,
-            log_path_for(version, db_name),
+            log_path,
             version=version,
             on_issue=per_db_issue,
             timeout=timeout,
