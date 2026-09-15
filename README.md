@@ -202,6 +202,19 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.68.0:**
+- **Neu:** `odoodev db update` führt `-u all` (oder `-u eq_base,eq_sale`) nacheinander auf
+  mehreren Datenbanken aus — Auswahl wie bei `db drop` (`-n`, `-m`, `--all`, `--filter`). Eine
+  Fortschrittsanzeige zeigt die laufende Datenbank und die Dauer; je Datenbank erscheinen
+  ausschließlich die WARNING/ERROR-Zeilen von Odoo, das vollständige Log liegt unter
+  `~/odoodev-logs/`. Abschlusstabelle mit Status, Dauer, Warnungen, Fehlern und Log-Pfad;
+  `--stop-on-error`, `--timeout`, `--dry-run`, `--json`.
+- **Neu:** Veraltet-Erkennung — ein sauberer `-u all` merkt sich die Repo-Commits je Datenbank
+  (`devXX_native/.odoodev-update-state.yaml`). `db update --stale` aktualisiert nur Datenbanken,
+  deren Repositories sich seither geändert haben; `db list` markiert sie mit `(stale: …)`.
+- **Neu:** `odoodev pull --update` hängt `db update --stale` direkt an den Pull an; der
+  Playbook-Schritt `db.update` macht dasselbe unbeaufsichtigt.
+
 **Version 0.67.1:**
 - **Behoben:** Die v18-Baseline ließ sich mit eq-chatbot-core 3.3.0 nicht auflösen — dessen
   `docs`-Extra verlangt `openpyxl>=3.1.5`, die Baseline hielt Odoos 3.1.2. v18 pinnt jetzt
@@ -681,6 +694,18 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.68.0:**
+- **Added:** `odoodev db update` runs `-u all` (or `-u eq_base,eq_sale`) sequentially on many
+  databases — selection as in `db drop` (`-n`, `-m`, `--all`, `--filter`). A progress bar shows
+  the current database and elapsed time; per database only Odoo's WARNING/ERROR lines are echoed,
+  the full log lands in `~/odoodev-logs/`. Summary table with status, duration, warnings, errors
+  and log path; `--stop-on-error`, `--timeout`, `--dry-run`, `--json`.
+- **Added:** Stale detection — a clean `-u all` records the repository commits per database
+  (`devXX_native/.odoodev-update-state.yaml`). `db update --stale` updates only databases whose
+  repositories changed since; `db list` marks them with `(stale: …)`.
+- **Added:** `odoodev pull --update` chains `db update --stale` onto the pull; the playbook step
+  `db.update` does the same unattended.
 
 **Version 0.63.0:**
 - **Added:** Requirements are now a shipped baseline plus a local overlay (`requirements.local.txt`,

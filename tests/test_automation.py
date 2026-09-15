@@ -63,6 +63,7 @@ class TestCommandHandlers:
             "db.restore",
             "db.drop",
             "db.purge",
+            "db.update",
             "env.check",
             "venv.check",
             "venv.setup",
