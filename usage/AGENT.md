@@ -26,6 +26,8 @@ you must pass it explicitly.
 - Spin local side-services (PostgreSQL + Mailpit) up/down and tail their logs, on Docker or Apple
   Container (`--runtime`, persisted via `container_runtime`).
 - Benchmark PostgreSQL on Docker vs Apple Container (`odoodev bench`).
+- **Multi-DB module updates (v0.68.0):** `db update` runs `-u all` sequentially across databases, echoes
+  only warnings/errors, records repo heads per DB so `--stale` (and `pull --update`) skip current ones.
 - Full database lifecycle: list, backup (SQL/ZIP/tar.zst+filestore), restore (ZIP/7z/tar/tar.zst/gz/SQL), copy, rename, drop, neutralize, purge, recompute.
 - **Untouched-by-default restore:** the DB is left as-is; opt in per flag (`--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe`/`--purge-master-data`, or `--sanitize` for all of them). Since v0.48.0 `--sanitize` includes `--purge-master-data`, a full template-DB reset that DELETES movement + customer/master data (escape with `--no-purge-master-data`). `--purge-transactions` (movement-only) and `--anonymize-users` remain separate opt-ins (not in `--sanitize`).
 - **Space-aware, low-overhead restore:** pre-checks free disk space, moves the filestore instead of
@@ -58,7 +60,8 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db backup` | Create a database backup (SQL dump, ZIP or tar.zst with filestore). | [VERSION], -n/--name TEXT, -t/--type sql\|zip\|tar.zst, -l/--level INT (1-22, tar.zst only, default 5), -o/--output PATH |
 | `odoodev db copy` | Copy a database (incl. filestore) under a new name. | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
 | `odoodev db drop` | Drop one or more databases (bulk/multi-select). | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --terminate-connections, --yes/-y |
-| `odoodev db list` | List all databases. | [VERSION], --json |
+| `odoodev db list` | List all databases; marks stale ones once a `db update` state file exists. | [VERSION], --json |
+| `odoodev db update` | Run `odoo-bin -u` on one or many databases sequentially (progress bar; only WARNING/ERROR echoed, full log in `~/odoodev-logs/`); a clean `-u all` records repo heads for `--stale`. | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --stale, -u/--modules TEXT (default all), --stop-on-error, --timeout INT, --dry-run, --json, --yes/-y |
 | `odoodev db cleanup` | Filestore <-> database consistency check: reports orphaned filestores (directory without DB) and DBs without filestore; report-only by default. | [VERSION], --delete-orphans, --json, -y/--yes |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db purge` | Delete transactional/movement data for a clean stress-test DB (keeps products, pricelists, partners, users, config). | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
@@ -210,6 +213,19 @@ odoodev pull 18                  # git pull all repos
 odoodev repos 18 --config-only   # regenerate dated odoo_YYMMDD.conf only
 ```
 
+### Bring every database up to date after a repo sync (v0.68.0)
+```bash
+odoodev pull 19 --update                 # pull, regenerate config, then -u all on every stale DB
+odoodev db update 19 --stale -y          # same update step alone (skips DBs already current)
+odoodev db update 19 --all --dry-run     # show the plan with the stale reason per DB, run nothing
+odoodev db update 19 -n v19_a -n v19_b -u eq_base,eq_sale   # specific modules on specific DBs
+odoodev db update 19 --all --json        # per-DB results for GUIs/agents (implies -y)
+# Sequential on purpose; a DB is marked current only after exit 0 with no ERROR logged.
+# Playbook: - name: update
+#             command: db.update
+#             args: { stale: true, all: true, modules: all, stop_on_error: false }
+```
+
 ### Unattended automation (playbooks, for agents)
 ```bash
 odoodev run -s docker.up -s pull -V 18 -o json       # inline steps, no file — easiest for agents
@@ -345,7 +361,11 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
 ## Machine-readable outputs
 - `odoodev capability-card` → this card as raw Markdown (self-description; version always live).
 - `odoodev run --steps` → list of valid playbook step commands.
-- `odoodev db list --json` → array of databases.
+- `odoodev db list --json` → array of databases; plus `stale: {db: reason}` once a `db update` state
+  file exists.
+- `odoodev db update --json` → `{version, modules, results: [{database, ok, exit_code, duration_s,
+  warnings, errors, last_error, timed_out, log}], skipped_current: [...]}` (with `--dry-run`: `planned`
+  instead of results). Exit 1 if any database failed.
 - `odoodev config versions --json` → full version registry (ports, paths, git). Since 0.58.0 each
   version also carries `effective_ports` (registry defaults overridden by the version's `.env`
   `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/`MAILPIT_PORT`) — on multi-user hosts every user has an own

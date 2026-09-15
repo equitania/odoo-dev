@@ -681,6 +681,70 @@ def handle_db_drop(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResu
 
 
 @_timed
+def handle_db_update(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
+    """Run odoo-bin -u on databases (no prompts, no progress bar — automation mode).
+
+    Args: ``name`` (string, comma-separated string or list), ``all: true`` for
+    every database, ``stale: true`` to keep only databases whose repos changed
+    since their last clean ``-u all``, ``modules`` (default ``all``),
+    ``stop_on_error`` (default false), ``timeout`` seconds per database.
+    """
+    from odoodev.commands import db as db_cmd
+    from odoodev.commands.db_update import execute_updates, plan_stale, resolve_invocation
+    from odoodev.core.module_update import DEFAULT_TIMEOUT
+
+    raw_names = args.get("name") or args.get("names") or []
+    if isinstance(raw_names, str):
+        raw_names = [n.strip() for n in raw_names.split(",") if n.strip()]
+    select_all = bool(args.get("all", False))
+    stale = bool(args.get("stale", False))
+    modules = str(args.get("modules") or "all")
+    stop_on_error = bool(args.get("stop_on_error", args.get("stop-on-error", False)))
+    timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
+    if not raw_names and not select_all and not stale:
+        return _step_error("db.update", "db.update", "Need 'name', 'all: true' or 'stale: true'", 0)
+
+    env_vars = db_cmd._load_env_vars(version_cfg)
+    params = db_cmd._get_db_params(version_cfg, env_vars)
+    invocation = resolve_invocation(version_cfg, env_vars)
+    if invocation is None:
+        return _step_error("db.update", "db.update", "Dev environment not ready (venv, odoo-bin or odoo_*.conf)", 0)
+
+    if raw_names:
+        targets = [n for n in raw_names if db_cmd.database_exists(n, **params)]
+        missing = sorted(set(raw_names) - set(targets))
+        if missing:
+            logger.warning("db.update: skipping missing database(s): %s", ", ".join(missing))
+    else:
+        targets = db_cmd._candidate_databases(params, args.get("filter"))
+
+    reasons, state, state_path, heads = plan_stale(version_cfg, targets)
+    skipped: list[str] = []
+    if stale:
+        skipped = [db for db in targets if reasons[db] is None]
+        targets = [db for db in targets if reasons[db] is not None]
+    if not targets:
+        return _step_ok("db.update", "db.update", "Nothing to update", 0, skipped_current=skipped)
+
+    results = execute_updates(
+        version_cfg.version, invocation, targets, modules, heads, state, state_path, timeout, stop_on_error
+    )
+    details = {"results": [r.to_dict() for r in results], "skipped_current": skipped}
+    failed = [r.db_name for r in results if not r.ok]
+    if failed:
+        return StepResult(
+            name="db.update",
+            command="db.update",
+            status="error",
+            message=f"{len(failed)}/{len(results)} database(s) failed: {', '.join(failed)}",
+            exit_code=1,
+            duration_ms=0,
+            details=details,
+        )
+    return _step_ok("db.update", "db.update", f"{len(results)} database(s) updated with -u {modules}", 0, **details)
+
+
+@_timed
 def handle_db_purge(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Purge transactional data (no confirmation — automation mode)."""
     from odoodev.core.database import purge_transactional_data
@@ -808,6 +872,7 @@ COMMAND_HANDLERS: dict[str, Callable[[VersionConfig, dict[str, Any]], StepResult
     "db.restore": handle_db_restore,
     "db.drop": handle_db_drop,
     "db.purge": handle_db_purge,
+    "db.update": handle_db_update,
     "env.check": handle_env_check,
     "venv.check": handle_venv_check,
     "venv.setup": handle_venv_setup,

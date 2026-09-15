@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Skip the interactive enterprise inclusion prompt",
 )
+@click.option(
+    "--update",
+    "update_dbs",
+    is_flag=True,
+    help="Afterwards run `db update --stale` on every database whose repos changed",
+)
 @click.pass_context
 def pull(
     ctx: click.Context,
@@ -44,6 +50,7 @@ def pull(
     no_config: bool,
     select_addons: bool,
     no_enterprise_prompt: bool,
+    update_dbs: bool,
 ) -> None:
     """Pull (update) all existing repositories.
 
@@ -52,6 +59,8 @@ def pull(
 
     After pulling, the Odoo config file is regenerated automatically
     to reflect any new modules. Use --no-config to skip this step.
+    With --update, every database whose repositories changed since its
+    last clean `-u all` is updated afterwards (`db update --stale`).
     """
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -176,7 +185,17 @@ def pull(
             repo_metadata = _prompt_enterprise_inclusion(repo_metadata)
         _generate_config(config, version_cfg, all_paths, repo_metadata)
 
+    if update_dbs:
+        from odoodev.commands.db_update import update_databases
+
+        console.print()
+        rc = update_databases(version, stale=True, yes=True)
+        if rc:
+            raise SystemExit(rc)
+        return
+
     # Code changed → remind the user to restart Odoo and update their modules.
     if updated:
         console.print()
+        print_info(f"Databases still need -u all: odoodev db update {version} --stale")
         print_start_hint(version)

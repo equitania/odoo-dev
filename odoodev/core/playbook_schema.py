@@ -43,7 +43,7 @@ SANITIZE_FLAGS_DEFAULT = ("deactivate_cron", "neutralize")
 DEV_STEP_GROUPS: dict[str, tuple[str, ...]] = {
     "Docker": ("docker.up", "docker.down", "docker.status"),
     "Code & Repos": ("pull", "repos"),
-    "Database": ("db.list", "db.backup", "db.restore", "db.drop", "db.purge"),
+    "Database": ("db.list", "db.backup", "db.restore", "db.drop", "db.purge", "db.update"),
     "Environment": ("env.check", "venv.check", "venv.setup"),
     "Server": ("start", "stop"),
 }
@@ -63,6 +63,7 @@ DEV_STEP_ORDER = (
     "db.restore",
     "db.drop",
     "db.purge",
+    "db.update",
     "start",
     "stop",
     "docker.down",
@@ -630,6 +631,17 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
         ),
         StepSpec("db.drop", "dev", (_a("name", "text", required=True),)),
         StepSpec("db.purge", "dev", (_a("name", "text", required=True),)),
+        StepSpec(
+            "db.update",
+            "dev",
+            (
+                _a("name", "text"),
+                _a("all", "confirm", default=False),
+                _a("stale", "confirm", default=False),
+                _a("modules", "text", default="all"),
+                _a("stop_on_error", "confirm", default=False),
+            ),
+        ),
         StepSpec("env.check", "dev"),
         StepSpec("venv.check", "dev"),
         StepSpec("venv.setup", "dev"),

@@ -94,6 +94,7 @@ from odoodev.commands.bench import bench  # noqa: E402
 from odoodev.commands.capability_card import capability_card  # noqa: E402
 from odoodev.commands.config import config  # noqa: E402
 from odoodev.commands.db import db  # noqa: E402
+from odoodev.commands.db_update import db_update  # noqa: E402
 from odoodev.commands.docker import docker  # noqa: E402
 from odoodev.commands.doctor import doctor  # noqa: E402
 from odoodev.commands.env import env  # noqa: E402
@@ -117,6 +118,7 @@ cli.add_command(stop)
 cli.add_command(pull)
 cli.add_command(repos)
 cli.add_command(requirements)
+db.add_command(db_update)
 cli.add_command(db)
 cli.add_command(env)
 cli.add_command(export)

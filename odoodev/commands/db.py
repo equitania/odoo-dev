@@ -221,6 +221,9 @@ def db_list(ctx: click.Context, version: str | None, as_json: bool) -> None:
 
         databases = list_databases(host=params["host"], port=params["port"], user=params["user"])
         payload = {"version": version, "host": params["host"], "port": params["port"], "databases": databases}
+        stale = _stale_markers(version_cfg, databases)
+        if stale is not None:
+            payload["stale"] = stale
         sys.stdout.write(json.dumps(payload) + "\n")
         return
 
@@ -228,11 +231,23 @@ def db_list(ctx: click.Context, version: str | None, as_json: bool) -> None:
 
     databases = list_databases(host=params["host"], port=params["port"], user=params["user"])
     if databases:
+        stale = _stale_markers(version_cfg, databases) or {}
         print_info(f"Databases on {params['host']}:{params['port']}:")
         for db_name in databases:
-            console.print(f"  {db_name}")
+            marker = f"  [yellow](stale: {stale[db_name]})[/yellow]" if db_name in stale else ""
+            console.print(f"  {db_name}{marker}")
+        if stale:
+            console.print()
+            print_info(f"{len(stale)} database(s) need an update — odoodev db update {version} --stale")
     else:
         print_warning("No databases found (or PostgreSQL not accessible)")
+
+
+def _stale_markers(version_cfg, databases: list[str]) -> dict[str, str] | None:
+    """Stale reason per database (only once a `db update` state file exists)."""
+    from odoodev.commands.db_update import stale_markers
+
+    return stale_markers(version_cfg, databases)
 
 
 def _filestore_root(version: str) -> str:
@@ -377,23 +392,25 @@ def _candidate_databases(params: dict, name_filter: str | None) -> list[str]:
     return databases
 
 
-def _resolve_drop_targets(
+def _resolve_multi_targets(
     params: dict,
     names: tuple[str, ...],
     multi: bool,
-    drop_all: bool,
+    select_all: bool,
     name_filter: str | None,
+    verb: str = "drop",
 ) -> list[str]:
-    """Resolve the list of databases to drop from the selection options.
+    """Resolve the databases a bulk command acts on from its selection options.
 
-    Precedence: explicit ``-n`` names > ``--all`` > ``-m`` checkbox > single
-    interactive select (current default). Raises SystemExit on invalid input.
+    Shared by ``db drop`` and ``db update``. Precedence: explicit ``-n`` names >
+    ``--all`` > ``-m`` checkbox > single interactive select (default). Raises
+    SystemExit on invalid input.
     """
     if names:
         targets: list[str] = []
         for n in names:
             if n in _SYSTEM_DBS:
-                print_error(f"Refusing to drop system database '{n}'")
+                print_error(f"Refusing to {verb} system database '{n}'")
                 raise SystemExit(1)
             if not database_exists(n, **params):
                 print_warning(f"Database '{n}' does not exist — skipping")
@@ -409,12 +426,38 @@ def _resolve_drop_targets(
             print_error("No databases found (or PostgreSQL not accessible)")
         raise SystemExit(1)
 
-    if drop_all:
+    if select_all:
         return candidates
     if multi:
         print_info(f"{len(candidates)} database(s) available (Space: toggle, Enter: confirm):")
-        return list(checkbox("Select databases to drop:", choices=candidates))
+        return list(checkbox(f"Select databases to {verb}:", choices=candidates))
     return [select("Select database:", choices=candidates)]
+
+
+def _resolve_drop_targets(
+    params: dict,
+    names: tuple[str, ...],
+    multi: bool,
+    drop_all: bool,
+    name_filter: str | None,
+) -> list[str]:
+    """Resolve the list of databases to drop (see ``_resolve_multi_targets``)."""
+    return _resolve_multi_targets(params, names, multi, drop_all, name_filter, verb="drop")
+
+
+def _forget_update_state(version_cfg, dropped: list[str]) -> None:
+    """Remove dropped databases from the `db update` state file (if any)."""
+    from odoodev.core.module_update import forget_database, load_update_state, save_update_state, update_state_path
+
+    if not dropped:
+        return
+    state_path = update_state_path(version_cfg)
+    if not os.path.exists(state_path):
+        return
+    state = load_update_state(state_path)
+    for name in dropped:
+        forget_database(state, name)
+    save_update_state(state_path, state)
 
 
 def _drop_one_with_filestore(name: str, version: str, params: dict, terminate: bool) -> bool:
@@ -514,6 +557,7 @@ def db_drop(
             dropped.append(n)
         else:
             failed.append(n)
+    _forget_update_state(version_cfg, dropped)
 
     console.print()
     if dropped:

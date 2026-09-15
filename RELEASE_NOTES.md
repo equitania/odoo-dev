@@ -1,5 +1,34 @@
 # Release Notes
 
+## Version 0.68.0 (15.09.2026)
+
+### Added
+- **`odoodev db update` — `-u all` across many databases in one go.** After a repository sync
+  every development database needs a module update before it runs cleanly again; until now that
+  was one `start -d DB -u all` per database. The new command runs
+  `odoo-bin -c <conf> -d <db> -u <modules> --stop-after-init` sequentially for a selection of
+  databases (same selection as `db drop`: `-n` repeatable, `-m` checkbox, `--all`, `--filter`),
+  shows one progress bar with the current database and elapsed time, and per database echoes
+  **only** the WARNING/ERROR/CRITICAL lines Odoo logged (plus the traceback after an error) — the
+  complete output goes to `~/odoodev-logs/update_v<version>_<db>_<timestamp>.log`. A summary
+  table (status, duration, warnings, errors, log path) closes the run; exit 1 if any database
+  failed, `--stop-on-error` aborts after the first failure, `--timeout` caps each database
+  (default 3600 s), `-u eq_base,eq_sale` updates specific modules, `--dry-run` only lists the
+  plan, `--json` returns the per-database results for GUIs and agents.
+- **Stale detection.** A clean `-u all` (exit 0 and nothing logged at ERROR) records the HEAD
+  commit of every repository in `repos.yaml` per database in
+  `devXX_native/.odoodev-update-state.yaml`. `db update --stale` then updates only databases
+  whose repositories changed since (or that were never updated this way), `db list` marks them
+  with `(stale: 2 repos changed: v19-addons, v19e)` and `db list --json` carries a `stale`
+  map. `db drop` removes the entry of a dropped database. A partial `-u eq_base` or a run with
+  logged errors does not mark a database current.
+- **`odoodev pull --update`** chains the stale update onto the pull: repositories first, config
+  regeneration, then `db update --stale` without prompts. Without the flag `pull` prints the
+  `db update --stale` hint after a successful pull.
+- **Playbook step `db.update`** (`name` string/list, `all: true`, `stale: true`, `modules`,
+  `stop_on_error`, `timeout`) — non-interactive, no progress output, per-database results in the
+  step details.
+
 ## Version 0.67.1 (10.09.2026)
 
 ### Fixed
