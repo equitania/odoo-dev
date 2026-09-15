@@ -61,7 +61,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev db copy` | Copy a database (incl. filestore) under a new name. | [VERSION], -s/--src TEXT, -d/--dst TEXT, --yes/-y, --terminate-connections |
 | `odoodev db drop` | Drop one or more databases (bulk/multi-select). | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --terminate-connections, --yes/-y |
 | `odoodev db list` | List all databases; marks stale ones once a `db update` state file exists. | [VERSION], --json |
-| `odoodev db update` | Run `odoo-bin -u` on one or many databases sequentially (progress bar; only WARNING/ERROR echoed, full log in `~/odoodev-logs/`); a clean `-u all` records repo heads for `--stale`. | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --stale, -u/--modules TEXT (default all), --stop-on-error, --timeout INT, --dry-run, --json, --yes/-y |
+| `odoodev db update` | Run `odoo-bin -u` on one or many databases sequentially (progress bar; only WARNING/ERROR echoed, full log in `~/odoodev-logs/`); a clean `-u all` records repo heads for `--stale`. | [VERSION], -n/--name TEXT (repeatable), -m/--multi, --all, --filter TEXT, --stale, -u/--modules TEXT (default all), --stop-on-error, --timeout INT, --dry-run, --json, --yes/-y, --output text|ndjson |
 | `odoodev db cleanup` | Filestore <-> database consistency check: reports orphaned filestores (directory without DB) and DBs without filestore; report-only by default. | [VERSION], --delete-orphans, --json, -y/--yes |
 | `odoodev db neutralize` | Neutralize a database via Odoo's native 'odoo-bin neutralize'. | [VERSION], -n/--name TEXT, --stdout |
 | `odoodev db purge` | Delete transactional/movement data for a clean stress-test DB (keeps products, pricelists, partners, users, config). | [VERSION], -n/--name TEXT, --dry-run, -y/--yes |
@@ -372,6 +372,14 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   Printed once at the end — no per-database progress. Exit 1 if any database failed, 130 if
   interrupted (the running `odoo-bin` is killed with its process group). A timed-out database
   reports `exit_code: 124`.
+- `odoodev db update --output ndjson` → one JSON event per line, flushed live (v0.69.0): `plan
+  {version, modules, targets: [{database, reason}], skipped_current, server_running}`, per database
+  `start {database, index, total, log}`, `issue {database, level: WARNING|ERROR|CRITICAL|RAW, text}`,
+  `result {<same keys as --json results>}`, then `summary {results, skipped_current, exit_code}`.
+  `--dry-run` → `plan` only; nothing to do → `plan` + empty `summary`. Failures before `plan` →
+  exactly one `error {message}` (exit 1); SIGTERM/Ctrl+C → `interrupted {database}` (exit 130).
+  Same selection rules as `--json`; stdout carries only events. Stop a run with SIGTERM, never
+  SIGKILL — only then is Odoo's process group killed.
 - `odoodev config versions --json` → full version registry (ports, paths, git). Since 0.58.0 each
   version also carries `effective_ports` (registry defaults overridden by the version's `.env`
   `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/`MAILPIT_PORT`) — on multi-user hosts every user has an own

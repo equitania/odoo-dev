@@ -202,6 +202,11 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.69.0:**
+- **Neu:** `odoodev db update --output ndjson` liefert den Fortschritt als Ereignisstrom (eine
+  JSON-Zeile je Ereignis: Plan, Start, Warnung/Fehler, Ergebnis, Zusammenfassung, Abbruch) — die
+  Grundlage für die Update-Ansicht der Desktop-GUI.
+
 **Version 0.68.1:**
 - **Geändert:** Ein Kommentar in der v19-Baseline nennt kein Kunden-Repository mehr beim Namen.
   Keine Paketversion ändert sich; v19-Umgebungen fragen beim nächsten `start` einmal
@@ -704,6 +709,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.69.0:**
+- **Added:** `odoodev db update --output ndjson` streams progress as events (one JSON line per
+  event: plan, start, warning/error, result, summary, interruption) — the basis for the desktop
+  GUI's update view.
 
 **Version 0.68.1:**
 - **Changed:** a comment in the v19 baseline no longer names a customer repository. No package
