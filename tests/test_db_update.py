@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -462,3 +467,279 @@ class TestAutomationStateCleanup:
         result = handle_db_restore(cfg, {"name": "v19_a", "backup-file": str(backup)})
         assert result.status == "error"  # extraction stubbed to fail — the state is gone regardless
         assert "v19_a" not in load_update_state(mod.update_state_path(cfg))["databases"]
+
+
+class TestExecuteUpdatesCallbacks:
+    def test_on_start_precedes_each_database_with_its_log_path(self, env, tmp_path):
+        cfg, runner = env
+        seen: list[tuple[str, int, int, str]] = []
+        results = mod.execute_updates(
+            "19",
+            {"venv_python": "py"},
+            ["v19_a", "v19_b"],
+            "all",
+            {"server": "abc"},
+            {"databases": {}},
+            str(tmp_path / "state.yaml"),
+            on_start=lambda db, index, total, log: seen.append((db, index, total, log)),
+        )
+        assert [(s[0], s[1], s[2]) for s in seen] == [("v19_a", 1, 2), ("v19_b", 2, 2)]
+        assert [s[3] for s in seen] == [r.log_path for r in results]
+
+
+def _events(result) -> list[dict]:
+    """Every stdout line must be a JSON object — json.loads raises otherwise."""
+    return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+class _SignalReachedFallback(Exception):
+    """Raised by the test's fallback SIGTERM handler."""
+
+
+@contextlib.contextmanager
+def _sigterm_fallback():
+    """Install a raising SIGTERM handler for the test and restore the previous one.
+
+    Without it, a regression (no handler installed by the code under test) would let
+    Python's default action end the whole pytest process instead of failing one test.
+    """
+
+    def _fallback(signum, frame):
+        raise _SignalReachedFallback(f"signal {signum} reached the test's fallback handler")
+
+    previous = signal.signal(signal.SIGTERM, _fallback)
+    try:
+        yield _fallback
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+class TestNdjson:
+    def test_help_lists_output_option(self):
+        result = CliRunner().invoke(cli, ["db", "update", "--help"])
+        assert "--output" in result.output and "ndjson" in result.output
+
+    def test_event_order_for_a_mixed_run(self, env):
+        cfg, runner = env
+        runner.outcomes["v19_a"] = {"warnings": 1, "issues": [("WARNING", "odoo.addons.base: dubious")]}
+        runner.outcomes["v19_b"] = {"exit_code": 2, "errors": 1, "last_error": "odoo.registry: dead"}
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1, result.output
+        events = _events(result)
+        assert [e["event"] for e in events] == [
+            "plan", "start", "issue", "result", "start", "result", "start", "result", "summary",
+        ]  # fmt: skip
+        assert events[0] == {
+            "event": "plan",
+            "version": "19",
+            "modules": "all",
+            "targets": [
+                {"database": "v19_a", "reason": "never updated"},
+                {"database": "v19_b", "reason": "never updated"},
+                {"database": "v19_c", "reason": "never updated"},
+            ],
+            "skipped_current": [],
+            "server_running": False,
+        }
+        starts = [(e["database"], e["index"], e["total"]) for e in events if e["event"] == "start"]
+        assert starts == [("v19_a", 1, 3), ("v19_b", 2, 3), ("v19_c", 3, 3)]
+        assert events[2] == {
+            "event": "issue", "database": "v19_a", "level": "WARNING", "text": "odoo.addons.base: dubious",
+        }  # fmt: skip
+        failed = events[5]
+        assert set(failed) == {
+            "event", "database", "ok", "exit_code", "duration_s",
+            "warnings", "errors", "last_error", "timed_out", "log",
+        }  # fmt: skip
+        assert failed["database"] == "v19_b" and failed["ok"] is False and failed["exit_code"] == 2
+        assert failed["last_error"] == "odoo.registry: dead"
+        summary = events[-1]
+        assert summary["exit_code"] == 1 and len(summary["results"]) == 3 and summary["skipped_current"] == []
+
+    def test_dry_run_emits_the_plan_only(self, env):
+        cfg, runner = env
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--dry-run", "--output", "ndjson"])
+        assert result.exit_code == 0, result.output
+        assert [e["event"] for e in _events(result)] == ["plan"]
+        assert runner.calls == []
+
+    def test_nothing_to_do_emits_plan_and_empty_summary(self, env):
+        cfg, runner = env
+        CliRunner().invoke(cli, ["db", "update", "19", "--all", "-y"])
+        runner.calls.clear()
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--stale", "--output", "ndjson"])
+        assert result.exit_code == 0, result.output
+        events = _events(result)
+        assert [e["event"] for e in events] == ["plan", "summary"]
+        assert events[0]["targets"] == [] and events[0]["skipped_current"] == ["v19_a", "v19_b", "v19_c"]
+        assert events[1] == {
+            "event": "summary", "results": [], "skipped_current": ["v19_a", "v19_b", "v19_c"], "exit_code": 0,
+        }  # fmt: skip
+        assert runner.calls == []
+
+    def test_stdout_carries_only_events(self, env):
+        cfg, runner = env
+        result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "-n", "nope", "--output", "ndjson"])
+        assert result.exit_code == 0, result.output
+        assert [e["event"] for e in _events(result)] == ["plan", "start", "result", "summary"]
+        assert "does not exist" in result.stderr
+
+
+class TestNdjsonFailures:
+    def test_env_not_ready_is_an_error_event(self, env, monkeypatch):
+        monkeypatch.setattr(mod, "resolve_invocation", lambda c, e: None)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1
+        assert _events(result) == [
+            {
+                "event": "error",
+                "message": "Development environment not ready — need .venv, odoo-bin and a generated odoo_*.conf",
+            }
+        ]
+
+    def test_systemexit_in_a_helper_becomes_an_error_event(self, env, monkeypatch):
+        from odoodev.output import print_error
+
+        def unreachable(version, params):
+            print_error("PostgreSQL on 127.0.0.1:19432 is not reachable")
+            raise SystemExit(1)
+
+        monkeypatch.setattr("odoodev.commands.db._ensure_pg_reachable", unreachable)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1
+        assert _events(result) == [{"event": "error", "message": "PostgreSQL on 127.0.0.1:19432 is not reachable"}]
+
+    def test_interrupt_emits_interrupted_and_exits_130(self, env, monkeypatch):
+        cfg, runner = env
+
+        def flaky(db_name, *args, **kwargs):
+            if db_name == "v19_b":
+                raise KeyboardInterrupt
+            return runner(db_name, *args, **kwargs)
+
+        monkeypatch.setattr(mod, "run_module_update", flaky)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 130
+        events = _events(result)
+        assert [e["event"] for e in events] == ["plan", "start", "result", "start", "interrupted"]
+        assert events[-1] == {"event": "interrupted", "database": "v19_b"}
+
+    @pytest.mark.parametrize("args", [["19", "--output", "ndjson"], ["19", "-m", "--output", "ndjson"]])
+    def test_explicit_selection_required(self, env, args):
+        result = CliRunner().invoke(cli, ["db", "update", *args])
+        assert result.exit_code == 1
+        events = _events(result)
+        assert [e["event"] for e in events] == ["error"]
+        assert "explicit selection" in events[0]["message"]
+
+    def test_json_and_ndjson_cannot_be_combined(self, env):
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--json", "--output", "ndjson"])
+        assert result.exit_code == 1
+        assert _events(result) == [{"event": "error", "message": "--json and --output ndjson cannot be combined"}]
+
+    @pytest.mark.real_pg_precheck
+    def test_pg_unreachable_reports_the_error_line_not_the_last_hint(self, env, monkeypatch):
+        """The real preflight prints hint lines after its [ERROR] line — the event names the error."""
+        monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda host, port: False)
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.diagnose_runtime",
+            lambda version=None, runtime=None: SimpleNamespace(
+                problem="The container runtime is not running",
+                hints=["Start the database service: odoodev docker up 19"],
+            ),
+        )
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1
+        events = _events(result)
+        assert [e["event"] for e in events] == ["error"]
+        message = events[0]["message"]
+        assert not message.startswith("[")
+        assert message.startswith("PostgreSQL not accessible on ")
+        assert "Start the database service" in result.stderr  # the hints still reach the console
+
+    @pytest.mark.parametrize(
+        ("code", "exit_code", "events"),
+        [(None, 0, []), ("boom", 1, [{"event": "error", "message": "preflight failed"}])],
+    )
+    def test_systemexit_code_mapping(self, env, monkeypatch, code, exit_code, events):
+        def leave(version, params):
+            raise SystemExit(code)
+
+        monkeypatch.setattr("odoodev.commands.db._ensure_pg_reachable", leave)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == exit_code, result.output
+        assert _events(result) == events
+
+    def test_unexpected_exception_ends_with_an_error_event(self, env, monkeypatch):
+        def read_only(path, state):
+            raise OSError("read-only")
+
+        monkeypatch.setattr(mod, "save_update_state", read_only)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "--output", "ndjson"])
+        assert result.exit_code != 0
+        assert isinstance(result.exception, OSError)
+        events = _events(result)
+        assert [e["event"] for e in events] == ["plan", "start", "error"]
+        assert events[-1] == {"event": "error", "message": "unexpected failure: OSError: read-only"}
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX signals")
+class TestNdjsonSignals:
+    def test_sigterm_during_preflight_emits_interrupted(self, env, monkeypatch):
+        real_plan_stale = mod.plan_stale
+
+        def plan_then_sigterm(version_cfg, databases):
+            os.kill(os.getpid(), signal.SIGTERM)
+            return real_plan_stale(version_cfg, databases)
+
+        monkeypatch.setattr(mod, "plan_stale", plan_then_sigterm)
+        with _sigterm_fallback() as fallback:
+            result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+            assert signal.getsignal(signal.SIGTERM) is fallback  # handler restored
+        assert result.exit_code == 130, (result.output, result.exception)
+        assert _events(result) == [{"event": "interrupted", "database": None}]
+
+    def test_sigterm_during_a_real_odoo_bin_run(self, env, monkeypatch, tmp_path):
+        from odoodev.core import module_update
+
+        pid_file = tmp_path / "odoo.pid"
+        script = tmp_path / "odoo-bin"
+        script.write_text(
+            "import os, time\n"
+            f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+            "print('2026-09-15 10:00:00,001 1 WARNING v19_a odoo.x: before sigterm', flush=True)\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        invocation = {
+            "venv_python": sys.executable,
+            "odoo_bin": str(script),
+            "config_path": str(tmp_path / "odoo.conf"),
+            "env": dict(os.environ),
+            "cwd": str(tmp_path),
+        }
+        monkeypatch.setattr(mod, "resolve_invocation", lambda c, e: invocation)
+        monkeypatch.setattr(mod, "run_module_update", module_update.run_module_update)
+        monkeypatch.setattr(mod, "LOG_DIR", tmp_path / "logs")
+        real_emit = mod._EventSink.emit
+
+        def emit_then_sigterm(self, event, **fields):
+            real_emit(self, event, **fields)
+            if event == "issue":
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        monkeypatch.setattr(mod._EventSink, "emit", emit_then_sigterm)
+        try:
+            with _sigterm_fallback() as fallback:
+                result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "--output", "ndjson"])
+                assert signal.getsignal(signal.SIGTERM) is fallback  # handlers restored
+            assert result.exit_code == 130, (result.output, result.exception)
+            events = _events(result)
+            assert [e["event"] for e in events] == ["plan", "start", "issue", "interrupted"]
+            assert events[-1] == {"event": "interrupted", "database": "v19_a"}
+            with pytest.raises(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), 0)
+        finally:
+            if pid_file.exists():
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(int(pid_file.read_text()), signal.SIGKILL)

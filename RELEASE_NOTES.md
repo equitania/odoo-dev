@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.69.0 (15.09.2026)
+
+### Added
+- **`db update --output ndjson`** — live event stream for GUIs: one JSON object per line on stdout
+  (`plan`, `start`, `issue`, `result`, `summary`, plus `error` for a failed preflight and
+  `interrupted` on SIGTERM/Ctrl+C), each flushed immediately; all human-readable output goes to
+  stderr. The events come from the same callbacks as the progress bar, so the stream and the text
+  output cannot diverge. Requires an explicit selection like `--json`; `--json` and `--output
+  ndjson` cannot be combined. SIGTERM/SIGHUP at any point of an NDJSON run ends it with an
+  `interrupted` event, and a second SIGTERM during cleanup no longer skips the forced kill of
+  odoo-bin.
+
 ## Version 0.68.1 (15.09.2026)
 
 ### Changed
