@@ -279,6 +279,9 @@ def run_module_update(
     timed_out = False
     forward_raw = False
 
+    # Installed before odoo-bin starts: a SIGTERM between Popen and the handler
+    # would otherwise end odoodev and orphan Odoo in its own session.
+    restore_signals = _signals_as_interrupt()
     try:
         with open(log_path, "w", encoding="utf-8") as log:
             log.write("# " + " ".join(cmd) + "\n")
@@ -299,7 +302,6 @@ def run_module_update(
                 return UpdateResult(db_name, False, 127, time.monotonic() - started, log_path, last_error=str(exc))
 
             deadline = started + timeout
-            restore_signals = _signals_as_interrupt()
             try:
                 for line in _iter_lines(proc, deadline):
                     if line is None:
@@ -325,13 +327,16 @@ def run_module_update(
                         forward_raw = False
                 proc.wait()
             except BaseException:
+                # A second SIGTERM (Stop, then closing the GUI) must not raise out of
+                # the grace-period wait and skip the SIGKILL; `finally` restores.
+                _ignore_termination_signals()
                 _kill_group(proc)
                 log.write("# interrupted — odoo-bin process group terminated\n")
                 raise
-            finally:
-                restore_signals()
     except OSError as exc:
         return UpdateResult(db_name, False, 1, time.monotonic() - started, log_path, last_error=str(exc))
+    finally:
+        restore_signals()
 
     duration = time.monotonic() - started
     exit_code = proc.returncode if proc.returncode is not None else 1
@@ -416,6 +421,23 @@ def _signals_as_interrupt() -> Callable[[], None]:
             signal.signal(signum, handler)
 
     return _restore
+
+
+def _ignore_termination_signals() -> None:
+    """Ignore SIGTERM/SIGHUP while an interrupted update cleans up (main thread only).
+
+    The caller restores the handlers ``_signals_as_interrupt`` saved.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+    for name in ("SIGTERM", "SIGHUP"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            signal.signal(signum, signal.SIG_IGN)
+        except (OSError, ValueError):
+            continue
 
 
 def _kill_group(proc: subprocess.Popen) -> None:

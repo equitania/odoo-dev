@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 import subprocess
@@ -369,6 +370,68 @@ open({str(done_file)!r}, "w").write("ran to completion")
             os.kill(int(pid_file.read_text()), 0)
         assert not done_file.exists()
         assert signal.getsignal(signal.SIGTERM) is before  # handler restored
+
+    @pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX signals")
+    def test_second_sigterm_during_cleanup_still_force_kills(self, tmp_path):
+        """Stop, then close the GUI: a second SIGTERM must not skip the SIGKILL fallback."""
+        import signal
+        import threading
+
+        pid_file = tmp_path / "odoo.pid"
+        body = f"""
+import os, signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+open({str(pid_file)!r}, "w").write(str(os.getpid()))
+print("2026-09-15 10:00:00,001 1 WARNING v19_a odoo.x: blocked in SQL", flush=True)
+time.sleep(30)
+"""
+        inv = _fake_odoo_bin(tmp_path, body)
+        log = tmp_path / "run.log"
+        before = signal.getsignal(signal.SIGTERM)
+        timers: list[threading.Timer] = []
+
+        def abort(level, text):
+            timer = threading.Timer(0.5, os.kill, (os.getpid(), signal.SIGTERM))
+            timers.append(timer)
+            timer.start()
+            raise KeyboardInterrupt
+
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                run_module_update("v19_a", "all", inv, str(log), version="18", on_issue=abort)
+            for timer in timers:
+                timer.join()
+            with pytest.raises(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), 0)
+            last_log_line = log.read_text(encoding="utf-8").rstrip().splitlines()[-1]
+            assert last_log_line == "# interrupted — odoo-bin process group terminated"
+            assert signal.getsignal(signal.SIGTERM) is before  # handler restored
+        finally:
+            for timer in timers:
+                timer.cancel()
+            if pid_file.exists():
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(int(pid_file.read_text()), signal.SIGKILL)
+
+    def test_signal_handlers_installed_before_odoo_bin_starts(self, tmp_path, monkeypatch):
+        """No window between process start and handler installation; a failed start restores them."""
+        import signal
+
+        from odoodev.core import module_update
+
+        before = signal.getsignal(signal.SIGTERM)
+        seen: list[object] = []
+
+        def popen(*args, **kwargs):
+            seen.append(signal.getsignal(signal.SIGTERM))
+            raise OSError("no such interpreter")
+
+        monkeypatch.setattr(module_update.subprocess, "Popen", popen)
+        inv = {"venv_python": "/nonexistent/python", "odoo_bin": "ob", "config_path": "c"}
+        result = run_module_update("v19_a", "all", inv, str(tmp_path / "run.log"), version="18")
+        assert result.exit_code == 127
+        assert seen and seen[0] is not before
+        assert signal.getsignal(signal.SIGTERM) is before
 
     def test_kill_without_process_groups_falls_back(self, tmp_path, monkeypatch):
         """Platforms without os.killpg (Windows) still end the process on timeout."""

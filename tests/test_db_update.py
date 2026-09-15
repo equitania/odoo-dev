@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -487,6 +492,28 @@ def _events(result) -> list[dict]:
     return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
 
 
+class _SignalReachedFallback(Exception):
+    """Raised by the test's fallback SIGTERM handler."""
+
+
+@contextlib.contextmanager
+def _sigterm_fallback():
+    """Install a raising SIGTERM handler for the test and restore the previous one.
+
+    Without it, a regression (no handler installed by the code under test) would let
+    Python's default action end the whole pytest process instead of failing one test.
+    """
+
+    def _fallback(signum, frame):
+        raise _SignalReachedFallback(f"signal {signum} reached the test's fallback handler")
+
+    previous = signal.signal(signal.SIGTERM, _fallback)
+    try:
+        yield _fallback
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
 class TestNdjson:
     def test_help_lists_output_option(self):
         result = CliRunner().invoke(cli, ["db", "update", "--help"])
@@ -609,3 +636,110 @@ class TestNdjsonFailures:
         result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--json", "--output", "ndjson"])
         assert result.exit_code == 1
         assert _events(result) == [{"event": "error", "message": "--json and --output ndjson cannot be combined"}]
+
+    @pytest.mark.real_pg_precheck
+    def test_pg_unreachable_reports_the_error_line_not_the_last_hint(self, env, monkeypatch):
+        """The real preflight prints hint lines after its [ERROR] line — the event names the error."""
+        monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda host, port: False)
+        monkeypatch.setattr(
+            "odoodev.core.container_backend.diagnose_runtime",
+            lambda version=None, runtime=None: SimpleNamespace(
+                problem="The container runtime is not running",
+                hints=["Start the database service: odoodev docker up 19"],
+            ),
+        )
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == 1
+        events = _events(result)
+        assert [e["event"] for e in events] == ["error"]
+        message = events[0]["message"]
+        assert not message.startswith("[")
+        assert message.startswith("PostgreSQL not accessible on ")
+        assert "Start the database service" in result.stderr  # the hints still reach the console
+
+    @pytest.mark.parametrize(
+        ("code", "exit_code", "events"),
+        [(None, 0, []), ("boom", 1, [{"event": "error", "message": "preflight failed"}])],
+    )
+    def test_systemexit_code_mapping(self, env, monkeypatch, code, exit_code, events):
+        def leave(version, params):
+            raise SystemExit(code)
+
+        monkeypatch.setattr("odoodev.commands.db._ensure_pg_reachable", leave)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+        assert result.exit_code == exit_code, result.output
+        assert _events(result) == events
+
+    def test_unexpected_exception_ends_with_an_error_event(self, env, monkeypatch):
+        def read_only(path, state):
+            raise OSError("read-only")
+
+        monkeypatch.setattr(mod, "save_update_state", read_only)
+        result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "--output", "ndjson"])
+        assert result.exit_code != 0
+        assert isinstance(result.exception, OSError)
+        events = _events(result)
+        assert [e["event"] for e in events] == ["plan", "start", "error"]
+        assert events[-1] == {"event": "error", "message": "unexpected failure: OSError: read-only"}
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX signals")
+class TestNdjsonSignals:
+    def test_sigterm_during_preflight_emits_interrupted(self, env, monkeypatch):
+        real_plan_stale = mod.plan_stale
+
+        def plan_then_sigterm(version_cfg, databases):
+            os.kill(os.getpid(), signal.SIGTERM)
+            return real_plan_stale(version_cfg, databases)
+
+        monkeypatch.setattr(mod, "plan_stale", plan_then_sigterm)
+        with _sigterm_fallback() as fallback:
+            result = CliRunner().invoke(cli, ["db", "update", "19", "--all", "--output", "ndjson"])
+            assert signal.getsignal(signal.SIGTERM) is fallback  # handler restored
+        assert result.exit_code == 130, (result.output, result.exception)
+        assert _events(result) == [{"event": "interrupted", "database": None}]
+
+    def test_sigterm_during_a_real_odoo_bin_run(self, env, monkeypatch, tmp_path):
+        from odoodev.core import module_update
+
+        pid_file = tmp_path / "odoo.pid"
+        script = tmp_path / "odoo-bin"
+        script.write_text(
+            "import os, time\n"
+            f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+            "print('2026-09-15 10:00:00,001 1 WARNING v19_a odoo.x: before sigterm', flush=True)\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        invocation = {
+            "venv_python": sys.executable,
+            "odoo_bin": str(script),
+            "config_path": str(tmp_path / "odoo.conf"),
+            "env": dict(os.environ),
+            "cwd": str(tmp_path),
+        }
+        monkeypatch.setattr(mod, "resolve_invocation", lambda c, e: invocation)
+        monkeypatch.setattr(mod, "run_module_update", module_update.run_module_update)
+        monkeypatch.setattr(mod, "LOG_DIR", tmp_path / "logs")
+        real_emit = mod._EventSink.emit
+
+        def emit_then_sigterm(self, event, **fields):
+            real_emit(self, event, **fields)
+            if event == "issue":
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        monkeypatch.setattr(mod._EventSink, "emit", emit_then_sigterm)
+        try:
+            with _sigterm_fallback() as fallback:
+                result = CliRunner().invoke(cli, ["db", "update", "19", "-n", "v19_a", "--output", "ndjson"])
+                assert signal.getsignal(signal.SIGTERM) is fallback  # handlers restored
+            assert result.exit_code == 130, (result.output, result.exception)
+            events = _events(result)
+            assert [e["event"] for e in events] == ["plan", "start", "issue", "interrupted"]
+            assert events[-1] == {"event": "interrupted", "database": "v19_a"}
+            with pytest.raises(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), 0)
+        finally:
+            if pid_file.exists():
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(int(pid_file.read_text()), signal.SIGKILL)

@@ -36,6 +36,7 @@ from odoodev.core.module_update import (
     DEFAULT_TIMEOUT,
     IssueCallback,
     UpdateResult,
+    _signals_as_interrupt,
     collect_repo_heads,
     format_duration,
     load_update_state,
@@ -49,6 +50,7 @@ from odoodev.core.version_registry import get_version
 from odoodev.output import confirm, console, print_error, print_info, print_success, print_warning
 
 LOG_DIR = Path.home() / "odoodev-logs"
+_TERMINAL_EVENTS = frozenset({"summary", "interrupted", "error"})
 
 _LEVEL_STYLE = {
     "WARNING": ("[yellow]WARN [/yellow]", "yellow"),
@@ -205,24 +207,33 @@ def print_summary(results: list[UpdateResult], modules: str) -> None:
 
 
 class _LastLineTee:
-    """stderr stand-in that forwards everything and remembers the last non-empty line.
+    """stderr stand-in that forwards everything and remembers the last (error) line.
 
     A helper that aborts with ``SystemExit`` (PostgreSQL unreachable, invalid
     names) has already printed its reason; NDJSON mode reports that line as the
-    ``error`` event's message.
+    ``error`` event's message. Such helpers often print hint lines after the
+    ``[ERROR]`` line, so the last ``[ERROR]`` line wins over the last line.
     """
 
     def __init__(self, target: Any) -> None:
         self.target = target
         self.last_line = ""
+        self.last_error_line = ""
         self.encoding = getattr(target, "encoding", "utf-8") or "utf-8"
 
     def write(self, text: str) -> int:
         self.target.write(text)
         for line in text.splitlines():
-            if line.strip():
-                self.last_line = line.strip()
+            stripped = line.strip()
+            if stripped:
+                self.last_line = stripped
+                if stripped.startswith("[ERROR]"):
+                    self.last_error_line = stripped
         return len(text)
+
+    def failure_message(self) -> str:
+        """The reason a helper printed before aborting, without the ``[ERROR]`` tag."""
+        return self.last_error_line.removeprefix("[ERROR]").strip() or self.last_line or "preflight failed"
 
     def flush(self) -> None:
         self.target.flush()
@@ -321,17 +332,38 @@ def _run_ndjson(
     if as_json:
         return _fail(sink, "--json and --output ndjson cannot be combined")
     tee = _LastLineTee(sys.stderr)
-    with contextlib.redirect_stdout(tee), contextlib.redirect_stderr(tee):
-        try:
-            return _update_databases(
-                version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout, dry_run,
-                False, True, json_out=sink.out, sink=sink,
-            )  # fmt: skip
-        except SystemExit as exc:
-            code = exc.code if isinstance(exc.code, int) else 1
-            if code and not sink.sent & {"plan", "error"}:
-                sink.emit("error", message=tee.last_line.removeprefix("[ERROR]").strip() or "preflight failed")
-            return code
+    # SIGTERM/SIGHUP become KeyboardInterrupt for the whole run — preflight and the
+    # gaps between databases included — so every stop ends with an event. The
+    # runner installs its own (nested) handlers around odoo-bin.
+    restore_signals = _signals_as_interrupt()
+    try:
+        with contextlib.redirect_stdout(tee), contextlib.redirect_stderr(tee):
+            try:
+                return _update_databases(
+                    version, names, multi, select_all, name_filter, stale, modules, stop_on_error, timeout,
+                    dry_run, False, True, json_out=sink.out, sink=sink,
+                )  # fmt: skip
+            except SystemExit as exc:
+                if exc.code is None:
+                    code = 0
+                elif isinstance(exc.code, int):
+                    code = exc.code
+                else:
+                    code = 1
+                if code and not sink.sent & {"plan", "error"}:
+                    sink.emit("error", message=tee.failure_message())
+                return code
+            except KeyboardInterrupt:
+                if not sink.sent & _TERMINAL_EVENTS:
+                    print_warning("Interrupted.")
+                    sink.emit("interrupted", database=sink.current)
+                return 130
+            except Exception as exc:
+                if not sink.sent & _TERMINAL_EVENTS:
+                    sink.emit("error", message=f"unexpected failure: {type(exc).__name__}: {exc}")
+                raise
+    finally:
+        restore_signals()
 
 
 def _update_databases(

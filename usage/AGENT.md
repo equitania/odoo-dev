@@ -377,9 +377,12 @@ odoodev init 18        # dirs + .env + docker-compose.yml + .venv + repos + dock
   `start {database, index, total, log}`, `issue {database, level: WARNING|ERROR|CRITICAL|RAW, text}`,
   `result {<same keys as --json results>}`, then `summary {results, skipped_current, exit_code}`.
   `--dry-run` → `plan` only; nothing to do → `plan` + empty `summary`. Failures before `plan` →
-  exactly one `error {message}` (exit 1); SIGTERM/Ctrl+C → `interrupted {database}` (exit 130).
-  Same selection rules as `--json`; stdout carries only events. Stop a run with SIGTERM, never
-  SIGKILL — only then is Odoo's process group killed.
+  exactly one `error {message}` (exit 1); SIGTERM/SIGHUP/Ctrl+C at any point →
+  `interrupted {database}` (`null` outside a database; exit 130). Same selection rules as
+  `--json`; stdout carries only events. End of stream: every run ends with exactly one of
+  `summary`/`interrupted`/`error`, except a dry run, which ends when the process exits after
+  `plan`. Treat a process exit without one of those three (including death by signal) as a failed
+  run. Stop a run by sending SIGTERM once, never SIGKILL — only then is Odoo's process group killed.
 - `odoodev config versions --json` → full version registry (ports, paths, git). Since 0.58.0 each
   version also carries `effective_ports` (registry defaults overridden by the version's `.env`
   `DB_PORT`/`ODOO_PORT`/`GEVENT_PORT`/`MAILPIT_PORT`) — on multi-user hosts every user has an own
