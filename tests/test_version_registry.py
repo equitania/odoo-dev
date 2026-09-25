@@ -55,7 +55,7 @@ class TestLoadVersions:
     def test_version_20_config(self):
         """v20: Odoo 20 needs PostgreSQL >= 16 and Python 3.12-3.14 (odoo/release.py)."""
         v20 = load_versions()["20"]
-        assert v20.python == "3.13"
+        assert v20.python == "3.14"
         assert v20.postgres == "17.4-alpine"
         assert v20.ports.db == 20432
         assert v20.ports.odoo == 20069

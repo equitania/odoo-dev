@@ -80,7 +80,7 @@ versions:
       branch: "develop"
 
   "20":
-    python: "3.13"
+    python: "3.14"
     postgres: "17.4-alpine"
     ports:
       db: 20432

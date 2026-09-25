@@ -111,7 +111,7 @@ odoodev start 18 --dev
 | v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 |
 | v18 | 3.13 | 16.11 | 18432 | 18069 | 18072 | 18025 |
 | v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 |
-| v20 | 3.13 | 17.4 | 20432 | 20069 | 20072 | 20025 |
+| v20 | 3.14 | 17.4 | 20432 | 20069 | 20072 | 20025 |
 
 Port-Schema: `{version}{service}` — z.B. v18: DB=18432, Odoo=18069
 
@@ -204,7 +204,7 @@ uv build                                # Paket bauen
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
 **Version 0.70.0:**
-- **Neu:** Unterstützung für Odoo 20 (Python 3.13, PostgreSQL 17.4, Ports 20432/20069/20072/20025)
+- **Neu:** Unterstützung für Odoo 20 (Python 3.14, PostgreSQL 17.4, Ports 20432/20069/20072/20025)
   inklusive Beispieldateien und Requirements-Baseline für `odoodev init 20`.
 
 **Version 0.69.0:**
@@ -624,7 +624,7 @@ odoodev start 18 --dev
 | v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 |
 | v18 | 3.13 | 16.11 | 18432 | 18069 | 18072 | 18025 |
 | v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 |
-| v20 | 3.13 | 17.4 | 20432 | 20069 | 20072 | 20025 |
+| v20 | 3.14 | 17.4 | 20432 | 20069 | 20072 | 20025 |
 
 Port schema: `{version}{service}` — e.g. v18: DB=18432, Odoo=18069
 
@@ -717,7 +717,7 @@ uv build                                # Build package
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
 
 **Version 0.70.0:**
-- **Added:** Odoo 20 support (Python 3.13, PostgreSQL 17.4, ports 20432/20069/20072/20025)
+- **Added:** Odoo 20 support (Python 3.14, PostgreSQL 17.4, ports 20432/20069/20072/20025)
   including example files and a requirements baseline for `odoodev init 20`.
 
 **Version 0.69.0:**
