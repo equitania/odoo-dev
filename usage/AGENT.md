@@ -6,7 +6,7 @@
 -->
 # odoodev — Agent Capability Card
 
-> Unified CLI for native Odoo development across versions **16, 17, 18, 19**. Odoo runs natively on
+> Unified CLI for native Odoo development across versions **16, 17, 18, 19, 20**. Odoo runs natively on
 > the host; PostgreSQL and Mailpit run on a switchable container runtime — **Docker** (default) or
 > **Apple Container** (macOS 26 / Apple silicon). Generates `.env`, `docker-compose.yml`, `odoo.conf`.
 

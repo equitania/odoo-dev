@@ -21,7 +21,7 @@ class TestLoadVersions:
         """Load versions from the bundled versions.yaml."""
         versions = load_versions()
         assert isinstance(versions, dict)
-        assert len(versions) >= 4  # v16, v17, v18, v19
+        assert len(versions) >= 5  # v16, v17, v18, v19, v20
 
     def test_version_16_exists(self):
         versions = load_versions()
@@ -52,6 +52,27 @@ class TestLoadVersions:
         assert v18.paths.server_subdir == "v18-server"
         assert v18.git.branch == "develop"
 
+    def test_version_20_config(self):
+        """v20: Odoo 20 needs PostgreSQL >= 16 and Python 3.12-3.14 (odoo/release.py)."""
+        v20 = load_versions()["20"]
+        assert v20.python == "3.13"
+        assert v20.postgres == "17.4-alpine"
+        assert v20.ports.db == 20432
+        assert v20.ports.odoo == 20069
+        assert v20.ports.gevent == 20072
+        assert v20.ports.mailpit == 20025
+        assert v20.ports.smtp == 2025
+        assert v20.paths.native_subdir == "dev20_native"
+        assert v20.git.server_url.endswith(":v20/v20-server.git")
+
+    def test_ports_unique_across_versions(self):
+        """Two versions sharing a port could not run side by side."""
+        seen: dict[int, str] = {}
+        for ver, cfg in load_versions().items():
+            for port in (cfg.ports.db, cfg.ports.odoo, cfg.ports.gevent, cfg.ports.mailpit, cfg.ports.smtp):
+                assert port not in seen, f"port {port} used by v{seen.get(port)} and v{ver}"
+                seen[port] = ver
+
     def test_version_19_python(self):
         versions = load_versions()
         v19 = versions["19"]
@@ -64,19 +85,19 @@ class TestLoadVersions:
 
         override_data = {
             "versions": {
-                "20": {
+                "21": {
                     "python": "3.14",
                     "postgres": "18.0-alpine",
-                    "ports": {"db": 20432, "odoo": 20069, "gevent": 20072, "mailpit": 20025, "smtp": 2025},
+                    "ports": {"db": 21432, "odoo": 21069, "gevent": 21072, "mailpit": 21025, "smtp": 2125},
                     "paths": {
-                        "base": "~/gitbase/v20",
-                        "server_subdir": "v20-server",
-                        "dev_subdir": "v20-dev",
-                        "native_subdir": "dev20_native",
+                        "base": "~/gitbase/v21",
+                        "server_subdir": "v21-server",
+                        "dev_subdir": "v21-dev",
+                        "native_subdir": "dev21_native",
                         "conf_subdir": "conf",
                     },
                     "git": {
-                        "server_url": "git@example.com:v20/v20-server.git",
+                        "server_url": "git@example.com:v21/v21-server.git",
                         "branch": "develop",
                     },
                 }
@@ -87,8 +108,8 @@ class TestLoadVersions:
             yaml.dump(override_data, f)
 
         versions = load_versions(override_path=override_path)
-        assert "20" in versions
-        assert versions["20"].python == "3.14"
+        assert "21" in versions
+        assert versions["21"].python == "3.14"
 
 
 class TestGetVersion:

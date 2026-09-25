@@ -15,7 +15,7 @@ import yaml
 DEFAULT_BASE_DIR = "~/gitbase"
 DEFAULT_DB_USER = "ownerp"
 DEFAULT_DB_PASSWORD = "CHANGE_AT_FIRST"
-DEFAULT_ACTIVE_VERSIONS = ["16", "17", "18", "19"]
+DEFAULT_ACTIVE_VERSIONS = ["16", "17", "18", "19", "20"]
 DEFAULT_LANGUAGE = "en"
 # Odoo res.users login for XML-RPC module actions (TUI export/update/cleanup,
 # `odoodev export modules`). Dev-database convention — NOT the PostgreSQL login.

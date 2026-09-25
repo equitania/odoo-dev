@@ -78,3 +78,22 @@ versions:
     git:
       server_url: "git@gitlab.ownerp.io:v19/v19-server.git"
       branch: "develop"
+
+  "20":
+    python: "3.13"
+    postgres: "17.4-alpine"
+    ports:
+      db: 20432
+      odoo: 20069
+      gevent: 20072
+      mailpit: 20025
+      smtp: 2025
+    paths:
+      base: "~/gitbase/v20"
+      server_subdir: "v20-server"
+      dev_subdir: "v20-dev"
+      native_subdir: "dev20_native"
+      conf_subdir: "conf"
+    git:
+      server_url: "git@gitlab.ownerp.io:v20/v20-server.git"
+      branch: "develop"

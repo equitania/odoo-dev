@@ -17,7 +17,7 @@ from odoodev.core.example_templates import (
 )
 from odoodev.core.version_registry import GitConfig, PathConfig, PortConfig, VersionConfig
 
-SUPPORTED_VERSIONS = ["16", "17", "18", "19"]
+SUPPORTED_VERSIONS = ["16", "17", "18", "19", "20"]
 
 
 def test_requirements_txt_is_no_longer_a_copyable_template(tmp_path):
@@ -39,7 +39,7 @@ def test_base_requirements_path_points_at_the_bundle():
 
 
 def test_every_supported_version_ships_a_baseline():
-    for version in ("16", "17", "18", "19"):
+    for version in ("16", "17", "18", "19", "20"):
         assert get_base_requirements_path(version).is_file()
 
 

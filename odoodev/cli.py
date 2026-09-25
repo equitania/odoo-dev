@@ -60,7 +60,7 @@ def resolve_version(ctx: click.Context, version: str | None) -> str:
 def cli(ctx: click.Context, lang: str | None) -> None:
     """Unified CLI for native Odoo development environment management.
 
-    Manages Odoo development environments across versions (v16-v19).
+    Manages Odoo development environments across versions (v16-v20).
     Supports auto-detection of version from current working directory.
     """
     ctx.ensure_object(dict)

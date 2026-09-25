@@ -22,6 +22,7 @@ from odoodev.core.global_config import (
     load_global_config,
     save_global_config,
 )
+from odoodev.core.version_registry import available_versions
 from odoodev.output import (
     _ownerp_style,
     _patch_checkbox_indicators,
@@ -110,7 +111,7 @@ def _run_interactive_wizard() -> GlobalConfig:
 
     # Step 2: Active Versions
     default_versions = load_global_config().active_versions if config_exists() else list(DEFAULT_ACTIVE_VERSIONS)
-    all_versions = ["16", "17", "18", "19"]
+    all_versions = available_versions()
     version_choices = [questionary.Choice(f"v{v}", value=v, checked=v in default_versions) for v in all_versions]
     with _patch_checkbox_indicators():
         active_versions = questionary.checkbox(

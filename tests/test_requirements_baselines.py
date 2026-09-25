@@ -5,7 +5,7 @@ import pytest
 from odoodev.core.example_templates import get_base_requirements_path
 from odoodev.core.requirements_merge import parse_requirements
 
-VERSIONS = ("16", "17", "18", "19")
+VERSIONS = ("16", "17", "18", "19", "20")
 
 
 @pytest.mark.parametrize("version", VERSIONS)

@@ -12,10 +12,10 @@
 
 ### Projektübersicht
 
-**odoodev** ist ein einheitliches CLI-Tool für die Verwaltung nativer Odoo-Entwicklungsumgebungen über mehrere Versionen hinweg (v16–v19). Es ersetzt eine Vielzahl manueller Skripte, Shell-Funktionen und Konfigurationsdateien durch ein konsistentes Werkzeug mit vollständigem Lifecycle-Management.
+**odoodev** ist ein einheitliches CLI-Tool für die Verwaltung nativer Odoo-Entwicklungsumgebungen über mehrere Versionen hinweg (v16–v20). Es ersetzt eine Vielzahl manueller Skripte, Shell-Funktionen und Konfigurationsdateien durch ein konsistentes Werkzeug mit vollständigem Lifecycle-Management.
 
 **Hauptfunktionen:**
-- Multi-Version Support (v16, v17, v18, v19)
+- Multi-Version Support (v16, v17, v18, v19, v20)
 - Automatische Versionserkennung aus dem aktuellen Verzeichnis
 - Interaktiver Setup-Wizard für die Ersteinrichtung
 - Native Entwicklung mit UV Virtual Environments
@@ -111,6 +111,7 @@ odoodev start 18 --dev
 | v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 |
 | v18 | 3.13 | 16.11 | 18432 | 18069 | 18072 | 18025 |
 | v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 |
+| v20 | 3.13 | 17.4 | 20432 | 20069 | 20072 | 20025 |
 
 Port-Schema: `{version}{service}` — z.B. v18: DB=18432, Odoo=18069
 
@@ -201,6 +202,10 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.70.0:**
+- **Neu:** Unterstützung für Odoo 20 (Python 3.13, PostgreSQL 17.4, Ports 20432/20069/20072/20025)
+  inklusive Beispieldateien und Requirements-Baseline für `odoodev init 20`.
 
 **Version 0.69.0:**
 - **Neu:** `odoodev db update --output ndjson` liefert den Fortschritt als Ereignisstrom (eine
@@ -521,10 +526,10 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 
 ### Project Overview
 
-**odoodev** is a unified CLI tool for native Odoo development environment management across versions (v16–v19). It replaces a variety of manual scripts, shell functions, and configuration files with a consistent tool providing complete lifecycle management.
+**odoodev** is a unified CLI tool for native Odoo development environment management across versions (v16–v20). It replaces a variety of manual scripts, shell functions, and configuration files with a consistent tool providing complete lifecycle management.
 
 **Key Features:**
-- Multi-version support (v16, v17, v18, v19)
+- Multi-version support (v16, v17, v18, v19, v20)
 - Automatic version detection from current directory
 - Interactive setup wizard for first-time configuration
 - Native development with UV virtual environments
@@ -619,6 +624,7 @@ odoodev start 18 --dev
 | v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 |
 | v18 | 3.13 | 16.11 | 18432 | 18069 | 18072 | 18025 |
 | v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 |
+| v20 | 3.13 | 17.4 | 20432 | 20069 | 20072 | 20025 |
 
 Port schema: `{version}{service}` — e.g. v18: DB=18432, Odoo=18069
 
@@ -709,6 +715,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.70.0:**
+- **Added:** Odoo 20 support (Python 3.13, PostgreSQL 17.4, ports 20432/20069/20072/20025)
+  including example files and a requirements baseline for `odoodev init 20`.
 
 **Version 0.69.0:**
 - **Added:** `odoodev db update --output ndjson` streams progress as events (one JSON line per

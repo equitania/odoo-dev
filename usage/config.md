@@ -98,6 +98,7 @@ und URLs gegen `effective_ports` aufloesen, nicht gegen `ports`.
 | v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 | 11725 |
 | v18 | 3.13 | 16.11 | 18432 | 18069 | 18072 | 18025 | 1025 |
 | v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 | 1925 |
+| v20 | 3.13 | 17.4 | 20432 | 20069 | 20072 | 20025 | 2025 |
 
 Port-Schema: `{version}{service}` — z.B. v18: DB=18432, Odoo=18069, Gevent=18072
 
@@ -110,7 +111,7 @@ Gespeichert in `~/.config/odoodev/config.yaml`:
 | `base_dir` | `~/gitbase` | Basisverzeichnis fuer alle Odoo-Versionen |
 | `database.user` | `ownerp` | Standard-PostgreSQL-Benutzer |
 | `database.password` | `CHANGE_AT_FIRST` | Standard-PostgreSQL-Passwort |
-| `active_versions` | `16, 17, 18, 19` | Aktive Odoo-Versionen |
+| `active_versions` | `16, 17, 18, 19, 20` | Aktive Odoo-Versionen |
 
 Die DB-Credentials aus `config.yaml` werden automatisch in `.env`-Dateien und Datenbankoperationen verwendet.
 
@@ -248,6 +249,7 @@ against `effective_ports`, not `ports`.
 | v17 | 3.12 | 16.11 | 17432 | 17069 | 17072 | 17025 | 11725 |
 | v18 | 3.13 | 16.11 | 18432 | 18069 | 18072 | 18025 | 1025 |
 | v19 | 3.13 | 17.4 | 19432 | 19069 | 19072 | 19025 | 1925 |
+| v20 | 3.13 | 17.4 | 20432 | 20069 | 20072 | 20025 | 2025 |
 
 Port schema: `{version}{service}` — e.g. v18: DB=18432, Odoo=18069, Gevent=18072
 
@@ -260,7 +262,7 @@ Stored in `~/.config/odoodev/config.yaml`:
 | `base_dir` | `~/gitbase` | Base directory for all Odoo versions |
 | `database.user` | `ownerp` | Default PostgreSQL user |
 | `database.password` | `CHANGE_AT_FIRST` | Default PostgreSQL password |
-| `active_versions` | `16, 17, 18, 19` | Active Odoo versions |
+| `active_versions` | `16, 17, 18, 19, 20` | Active Odoo versions |
 
 DB credentials from `config.yaml` are automatically used in `.env` files and database operations.
 

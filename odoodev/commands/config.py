@@ -215,7 +215,7 @@ def config_set(key: str, value: str) -> None:
         db.password      PostgreSQL password
         odoo_login.username  Odoo XML-RPC login for module actions (export etc.)
         odoo_login.password  Odoo XML-RPC password
-        active_versions  Comma-separated list, e.g. 16,17,18,19
+        active_versions  Comma-separated list, e.g. 16,17,18,19,20
         container_runtime  Container runtime for PostgreSQL (docker, apple)
     """
     from odoodev.core.global_config import load_global_config, save_global_config

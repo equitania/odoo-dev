@@ -2,7 +2,7 @@
 
 Produces the import-compatible Odoo CSV used by the Equitania Releasemanager
 ("Import Module CSV"): columns ``.id``, ``name``, ``installed_version``,
-``display_name``. odoodev only manages v16-v19, so the "new" export format
+``display_name``. odoodev only manages v16-v20, so the "new" export format
 (with the ``.id`` column, required since Odoo 13) always applies — no
 version branching needed.
 
