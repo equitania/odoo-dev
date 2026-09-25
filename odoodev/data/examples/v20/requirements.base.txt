@@ -41,6 +41,10 @@ libsass==0.22.0
 # sanctioned; odoo/_monkeypatches/lxml.py only patches lxml < 5.2.0.
 lxml==6.1.2
 lxml-html-clean
+# New in Odoo 20: addons/mail/controllers/attachment.py renders Markdown
+# attachments with it and only logs a warning when it is missing. Not listed
+# in Odoo's own requirements.txt.
+markdown2==2.5.5
 MarkupSafe==2.1.5
 num2words==0.5.13
 ofxparse==0.21

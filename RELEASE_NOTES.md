@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.70.1 (25.09.2026)
+
+### Added
+- **`markdown2==2.5.5` in the v20 baseline.** Odoo 20's `mail` renders Markdown attachments with
+  it (`addons/mail/controllers/attachment.py`) and only logs `markdown2 is not installed, markdown
+  will not be rendered` when it is missing — which a fresh v20 database did on every start. Odoo
+  does not list it in its own `requirements.txt`. Verified on CPython 3.14.7.
+
 ## Version 0.70.0 (25.09.2026)
 
 ### Added

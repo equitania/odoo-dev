@@ -203,6 +203,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.70.1:**
+- **Neu:** Die v20-Baseline enthält `markdown2`, mit dem die Mail-App von Odoo 20 Markdown-Anhänge
+  darstellt; ohne das Paket meldet Odoo beim Start eine Warnung und zeigt Markdown als Rohtext.
+
 **Version 0.70.0:**
 - **Neu:** Unterstützung für Odoo 20 (Python 3.14, PostgreSQL 17.4, Ports 20432/20069/20072/20025)
   inklusive Beispieldateien und Requirements-Baseline für `odoodev init 20`.
@@ -715,6 +719,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.70.1:**
+- **Added:** The v20 baseline includes `markdown2`, which Odoo 20's mail app uses to render
+  Markdown attachments; without it Odoo logs a warning at start-up and shows Markdown as raw text.
 
 **Version 0.70.0:**
 - **Added:** Odoo 20 support (Python 3.14, PostgreSQL 17.4, ports 20432/20069/20072/20025)
