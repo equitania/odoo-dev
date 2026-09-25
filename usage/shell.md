@@ -15,7 +15,7 @@ odoodev shell-setup
 Installiert fuer die erkannte Shell (Fish, Bash, Zsh):
 - **`odoodev-activate`** Funktion — Venv aktivieren + in Projektverzeichnis wechseln
 - **Tab-Completions** fuer alle `odoodev`-Befehle, Subcommands und Flags
-- **Versions-Completions** fuer `odoodev-activate` (Tab zeigt 16, 17, 18, 19)
+- **Versions-Completions** fuer `odoodev-activate` (Tab zeigt 16, 17, 18, 19, 20)
 - **Abbreviations/Aliases** fuer Schnellzugriff
 
 ### Explizite Shell waehlen
@@ -81,7 +81,7 @@ odev start 18 --dev       # = odoodev start 18 --dev
 # Tab-Completion testen
 odoodev <TAB>             # Zeigt: init, start, stop, repos, pull, db, ...
 odoodev start --<TAB>     # Zeigt: --dev, --shell, --test, --prepare, ...
-odoodev-activate <TAB>    # Zeigt: 16, 17, 18, 19
+odoodev-activate <TAB>    # Zeigt: 16, 17, 18, 19, 20
 ```
 
 ---
@@ -97,7 +97,7 @@ odoodev shell-setup
 Installs for the detected shell (Fish, Bash, Zsh):
 - **`odoodev-activate`** function — activate venv + change to project directory
 - **Tab completions** for all `odoodev` commands, subcommands, and flags
-- **Version completions** for `odoodev-activate` (Tab shows 16, 17, 18, 19)
+- **Version completions** for `odoodev-activate` (Tab shows 16, 17, 18, 19, 20)
 - **Abbreviations/Aliases** for quick access
 
 ### Choose Shell Explicitly
@@ -163,5 +163,5 @@ odev start 18 --dev       # = odoodev start 18 --dev
 # Test tab completion
 odoodev <TAB>             # Shows: init, start, stop, repos, pull, db, ...
 odoodev start --<TAB>     # Shows: --dev, --shell, --test, --prepare, ...
-odoodev-activate <TAB>    # Shows: 16, 17, 18, 19
+odoodev-activate <TAB>    # Shows: 16, 17, 18, 19, 20
 ```

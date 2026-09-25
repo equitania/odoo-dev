@@ -35,7 +35,7 @@ uv build
 
 ## Architecture
 
-**odoodev** is a Click-based CLI tool for managing native Odoo development environments (v16-v19). Odoo runs natively on the host, PostgreSQL and Mailpit run in Docker.
+**odoodev** is a Click-based CLI tool for managing native Odoo development environments (v16-v20). Odoo runs natively on the host, PostgreSQL and Mailpit run in Docker.
 
 ### Core data flow
 

@@ -27,7 +27,7 @@ from odoodev.output import console, print_error, print_info, print_start_hint, p
 
 logger = logging.getLogger(__name__)
 
-# Equitania convention: enterprise addon repos are named v16e, v17e, v18e, v19e, ...
+# Equitania convention: enterprise addon repos are named v16e, v17e, v18e, v19e, v20e, ...
 _ENTERPRISE_PATH_RE = re.compile(r"^v\d+e$", re.IGNORECASE)
 
 
@@ -117,7 +117,7 @@ def _prompt_enterprise_inclusion(
 
     Detects all enterprise repos that are currently set to use=true. An entry
     counts as enterprise if section == "Enterprise" or its path matches the
-    Equitania convention vNNe (e.g. v16e, v17e, v18e, v19e). Prompts once,
+    Equitania convention vNNe (e.g. v16e, v17e, v18e, v19e, v20e). Prompts once,
     and on "no" sets their use flag to false in the returned metadata. The
     repos.yaml file is left untouched.
 

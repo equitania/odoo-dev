@@ -172,7 +172,7 @@ class OdooXmlRpcClient:
 
         Non-installable modules are excluded via ``state != 'uninstallable'``
         (not the ``installable`` field, which was removed from
-        ``ir.module.module`` in Odoo 19); ``state`` is core across v16-v19.
+        ``ir.module.module`` in Odoo 19); ``state`` is core across v16-v20.
 
         Args:
             installed_only: Restrict to ``state = installed`` modules.

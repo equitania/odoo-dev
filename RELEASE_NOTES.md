@@ -1,5 +1,26 @@
 # Release Notes
 
+## Version 0.70.0 (25.09.2026)
+
+### Added
+- **Odoo 20 support.** New registry entry `"20"`: Python 3.14, PostgreSQL 17.4 (Odoo 20 requires
+  PostgreSQL >= 16 and accepts Python 3.12-3.14), ports 20432 / 20069 / 20072 / 20025 / SMTP 2025,
+  paths `~/gitbase/v20/{v20-server,v20-dev/dev20_native,v20-dev/conf}`, server repository
+  `v20/v20-server.git` on `develop`. Same PostgreSQL major as v19, so a
+  `migrate create --from 19 --to 20` group shares one database without a version warning.
+- **v20 example files** for `odoodev init 20`: `repos.yaml` skeleton, `odoo20_template.conf`,
+  `postgresql.conf` and a `requirements.base.txt` baseline. The baseline starts from the v19 one
+  and adds `h11==0.16.0` from the v20 server pins. Five pins move up because the v19 ones ship no
+  Python 3.14 wheels: gevent 25.9.1, greenlet 3.3.2, psycopg2-binary 2.9.11, python-stdnum 2.2 and
+  vobject 0.9.9 (the last three are Odoo's own 3.14 pins). Verified by a full install on CPython
+  3.14.7 / macOS arm64; `pytz` and `xlwt` stay although v20-server no
+  longer imports them, because addons ported from v19 still do. The `external_dependencies`
+  block is carried over from v19 and should be re-checked once the v20 repositories are filled.
+
+### Changed
+- `odoodev setup` offers the versions from the registry instead of a hard-coded v16-v19 list, and
+  the default `active_versions` include `20`.
+
 ## Version 0.69.0 (15.09.2026)
 
 ### Added

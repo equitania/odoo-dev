@@ -59,6 +59,7 @@ Die Ports sind versionsspezifisch und vermeiden Konflikte bei paralleler Entwick
 | v17 | 17432 | 17025 | 11725 |
 | v18 | 18432 | 18025 | 1025 |
 | v19 | 19432 | 19025 | 1925 |
+| v20 | 20432 | 20025 | 2025 |
 
 ### docker-compose.yml
 
@@ -123,6 +124,7 @@ Ports are version-specific to avoid conflicts during parallel development:
 | v17 | 17432 | 17025 | 11725 |
 | v18 | 18432 | 18025 | 1025 |
 | v19 | 19432 | 19025 | 1925 |
+| v20 | 20432 | 20025 | 2025 |
 
 ### docker-compose.yml
 
