@@ -40,6 +40,27 @@ VALID_RUNTIMES = (RUNTIME_DOCKER, RUNTIME_APPLE)
 _DATA_MOUNT = "/var/lib/postgresql/data"
 _PGDATA = f"{_DATA_MOUNT}/pgdata"
 
+# pgvector is opt-in per version (PGVECTOR=true in the version's .env). Odoo 19
+# Enterprise ships ai_auto_install (auto_install, depends only on mail): when the
+# database server offers the 'vector' extension it creates it and installs the
+# AI module 'ai' in EVERY new database, unasked. Without pgvector none of that
+# happens - so it stays off unless a restored database already uses it or the
+# AI features are the point. The image is built locally from the bundled
+# Dockerfile on top of the same postgres:<version> image.
+PGVECTOR_ENV_KEY = "PGVECTOR"
+PGVECTOR_IMAGE_REPO = "odoodev-postgres-pgvector"
+PGVECTOR_DOCKERFILE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "pgvector")
+
+
+def pgvector_enabled(env: dict[str, str]) -> bool:
+    """True when the version's .env switches pgvector on (default: off)."""
+    return env.get(PGVECTOR_ENV_KEY, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def pgvector_image(pg_version: str) -> str:
+    """Local image name of the pgvector build for a PostgreSQL version tag."""
+    return f"{PGVECTOR_IMAGE_REPO}:{pg_version}"
+
 
 def _probe(argv: list[str], timeout: float = 15) -> bool:
     """Run a short health-probe command; False on failure, absence or timeout."""
@@ -89,6 +110,8 @@ class PostgresSpec:
     # Host postgresql.conf to bind-mount (dev service mirrors the compose tuning).
     # None → run with the image's stock config (used by the isolated benchmark).
     conf_path: str | None = None
+    # PostgreSQL version tag the image is based on (pgvector builds need it).
+    pg_version: str = ""
 
 
 def _postgres_run_args(spec: PostgresSpec) -> list[str]:
@@ -164,6 +187,43 @@ class ContainerBackend:
     def pull_image(self, image: str) -> None:
         """Pre-pull an image so a later run measures boot, not download. Best-effort."""
         raise NotImplementedError
+
+    def image_exists(self, image: str) -> bool:
+        """True if ``image`` is present in the runtime's local image store."""
+        return _probe([self.cli, "image", "inspect", image])
+
+    def build_image(self, image: str, context_dir: str, build_args: dict[str, str]) -> bool:
+        """Build ``image`` from ``context_dir`` (output streams to the terminal)."""
+        args = ["build", "-t", image]
+        for key, value in build_args.items():
+            args += ["--build-arg", f"{key}={value}"]
+        args.append(context_dir)
+        return self._run(args).returncode == 0
+
+    def ensure_pgvector_image(self, pg_version: str) -> bool:
+        """Build the pgvector image for ``pg_version`` unless it already exists.
+
+        Built once per version and runtime; a later ``docker up`` reuses it.
+        RUN steps inside a build do not see the daemon's proxy, so proxy
+        variables set in the environment are passed through as build args.
+        """
+        from odoodev.output import print_error, print_info, print_success
+
+        image = pgvector_image(pg_version)
+        if self.image_exists(image):
+            return True
+        print_info(f"Building {image} (pgvector on postgres:{pg_version}, one-time)...")
+        build_args = {"PG_VERSION": pg_version}
+        for key in ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"):
+            if os.environ.get(key):
+                build_args[key] = os.environ[key]
+        if not self.build_image(image, PGVECTOR_DOCKERFILE_DIR, build_args):
+            print_error(f"Could not build {image}")
+            print_info("The build needs internet access (Alpine: github.com, Debian: apt.postgresql.org).")
+            print_info(f"Or switch pgvector off: {PGVECTOR_ENV_KEY}=false in the version's .env")
+            return False
+        print_success(f"Built {image}")
+        return True
 
     def run_postgres(self, spec: PostgresSpec) -> subprocess.CompletedProcess:
         """Start a detached PostgreSQL container from ``spec``."""
@@ -281,13 +341,37 @@ class DockerBackend(ContainerBackend):
                 return name.strip()
         return None
 
-    # Docker keeps using docker-compose for the dev service — unchanged behaviour.
+    # Docker keeps using docker-compose for the dev service. With pgvector the
+    # locally built image is handed to compose via POSTGRES_IMAGE, which the
+    # compose template reads (older generated files do not - checked below).
     def service_up(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         if not self.ensure_runtime_ready():
             return 1
         from odoodev.core.docker_compose import compose_up
 
-        return compose_up(version_cfg.paths.native_dir)
+        native_dir = version_cfg.paths.native_dir
+        if not pgvector_enabled(env):
+            return compose_up(native_dir)
+
+        from odoodev.output import print_error, print_info
+
+        compose_file = os.path.join(native_dir, "docker-compose.yml")
+        try:
+            with open(compose_file, encoding="utf-8") as handle:
+                knows_image = "POSTGRES_IMAGE" in handle.read()
+        except OSError:
+            knows_image = False
+        if not knows_image:
+            print_error(f"{compose_file} predates pgvector support (no POSTGRES_IMAGE)")
+            print_info(
+                "Change its image line to: "
+                "image: ${POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION:-" + version_cfg.postgres + "}}"
+            )
+            return 1
+        pg_version = env.get("POSTGRES_VERSION") or version_cfg.postgres
+        if not self.ensure_pgvector_image(pg_version):
+            return 1
+        return compose_up(native_dir, extra_env={"POSTGRES_IMAGE": pgvector_image(pg_version)})
 
     def service_down(self, version_cfg: VersionConfigProtocol, env: dict[str, str]) -> int:
         from odoodev.core.docker_compose import compose_down
@@ -385,6 +469,8 @@ class AppleContainerBackend(ContainerBackend):
         if not self.ensure_runtime_ready():
             return 1
         spec = build_dev_spec(version_cfg, env)
+        if pgvector_enabled(env) and not self.ensure_pgvector_image(spec.pg_version):
+            return 1
         # A stopped container with the same name would block 'run'; remove it
         # first (the named volume — i.e. the data — persists independently).
         self.stop_postgres(spec.container_name, remove=True)
@@ -596,7 +682,7 @@ def build_dev_spec(version_cfg: VersionConfigProtocol, env: dict[str, str]) -> P
     conf_path = conf if os.path.isfile(conf) else None
 
     return PostgresSpec(
-        image=f"postgres:{pg_version}",
+        image=pgvector_image(pg_version) if pgvector_enabled(env) else f"postgres:{pg_version}",
         container_name=f"{user}-dev-db-{version}-native",
         volume_name=f"{user}-vol-dev-db-{version}-native",
         host_port=host_port,
@@ -604,4 +690,5 @@ def build_dev_spec(version_cfg: VersionConfigProtocol, env: dict[str, str]) -> P
         password=env.get("PGPASSWORD") or cfg.database.password,
         db_name="postgres",
         conf_path=conf_path,
+        pg_version=pg_version,
     )

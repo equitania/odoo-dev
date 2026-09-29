@@ -14,7 +14,9 @@ name: ${DEV_USER:-${USER}}-odoo-v{{ version }}-native
 services:
   # PostgreSQL Database
   dev-db-{{ version }}-native:
-    image: postgres:${POSTGRES_VERSION:-{{ postgres_version }}}
+    # POSTGRES_IMAGE is set by `odoodev docker up` when PGVECTOR=true in .env
+    # (locally built odoodev-postgres-pgvector:<version>); otherwise the stock image.
+    image: ${POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION:-{{ postgres_version }}}}
     platform: ${DOCKER_PLATFORM:-linux/arm64}
     environment:
       - POSTGRES_USER=${PGUSER:-ownerp}

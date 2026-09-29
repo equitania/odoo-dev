@@ -203,6 +203,14 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.71.0:**
+- **Neu:** pgvector für die Dev-Datenbank, standardmäßig aus: `PGVECTOR=true` in der `.env`, dann
+  baut `odoodev docker up` einmalig ein Image auf demselben PostgreSQL-Image (Alpine bleibt Alpine).
+  Mit pgvector installiert Odoo 19 Enterprise das KI-Modul `ai` in jeder neuen Datenbank.
+- **Neu:** `db restore` hält an, bevor etwas gelöscht wird, wenn das Backup pgvector braucht und der
+  Server es nicht anbietet; `--without-pgvector` spielt trotzdem ein (ohne KI-Tabellen).
+- **Geändert:** `db restore` löscht die vorhandene Ziel-Datenbank erst nach dem Entpacken.
+
 **Version 0.70.1:**
 - **Neu:** Die v20-Baseline enthält `markdown2`, mit dem die Mail-App von Odoo 20 Markdown-Anhänge
   darstellt; ohne das Paket meldet Odoo beim Start eine Warnung und zeigt Markdown als Rohtext.
@@ -719,6 +727,14 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.71.0:**
+- **Added:** pgvector for the dev database, off by default: `PGVECTOR=true` in the `.env`, and
+  `odoodev docker up` builds an image once on the same PostgreSQL image (Alpine stays Alpine). With
+  pgvector, Odoo 19 Enterprise installs the AI module `ai` in every new database.
+- **Added:** `db restore` stops before dropping anything when the backup needs pgvector and the
+  server does not offer it; `--without-pgvector` restores anyway (without the AI tables).
+- **Changed:** `db restore` drops the existing target database only after extraction.
 
 **Version 0.70.1:**
 - **Added:** The v20 baseline includes `markdown2`, which Odoo 20's mail app uses to render

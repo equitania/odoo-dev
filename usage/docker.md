@@ -49,6 +49,23 @@ Runtime samt konkreter Abhilfe (Exit-Code 1).
 | PostgreSQL | `postgres:16.11-alpine` (versionsspezifisch) | Datenbank-Server |
 | Mailpit | `axllent/mailpit` | SMTP-Test-Server mit Web-UI |
 
+### pgvector (seit v0.71.0, Standard: aus)
+
+Mit `PGVECTOR=true` in der `.env` der Version baut `odoodev docker up` einmalig das Image
+`odoodev-postgres-pgvector:<POSTGRES_VERSION>` und startet PostgreSQL damit. Grundlage ist dasselbe
+`postgres:<Version>`-Image wie ohne pgvector: Auf Alpine wird pgvector aus dem Quellcode gebaut, damit
+bleibt das bestehende Datenvolume samt Sortierregeln gültig; auf Debian kommt das Paket aus
+apt.postgresql.org. Der Build braucht Internetzugang (github.com bzw. apt.postgresql.org); gesetzte
+Proxy-Variablen werden durchgereicht.
+
+Warum nicht standardmäßig: Odoo 19 Enterprise bringt `ai_auto_install` mit. Bietet der Server pgvector
+an, installiert Odoo in **jeder neuen Datenbank** das KI-Modul `ai`, ohne zu fragen. Einschalten, wenn
+ein Backup mit KI-Modul eingespielt werden soll (siehe `db restore`) oder die KI-Funktionen selbst
+entwickelt werden. Ausschalten: `PGVECTOR=false`, dann `odoodev docker up`.
+
+Docker-Runtime: Eine `docker-compose.yml` von vor v0.71.0 kennt `POSTGRES_IMAGE` noch nicht;
+`docker up` meldet das und nennt die Zeile, die ihre `image:`-Zeile ersetzt.
+
 ### Ports
 
 Die Ports sind versionsspezifisch und vermeiden Konflikte bei paralleler Entwicklung:
@@ -113,6 +130,23 @@ its concrete remedy (exit code 1).
 |---------|-------|---------|
 | PostgreSQL | `postgres:16.11-alpine` (version-specific) | Database server |
 | Mailpit | `axllent/mailpit` | SMTP test server with web UI |
+
+### pgvector (since v0.71.0, default: off)
+
+With `PGVECTOR=true` in the version's `.env`, `odoodev docker up` builds the image
+`odoodev-postgres-pgvector:<POSTGRES_VERSION>` once and starts PostgreSQL from it. It is based on the
+same `postgres:<version>` image as without pgvector: on Alpine pgvector is compiled from source, so the
+existing data volume and its collations stay valid; on Debian the package comes from
+apt.postgresql.org. The build needs internet access (github.com or apt.postgresql.org); proxy
+variables that are set are passed through.
+
+Why not by default: Odoo 19 Enterprise ships `ai_auto_install`. When the server offers pgvector, Odoo
+installs the AI module `ai` in **every new database** without asking. Switch it on to restore a backup
+that uses the AI module (see `db restore`) or to develop the AI features themselves. Off again:
+`PGVECTOR=false`, then `odoodev docker up`.
+
+Docker runtime: a `docker-compose.yml` from before v0.71.0 does not know `POSTGRES_IMAGE` yet;
+`docker up` says so and prints the line that replaces its `image:` line.
 
 ### Ports
 

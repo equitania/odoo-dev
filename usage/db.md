@@ -120,7 +120,14 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
    geschaetzt (ZIP exakt, komprimierte Formate konservativ `Groesse × 3`) und gegen den freien
    Platz auf Temp- und Filestore-Dateisystem geprueft. Bei Knappheit: Warnung mit konkreten
    Zahlen + Rueckfrage „Continue anyway?“ (Default Nein). Abschaltbar mit `--no-check-space`.
-2. Backup wird extrahiert (ZIP, 7z, tar, tar.zst, gz, SQL)
+2. Backup wird extrahiert (ZIP, 7z, tar, tar.zst, gz, SQL). Erst danach wird eine vorhandene
+   Ziel-Datenbank gelöscht (seit v0.71.0) — ein Fehler beim Entpacken lässt sie stehen.
+   **pgvector-Prüfung:** Legt der Dump die Erweiterung `vector` an (Odoo 19+ Enterprise mit dem
+   KI-Modul `ai`) und bietet der Server sie nicht an, hält odoodev an, bevor etwas gelöscht wird,
+   und nennt den Weg: `PGVECTOR=true` in der `.env`, dann `odoodev docker up`. Ohne pgvector
+   eingespielt fehlen die KI-Tabellen, und `ai` muss in der Kopie deinstalliert werden. Interaktiv
+   fragt odoodev nach (Standard Nein); `-y` überspringt diese Frage **nicht** — dafür gibt es
+   `--without-pgvector`.
 3. SQL-Dump wird in neue Datenbank eingespielt
 4. Filestore wird nach `~/odoo-share/filestore/{db_name}/` **verschoben** (`shutil.move` —
    Rename auf demselben Dateisystem = instant, keine doppelte Datenhaltung). Mit `--keep-temp`
@@ -565,7 +572,13 @@ During `odoodev db restore`, the filestore is managed automatically:
    (exact for ZIP, conservative `size × 3` for compressed formats) and compared against the free
    space on the temp and filestore filesystems. If space is tight: a warning with concrete numbers
    plus a `Continue anyway?` prompt (default no). Disable with `--no-check-space`.
-2. Backup is extracted (ZIP, 7z, tar, tar.zst, gz, SQL)
+2. Backup is extracted (ZIP, 7z, tar, tar.zst, gz, SQL). Only then is an existing target
+   database dropped (since v0.71.0) — a failed extraction leaves it in place.
+   **pgvector check:** when the dump creates the `vector` extension (Odoo 19+ Enterprise with the
+   AI module `ai`) and the server does not offer it, odoodev stops before anything is dropped and
+   names the way out: `PGVECTOR=true` in the `.env`, then `odoodev docker up`. Restored without
+   pgvector, the AI tables are missing and `ai` has to be uninstalled in the copy. Interactively
+   odoodev asks (default no); `-y` does **not** skip this question — use `--without-pgvector`.
 3. SQL dump is imported into new database
 4. Filestore is **moved** to `~/odoo-share/filestore/{db_name}/` (`shutil.move` — a rename on the
    same filesystem is instant and avoids double storage). With `--keep-temp` it is copied instead,

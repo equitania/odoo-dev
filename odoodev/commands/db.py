@@ -31,6 +31,7 @@ from odoodev.core.database import (
     deactivate_cronjobs,
     detect_backup_type,
     drop_database,
+    dump_uses_pgvector,
     extract_backup,
     format_size,
     get_active_connection_count,
@@ -50,6 +51,7 @@ from odoodev.core.database import (
     run_neutralize,
     run_recompute,
     run_uninstall_modules,
+    server_offers_pgvector,
     terminate_connections,
     wipe_database,
 )
@@ -973,6 +975,38 @@ def _print_recompute_markers(output: str) -> None:
             print_warning(f"Recompute finished with skipped records — {line[len('odoodev-recompute: done ') :]}")
 
 
+def _pgvector_restore_ok(sql_file: str, version: str, params: dict, without_pgvector: bool, yes_flag: bool) -> bool:
+    """Stop before anything is dropped when the dump needs pgvector the server lacks.
+
+    Odoo 19+ Enterprise installs the AI module wherever the database server
+    offers pgvector, and its dump then creates the 'vector' extension. Into a
+    server without it, psql skips the extension and every table with a vector
+    column (ai_embedding) and still reports success.
+    """
+    if not dump_uses_pgvector(sql_file):
+        return True
+    offered = server_offers_pgvector(host=params["host"], port=params["port"], user=params["user"])
+    if offered:
+        print_info("Backup uses pgvector — offered by the database server")
+        return True
+    if offered is None:
+        print_warning("Backup uses pgvector; could not check whether the database server offers it")
+        return True
+    print_warning("This backup uses pgvector (Odoo AI module 'ai'), the database server does not offer it.")
+    print_info(f"Switch it on: PGVECTOR=true in the .env of v{version}, then: odoodev docker up {version}")
+    print_info("Restoring anyway leaves the AI tables out; uninstall 'ai' in the copy afterwards.")
+    if without_pgvector:
+        print_warning("--without-pgvector: restoring without the AI tables")
+        return True
+    if yes_flag:
+        print_error("Stopped (-y does not skip this): add --without-pgvector to restore without the AI tables")
+        return False
+    if confirm("Restore anyway without the AI tables?", default=False):
+        return True
+    print_info("Aborted — the existing database was not touched.")
+    return False
+
+
 def _restore_dry_run(
     version: str,
     name: str,
@@ -1126,6 +1160,11 @@ def _restore_dry_run(
 @click.option("-y", "--yes", "yes_flag", is_flag=True, help="Skip confirmation prompts")
 @click.option("--keep-temp", is_flag=True, help="Keep extracted temp files (filestore is copied, not moved)")
 @click.option(
+    "--without-pgvector",
+    is_flag=True,
+    help="Restore a backup that uses pgvector into a server without it (the AI tables are left out)",
+)
+@click.option(
     "--check-space/--no-check-space",
     default=True,
     help="Check free disk space before extracting the backup — on by default",
@@ -1168,6 +1207,7 @@ def db_restore(
     uninstall_modules_raw: str | None,
     yes_flag: bool,
     keep_temp: bool,
+    without_pgvector: bool,
     check_space: bool,
     delete_backup: bool,
     keep_backup: bool,
@@ -1265,13 +1305,9 @@ def db_restore(
     # record of the one it replaces (db update --stale would skip it).
     _forget_update_state(version_cfg, [name])
 
-    # Drop existing
-    if drop:
-        if not drop_database(name, **params):
-            print_error(f"Failed to drop existing database '{name}'")
-            raise SystemExit(1)
-
-    # Extract backup — choose temp dir with enough space
+    # Extract backup — choose temp dir with enough space. The existing database
+    # is dropped only after extraction and the pgvector check below, so a failed
+    # extraction or a stop at that check leaves it untouched.
     extract_path = get_restore_temp_dir(backup_file)
 
     # Disk-space pre-check — warn early instead of failing mid-copy
@@ -1298,6 +1334,17 @@ def db_restore(
 
     sql_file = backup_info["sql_file"]
     filestore_src = backup_info.get("filestore")
+
+    if not _pgvector_restore_ok(sql_file, version, params, without_pgvector, yes_flag):
+        cleanup_restore_temp(extract_path)
+        raise SystemExit(1)
+
+    # Drop existing
+    if drop:
+        if not drop_database(name, **params):
+            print_error(f"Failed to drop existing database '{name}'")
+            cleanup_restore_temp(extract_path)
+            raise SystemExit(1)
 
     # Create and restore
     print_info("Creating database...")

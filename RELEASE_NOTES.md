@@ -1,5 +1,35 @@
 # Release Notes
 
+## Version 0.71.0 (29.09.2026)
+
+### Added
+- **pgvector for the dev database, opt-in per version.** `PGVECTOR=true` in the version's `.env`
+  (the template now carries `PGVECTOR=false`; a missing key means off) makes `docker up` build
+  `odoodev-postgres-pgvector:<POSTGRES_VERSION>` once from the bundled
+  `odoodev/data/pgvector/Dockerfile` and start PostgreSQL from it — Apple Container via
+  `container build`, Docker via `docker build` plus `POSTGRES_IMAGE` for compose. The build sits on
+  the same `postgres:<version>` image: on Alpine pgvector 0.8.6 is compiled from source so an
+  existing data volume keeps its collations; on Debian tags it installs
+  `postgresql-<major>-pgvector` from apt.postgresql.org. Proxy variables are passed as build args.
+  Verified on 16.11-alpine, 17.4-alpine and 17.4 with Apple Container.
+  Off by default for a reason: Odoo 19 Enterprise's `ai_auto_install` (auto_install, depends only
+  on `mail`) installs the AI module `ai` in every new database whenever the server offers the
+  `vector` extension.
+- **`db restore` checks for pgvector before touching anything.** A dump that creates the `vector`
+  extension, restored into a server without pgvector, used to "succeed" with the extension and
+  every table with a vector column (`ai_embedding`) silently missing — psql carries on after the
+  error. `db restore` now stops, names `PGVECTOR=true` + `docker up`, and asks whether to restore
+  without the AI tables (default no). `-y` does not answer that question; `--without-pgvector`
+  does.
+
+### Changed
+- **`db restore` drops the existing target database after extraction, not before.** A failed
+  extraction (wrong 7z password, missing `zstd`) or a stop at the pgvector check now leaves it in
+  place.
+- The docker-compose template reads `image: ${POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION:-…}}`.
+  An existing generated file without `POSTGRES_IMAGE` keeps working unchanged; only
+  `PGVECTOR=true` on the Docker runtime needs the new line, and `docker up` prints it.
+
 ## Version 0.70.1 (25.09.2026)
 
 ### Added

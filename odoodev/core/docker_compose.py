@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 
@@ -36,8 +37,13 @@ def render_compose(version_cfg, user: str, docker_platform: str) -> str:
     )
 
 
-def compose_up(compose_dir: str, detach: bool = True) -> int:
+def compose_up(compose_dir: str, detach: bool = True, extra_env: dict[str, str] | None = None) -> int:
     """Start Docker Compose services.
+
+    Args:
+        extra_env: Variables added to compose's environment for this call
+            (e.g. POSTGRES_IMAGE for the pgvector build); the process
+            environment wins over .env in compose's interpolation.
 
     Returns:
         Process return code.
@@ -45,7 +51,8 @@ def compose_up(compose_dir: str, detach: bool = True) -> int:
     args = ["docker", "compose", "up"]
     if detach:
         args.append("-d")
-    result = subprocess.run(args, cwd=compose_dir)
+    env = {**os.environ, **extra_env} if extra_env else None
+    result = subprocess.run(args, cwd=compose_dir, env=env)
     return result.returncode
 
 

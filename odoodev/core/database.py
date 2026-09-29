@@ -459,6 +459,49 @@ def restore_database(
         return False
 
 
+# pg_dump writes CREATE EXTENSION before any table, so the head of a plain
+# dump is enough - no full scan of a multi-GB file.
+_PGVECTOR_SCAN_LINES = 20000
+_PGVECTOR_EXTENSION_RE = re.compile(r"^CREATE EXTENSION (IF NOT EXISTS )?vector\b")
+
+
+def dump_uses_pgvector(sql_file: str) -> bool:
+    """True if a plain SQL dump creates the pgvector extension ('vector').
+
+    Odoo 19+ Enterprise databases with the AI module do. Restoring such a dump
+    into a server without pgvector silently drops the extension and every table
+    with a vector column (psql carries on after the error).
+    """
+    try:
+        with open(sql_file, encoding="utf-8", errors="replace") as handle:
+            for number, line in enumerate(handle):
+                if number >= _PGVECTOR_SCAN_LINES:
+                    break
+                if _PGVECTOR_EXTENSION_RE.match(line):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def server_offers_pgvector(
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool | None:
+    """True/False whether the server offers 'vector'; None if it cannot be asked."""
+    ok, rows = _run_psql_tuples(
+        "SELECT 1 FROM pg_available_extensions WHERE name = 'vector';",
+        db="postgres",
+        host=host,
+        port=port,
+        user=user,
+    )
+    if not ok:
+        return None
+    return bool(rows)
+
+
 def get_active_connection_count(
     db_name: str,
     host: str = DEFAULT_DB_HOST,
