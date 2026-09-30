@@ -1,5 +1,22 @@
 # Release Notes
 
+## Version 0.75.0 (30.09.2026)
+
+### Added
+- **`server.restore` works without root.** On a server operated by an unprivileged account in
+  the `docker` group the restore failed at the filestore: the data directory belongs to the
+  container's user (uid 1000), so the account could neither write into it nor hand files to
+  that uid. The step now notices that it cannot write the filestore directory and does those
+  operations — placing the filestore, the swap by renaming, removing the previous state and
+  the sessions — through a short-lived root container started from the database container's
+  image, without network. As root nothing changes. The result message says when the helper
+  was used.
+
+### Fixed
+- **A playbook path that may not be read ends in an error message, not a traceback.**
+  `odoodev run /root/playbooks/x.yaml` as another user raised `PermissionError` from the
+  existence check.
+
 ## Version 0.74.0 (30.09.2026)
 
 ### Added

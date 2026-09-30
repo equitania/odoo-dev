@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import types
 
@@ -1327,3 +1328,40 @@ class TestRestoreDatabaseReport:
             lambda cmd, **kw: types.SimpleNamespace(returncode=0, stdout="", stderr='ERROR:  role "x" does not exist'),
         )
         assert db_mod.restore_database("db", str(dump), host="localhost", port=18432, user="ownerp") is True
+
+
+def test_restore_uses_the_helper_when_the_data_directory_is_not_writable(version_cfg, tmp_path, monkeypatch):
+    """An unprivileged account: every filestore change goes through the helper, none through the host."""
+    helper_calls = []
+
+    class FakeHelper:
+        via_container = True
+
+        def ensure_owned_dir(self, path, uid, gid):
+            helper_calls.append("ensure")
+            return True
+
+        def place(self, src, dest, uid, gid):
+            helper_calls.append("place")
+            os.makedirs(dest)
+            return ""
+
+        def rename(self, old, new):
+            helper_calls.append("rename")
+            os.rename(old, new)
+
+        def remove(self, path):
+            helper_calls.append("remove")
+            shutil.rmtree(path, ignore_errors=True)
+
+    fixture = TestServerRestore()
+    args, events, _created, data_dir = fixture._setup(tmp_path, monkeypatch)
+    monkeypatch.setattr("odoodev.core.docker_exec.data_dir_ops", lambda data_dir, container: FakeHelper())
+
+    result = sa.handle_server_restore(version_cfg, args)
+
+    assert result.status == "ok", result.message
+    assert "helper container" in result.message
+    assert "place" in helper_calls and "rename" in helper_calls
+    assert "chown" not in events and "own_root" not in events
+    assert (data_dir / "filestore" / "production").is_dir()

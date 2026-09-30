@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,132 @@ def ensure_dir_owner(path: str, uid: int = 1000, gid: int = 1000) -> bool:
         logger.error("Could not hand %s to %s:%s: %s", path, uid, gid, exc)
         return False
     return True
+
+
+def docker_container_image(name: str, cli: str = "docker") -> str:
+    """Image a container was created from; '' when it cannot be inspected."""
+    try:
+        result = subprocess.run(
+            [cli, "inspect", "-f", "{{.Config.Image}}", name],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+# Where the helper container sees the data directory and the extracted backup.
+HELPER_DATA_MOUNT = "/odoodev-data"
+HELPER_SOURCE_MOUNT = "/odoodev-src"
+
+
+class HostDataDir:
+    """Filestore operations done directly on the host — the case for root."""
+
+    via_container = False
+
+    def ensure_owned_dir(self, path: str, uid: int, gid: int) -> bool:
+        return ensure_dir_owner(path, uid=uid, gid=gid)
+
+    def place(self, src: str, dest: str, uid: int, gid: int) -> str:
+        """Move the contents of ``src`` to ``dest`` and hand them to uid:gid. Returns '' or an error."""
+        from odoodev.core.database import move_filestore
+
+        if not move_filestore(src, dest):
+            return f"Moving the filestore to {dest} failed"
+        if not chown_recursive(dest, uid=uid, gid=gid):
+            return f"chown -R {uid}:{gid} {dest} failed"
+        return ""
+
+    def rename(self, old: str, new: str) -> None:
+        os.rename(old, new)
+
+    def remove(self, path: str) -> None:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+class HelperDataDir:
+    """The same operations through a short-lived root container.
+
+    A server operated by an unprivileged account in the ``docker`` group cannot
+    write into the Odoo data directory: it belongs to the container's user
+    (uid 1000), and handing files to that uid needs root. A throwaway container
+    with the data directory mounted can do both. It runs from an image that is
+    already on the server, without network.
+    """
+
+    via_container = True
+
+    def __init__(self, data_dir: str, image: str, cli: str = "docker") -> None:
+        self.data_dir = os.path.realpath(data_dir)
+        self.image = image
+        self.cli = cli
+
+    def _inside(self, path: str, root: str, mount: str) -> str:
+        relative = os.path.relpath(os.path.realpath(path), root)
+        if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+            raise ValueError(f"{path} is outside {root}")
+        return mount if relative == os.curdir else f"{mount}/{relative}"
+
+    def _data(self, path: str) -> str:
+        return self._inside(path, self.data_dir, HELPER_DATA_MOUNT)
+
+    def _run(self, script: str, script_args: list[str], source_dir: str = "") -> tuple[bool, str]:
+        cmd = [self.cli, "run", "--rm", "--user", "0:0", "--network", "none", "--entrypoint", "sh"]
+        cmd += ["-v", f"{self.data_dir}:{HELPER_DATA_MOUNT}"]
+        if source_dir:
+            cmd += ["-v", f"{source_dir}:{HELPER_SOURCE_MOUNT}"]
+        # Paths travel as positional parameters, never inside the script text.
+        cmd += [self.image, "-c", script, "sh", *script_args]
+        try:
+            result = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        except FileNotFoundError as exc:
+            return False, str(exc)
+        if result.returncode != 0:
+            logger.error("Helper container failed (%s): %s", script, result.stderr.strip())
+        return result.returncode == 0, result.stderr.strip()
+
+    def ensure_owned_dir(self, path: str, uid: int, gid: int) -> bool:
+        ok, _err = self._run('mkdir -p "$1" && chown "$2" "$1"', [self._data(path), f"{uid}:{gid}"])
+        return ok
+
+    def place(self, src: str, dest: str, uid: int, gid: int) -> str:
+        source_dir = os.path.realpath(src)
+        script = 'mkdir -p "$2" && cp -a "$1"/. "$2"/ && chown -R "$3" "$2" && rm -rf "$1"/*'
+        ok, err = self._run(script, [HELPER_SOURCE_MOUNT, self._data(dest), f"{uid}:{gid}"], source_dir=source_dir)
+        return "" if ok else f"Placing the filestore at {dest} through a helper container failed: {err[:300]}"
+
+    def rename(self, old: str, new: str) -> None:
+        ok, err = self._run('[ ! -e "$2" ] && mv "$1" "$2"', [self._data(old), self._data(new)])
+        if not ok:
+            raise OSError(err or f"could not rename {old} to {new}")
+
+    def remove(self, path: str) -> None:
+        if os.path.lexists(path):
+            self._run('rm -rf "$1"', [self._data(path)])
+
+
+def data_dir_ops(data_dir: str, image_container: str, cli: str = "docker") -> HostDataDir | HelperDataDir:
+    """How this process can change the Odoo data directory: directly, or through a helper container.
+
+    Root and anyone who can write the filestore directory work on the host. An
+    unprivileged account gets the helper, started from the image of
+    ``image_container`` (the database container: it is running, so its image
+    is present and nothing has to be pulled).
+    """
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None or geteuid() == 0:
+        return HostDataDir()
+    filestore_root = os.path.join(data_dir, "filestore")
+    probe = filestore_root if os.path.isdir(filestore_root) else data_dir
+    if os.access(probe, os.W_OK):
+        return HostDataDir()
+    image = docker_container_image(image_container, cli)
+    if not image:
+        return HostDataDir()
+    return HelperDataDir(data_dir, image, cli)
 
 
 def docker_health_status(name: str, cli: str = "docker") -> str:

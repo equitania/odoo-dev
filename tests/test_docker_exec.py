@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import time
+
+import pytest
 
 from odoodev.core import docker_exec as dx
 
@@ -364,3 +367,83 @@ def test_ensure_dir_owner_reports_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(dx.os, "chown", denied)
     assert dx.ensure_dir_owner(str(tmp_path / "filestore"), 1000, 1000) is False
+
+
+# --- data directory operations without root ---
+
+
+class _Recorder:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.calls = []
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, self.returncode, self.stdout, self.stderr)
+
+
+def test_data_dir_ops_root_works_on_the_host(tmp_path, monkeypatch):
+    monkeypatch.setattr(dx.os, "geteuid", lambda: 0)
+    assert isinstance(dx.data_dir_ops(str(tmp_path), "live-db"), dx.HostDataDir)
+
+
+def test_data_dir_ops_writable_directory_works_on_the_host(tmp_path, monkeypatch):
+    monkeypatch.setattr(dx.os, "geteuid", lambda: 1001)
+    (tmp_path / "filestore").mkdir()
+    assert isinstance(dx.data_dir_ops(str(tmp_path), "live-db"), dx.HostDataDir)
+
+
+def test_data_dir_ops_unprivileged_account_gets_the_helper(tmp_path, monkeypatch):
+    monkeypatch.setattr(dx.os, "geteuid", lambda: 1001)
+    monkeypatch.setattr(dx.os, "access", lambda path, mode: False)
+    monkeypatch.setattr(dx, "docker_container_image", lambda name, cli="docker": "postgres:17.11")
+    ops = dx.data_dir_ops(str(tmp_path), "live-db")
+    assert isinstance(ops, dx.HelperDataDir)
+    assert ops.image == "postgres:17.11"
+    assert ops.via_container is True
+
+
+def test_helper_place_runs_as_root_without_network_and_passes_paths_as_arguments(tmp_path, monkeypatch):
+    recorder = _Recorder()
+    monkeypatch.setattr(dx.subprocess, "run", recorder)
+    data_dir = tmp_path / "live"
+    src = tmp_path / "extract" / "filestore"
+    data_dir.mkdir()
+    src.mkdir(parents=True)
+    ops = dx.HelperDataDir(str(data_dir), "postgres:17.11")
+
+    assert ops.place(str(src), str(data_dir / "filestore" / "acme_prod.odoodev_new"), 1000, 1000) == ""
+
+    cmd = recorder.calls[0]
+    assert cmd[:9] == ["docker", "run", "--rm", "--user", "0:0", "--network", "none", "--entrypoint", "sh"]
+    assert f"{data_dir.resolve()}:{dx.HELPER_DATA_MOUNT}" in cmd
+    assert f"{src.resolve()}:{dx.HELPER_SOURCE_MOUNT}" in cmd
+    script = cmd[cmd.index("-c") + 1]
+    assert "acme_prod" not in script
+    assert cmd[-3:] == [dx.HELPER_SOURCE_MOUNT, f"{dx.HELPER_DATA_MOUNT}/filestore/acme_prod.odoodev_new", "1000:1000"]
+
+
+def test_helper_place_reports_the_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(dx.subprocess, "run", _Recorder(returncode=1, stderr="cp: no space left"))
+    ops = dx.HelperDataDir(str(tmp_path), "postgres:17.11")
+    assert "no space left" in ops.place(str(tmp_path / "src"), str(tmp_path / "filestore" / "db"), 1000, 1000)
+
+
+def test_helper_rename_raises_oserror_on_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(dx.subprocess, "run", _Recorder(returncode=1, stderr="mv: cannot move"))
+    ops = dx.HelperDataDir(str(tmp_path), "postgres:17.11")
+    with pytest.raises(OSError, match="cannot move"):
+        ops.rename(str(tmp_path / "filestore" / "a"), str(tmp_path / "filestore" / "b"))
+
+
+def test_helper_refuses_a_path_outside_the_data_directory(tmp_path):
+    ops = dx.HelperDataDir(str(tmp_path / "live"), "postgres:17.11")
+    with pytest.raises(ValueError, match="outside"):
+        ops._data(str(tmp_path / "elsewhere"))
+
+
+def test_helper_remove_skips_a_missing_path(tmp_path, monkeypatch):
+    recorder = _Recorder()
+    monkeypatch.setattr(dx.subprocess, "run", recorder)
+    dx.HelperDataDir(str(tmp_path), "postgres:17.11").remove(str(tmp_path / "sessions"))
+    assert recorder.calls == []

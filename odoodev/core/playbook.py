@@ -284,11 +284,15 @@ def load_playbook(path: str) -> PlaybookConfig:
         PlaybookValidationError: If the playbook is invalid.
     """
     playbook_path = Path(path)
-    if not playbook_path.exists():
-        raise FileNotFoundError(f"Playbook not found: {path}")
-
-    with open(playbook_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    # A path below a directory this user may not enter raises PermissionError
+    # on the existence check itself; report it like a missing file, not as a traceback.
+    try:
+        if not playbook_path.exists():
+            raise FileNotFoundError(f"Playbook not found: {path}")
+        with open(playbook_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except PermissionError as exc:
+        raise FileNotFoundError(f"Playbook not readable (permission denied): {path}") from exc
 
     if data is None:
         raise PlaybookValidationError(f"Playbook file is empty: {path}")

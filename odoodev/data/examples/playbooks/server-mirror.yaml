@@ -2,7 +2,7 @@
 #
 # Scenario: the server runs 4 Docker containers — live-odoo/live-db and
 # test-odoo/test-db. The DB containers publish no ports; odoodev reaches them
-# via `docker exec`. Run as root on the server: odoodev run server-mirror.yaml
+# via `docker exec`. Run as root, or as an account in the docker group: odoodev run server-mirror.yaml
 #
 # Secrets (RPC credentials, customer-specific values) live in the env_file
 # (chmod 600), NEVER in this YAML. Referenced as {{ env.NAME }}.

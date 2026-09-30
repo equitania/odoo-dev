@@ -492,6 +492,7 @@ def _swap_in(
     filestore_dest: str,
     filestore_staging: str,
     filestore_previous: str,
+    ops: Any = None,
 ) -> str:
     """Put the restored database and filestore in place of the current ones.
 
@@ -500,6 +501,9 @@ def _swap_in(
     An empty ``filestore_staging`` (SQL-only backup) leaves the filestore alone.
     """
     from odoodev.core.database import pg_exec_container, rename_database_quoted
+    from odoodev.core.docker_exec import HostDataDir
+
+    ops = ops or HostDataDir()
 
     def rename(old: str, new: str) -> bool:
         with pg_exec_container(db_container):
@@ -519,11 +523,14 @@ def _swap_in(
         return ""
     try:
         if os.path.isdir(filestore_dest):
-            os.rename(filestore_dest, filestore_previous)
-        os.rename(filestore_staging, filestore_dest)
+            ops.rename(filestore_dest, filestore_previous)
+        ops.rename(filestore_staging, filestore_dest)
     except OSError as exc:
         if os.path.isdir(filestore_previous) and not os.path.isdir(filestore_dest):
-            os.rename(filestore_previous, filestore_dest)
+            try:
+                ops.rename(filestore_previous, filestore_dest)
+            except OSError:
+                pass  # reported below: the directory check in the next run finds it
         rolled_back = rename(db_name, staging_db) and (not target_exists or rename(previous_db, db_name))
         if rolled_back:
             return f"Swapping the filestore failed ({exc}) — database and filestore of '{db_name}' are unchanged"
@@ -570,10 +577,7 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
         server_offers_pgvector,
         wipe_database,
     )
-    from odoodev.core.database import (
-        move_filestore as move_filestore_fn,
-    )
-    from odoodev.core.docker_exec import chown_recursive, docker_container_running, ensure_dir_owner
+    from odoodev.core.docker_exec import data_dir_ops, docker_container_running
 
     command = "server.restore"
     db_container = _require(args, "db_container", command)
@@ -601,6 +605,9 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
     filestore_root = os.path.join(data_dir, "filestore")
     filestore_dest = os.path.join(filestore_root, db_name)
     sessions_dir = os.path.join(data_dir, "sessions")
+    # Root works on the host; an unprivileged account cannot write a data
+    # directory owned by the container's user and goes through a helper container.
+    ops = data_dir_ops(data_dir, db_container)
 
     # The dump goes into a staging database and only a successful restore is
     # swapped in by renaming. The previous state therefore survives every
@@ -688,7 +695,7 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
         def discard_staging() -> None:
             with pg_exec_container(db_container):
                 drop_database(staging_db, **conn)
-            shutil.rmtree(filestore_staging, ignore_errors=True)
+            ops.remove(filestore_staging)
 
         # A staging database or directory still lying around is the debris of a
         # failed run, never anybody's data.
@@ -722,22 +729,16 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
                 notes.append(f"{len(sql_errors)} SQL error(s) during the restore, first: {sql_errors[0][:200]}")
 
         if filestore_src:
-            report("moving the filestore into place and setting its owner")
-            if not ensure_dir_owner(filestore_root, uid=chown_uid, gid=chown_gid):
+            how = " through a helper container (not running as root)" if ops.via_container else ""
+            report(f"moving the filestore into place and setting its owner{how}")
+            if not ops.ensure_owned_dir(filestore_root, chown_uid, chown_gid):
                 notes.append(f"{filestore_root} could not be handed to {chown_uid}:{chown_gid}")
-            if not move_filestore_fn(filestore_src, filestore_staging):
+            place_error = ops.place(filestore_src, filestore_staging, chown_uid, chown_gid)
+            if place_error:
                 discard_staging()
-                return _step_error(
-                    command, command, f"Moving the filestore to {filestore_staging} failed — '{db_name}' unchanged", 0
-                )
-            if not chown_recursive(filestore_staging, uid=chown_uid, gid=chown_gid):
-                discard_staging()
-                return _step_error(
-                    command,
-                    command,
-                    f"chown -R {chown_uid}:{chown_gid} {filestore_staging} failed — '{db_name}' unchanged",
-                    0,
-                )
+                return _step_error(command, command, f"{place_error} — '{db_name}' unchanged", 0)
+            if ops.via_container:
+                notes.append("filestore placed through a helper container (not running as root)")
 
         report(f"swapping the restored database in as '{db_name}'")
         swap_error = _swap_in(
@@ -750,6 +751,7 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
             filestore_dest=filestore_dest,
             filestore_staging=filestore_staging if filestore_src else "",
             filestore_previous=filestore_previous,
+            ops=ops,
         )
         if swap_error:
             discard_staging()
@@ -759,13 +761,13 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
 
     # From here on the new state is live; what follows only tidies up.
     if os.path.isdir(sessions_dir):
-        shutil.rmtree(sessions_dir, ignore_errors=True)
+        ops.remove(sessions_dir)
     if target_exists:
         with pg_exec_container(db_container):
             if not drop_database(previous_db, **conn):
                 notes.append(f"previous database kept as '{previous_db}' (dropping it failed)")
     if os.path.isdir(filestore_previous):
-        shutil.rmtree(filestore_previous, ignore_errors=True)
+        ops.remove(filestore_previous)
         if os.path.isdir(filestore_previous):
             notes.append(f"previous filestore kept at {filestore_previous} (removing it failed)")
 

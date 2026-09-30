@@ -311,7 +311,7 @@ report what they are doing (`server.rebuild`: each line of the update script; `s
 its phases). NDJSON: `step_start` {index, total, name, command} and `step_progress` {…, message}
 before the step's `step_done`; none in `--dry-run`. `step_done.name` is the playbook's step name.
 Text durations read `7m 19s`; NDJSON keeps `duration_ms`.
-Bundled example: `server-mirror.yaml`. Requires root on the server (chown, data-dir access).
+Bundled example: `server-mirror.yaml`. Runs as root, or as an unprivileged account in the `docker` group: `server.restore` then changes the data directory through a short-lived root container (0.75.0).
 
 ### Generate a playbook (assistant / GUI)
 ```bash
