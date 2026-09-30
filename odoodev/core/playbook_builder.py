@@ -30,7 +30,15 @@ from odoodev.core.playbook_schema import (
 
 # Answers files from v1 (0.54.0) remain valid — the answers format is unchanged;
 # schema v2 only restructured the wizard/GUI question flow (source-first).
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, SCHEMA_VERSION)
+SUPPORTED_SCHEMA_VERSIONS = tuple(range(1, SCHEMA_VERSION + 1))
+
+# Where server.rebuild sits relative to the restore. Up to schema v3 it ran
+# first, which updated the database about to be replaced; from v4 it follows the
+# restore and is the step that updates the restored database and starts Odoo.
+REBUILD_AFTER_RESTORE = "after_restore"
+REBUILD_BEFORE_RESTORE = "before_restore"
+REBUILD_POSITIONS = (REBUILD_AFTER_RESTORE, REBUILD_BEFORE_RESTORE)
+_REBUILD_AFTER_SINCE_SCHEMA = 4
 
 _ENV_REF_RE = re.compile(r"\{\{\s*env\.(\w+)\s*\}\}")
 _VAR_REF_RE = re.compile(r"\{\{\s*vars\.(\w+)\s*\}\}")
@@ -140,6 +148,16 @@ def _validate_server_answers(answers: dict[str, Any]) -> list[str]:
     backup = recipe.get("backup") or {}
     if isinstance(backup, dict) and backup.get("enabled") and not str(backup.get("backup_dir", "") or "").strip():
         problems.append("recipe.backup.enabled is true but recipe.backup.backup_dir is missing")
+
+    safety = recipe.get("safety_backup") or {}
+    if isinstance(safety, dict) and safety.get("enabled") and not str(safety.get("backup_dir", "") or "").strip():
+        problems.append("recipe.safety_backup.enabled is true but recipe.safety_backup.backup_dir is missing")
+
+    rebuild_block = recipe.get("rebuild") or {}
+    if isinstance(rebuild_block, dict):
+        position = str(rebuild_block.get("position", "") or "")
+        if position and position not in REBUILD_POSITIONS:
+            problems.append(f"recipe.rebuild.position must be one of {list(REBUILD_POSITIONS)}, got {position!r}")
 
     # Self-mirror guard: backing up a target and restoring straight back into the
     # SAME target is the v0.54.0 wizard failure mode (source question missing) —
@@ -292,10 +310,61 @@ def _mirror_destination(answers: dict[str, Any]) -> str:
     return targets[0] if targets else ""
 
 
+def rebuild_position(answers: dict[str, Any]) -> str:
+    """Where the rebuild step goes: explicit ``recipe.rebuild.position``, else by schema version."""
+    rebuild = (answers.get("recipe") or {}).get("rebuild") or {}
+    explicit = str(rebuild.get("position", "") or "") if isinstance(rebuild, dict) else ""
+    if explicit in REBUILD_POSITIONS:
+        return explicit
+    try:
+        schema_version = int(answers.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        schema_version = 0
+    return REBUILD_AFTER_RESTORE if schema_version >= _REBUILD_AFTER_SINCE_SCHEMA else REBUILD_BEFORE_RESTORE
+
+
+def _rebuild_step(rebuild: dict[str, Any], dest: str, after_restore: bool) -> dict[str, Any]:
+    args: dict[str, Any] = {"target": str(rebuild.get("target", "") or dest)}
+    for key, default in (("script_path", "~/update_docker_odoo.py"), ("config", "~/docker2update.yaml")):
+        value = str(rebuild.get(key, "") or "")
+        if value and value != default:
+            args[key] = value
+    timeout = int(rebuild.get("timeout", 7200))
+    if timeout != 7200:
+        args["timeout"] = timeout
+    name = (
+        f"Rebuild image, update all modules, start Odoo ({args['target']})"
+        if after_restore
+        else f"Rebuild Odoo container ({args['target']})"
+    )
+    return {"name": name, "command": "server.rebuild", "args": args}
+
+
 def _build_server_steps(answers: dict[str, Any]) -> list[dict[str, Any]]:
     recipe = answers.get("recipe") or {}
     dest = _mirror_destination(answers)
     steps: list[dict[str, Any]] = []
+
+    rebuild = recipe.get("rebuild") or {}
+    rebuild_after = bool(rebuild.get("enabled")) and rebuild_position(answers) == REBUILD_AFTER_RESTORE
+
+    # The destination's current state is saved FIRST: a later server.backup of
+    # the source is then the last one the runner saw, which is the file a
+    # from_backup_step restore takes.
+    safety = recipe.get("safety_backup") or {}
+    if safety.get("enabled"):
+        steps.append(
+            {
+                "name": f"Save the current state of {dest} (skipped if it has no database yet)",
+                "command": "server.backup",
+                "args": {
+                    "target": dest,
+                    "backup_dir": str(safety.get("backup_dir", "")),
+                    "compression_level": int(safety.get("compression_level", 5)),
+                    "safety": True,
+                },
+            }
+        )
 
     backup = recipe.get("backup") or {}
     if backup.get("enabled"):
@@ -309,17 +378,8 @@ def _build_server_steps(answers: dict[str, Any]) -> list[dict[str, Any]]:
             args["only_sql"] = True
         steps.append({"name": f"Create fresh backup ({source})", "command": "server.backup", "args": args})
 
-    rebuild = recipe.get("rebuild") or {}
-    if rebuild.get("enabled"):
-        args = {"target": str(rebuild.get("target", "") or dest)}
-        for key, default in (("script_path", "~/update_docker_odoo.py"), ("config", "~/docker2update.yaml")):
-            value = str(rebuild.get(key, "") or "")
-            if value and value != default:
-                args[key] = value
-        timeout = int(rebuild.get("timeout", 7200))
-        if timeout != 7200:
-            args["timeout"] = timeout
-        steps.append({"name": f"Rebuild Odoo container ({args['target']})", "command": "server.rebuild", "args": args})
+    if rebuild.get("enabled") and not rebuild_after:
+        steps.append(_rebuild_step(rebuild, dest, after_restore=False))
 
     if recipe.get("stop_before_restore"):
         steps.append(
@@ -377,7 +437,14 @@ def _build_server_steps(answers: dict[str, Any]) -> list[dict[str, Any]]:
             step["on_error"] = on_error
         steps.append(step)
 
-    if recipe.get("start_after_restore"):
+    # The server's own update routine, against the restored database: it builds
+    # the image, runs the module update and starts the container — so a separate
+    # container.start would only start what is about to be recreated.
+    running_after = False
+    if rebuild_after:
+        steps.append(_rebuild_step(rebuild, dest, after_restore=True))
+        running_after = True
+    elif recipe.get("start_after_restore"):
         steps.append(
             {
                 "name": f"Start Odoo container ({dest})",
@@ -385,6 +452,7 @@ def _build_server_steps(answers: dict[str, Any]) -> list[dict[str, Any]]:
                 "args": {"target": dest, "component": "odoo"},
             }
         )
+        running_after = True
 
     if (recipe.get("neutralize") or {}).get("enabled"):
         steps.append(
@@ -406,6 +474,17 @@ def _build_server_steps(answers: dict[str, Any]) -> list[dict[str, Any]]:
         if on_error != "stop":
             step["on_error"] = on_error
         steps.append(step)
+
+    # Last of the steps that touch the instance: only now is it in its final state.
+    verify = recipe.get("verify") or {}
+    if verify.get("enabled") and running_after:
+        args = {"target": dest}
+        timeout = int(verify.get("timeout", 300))
+        if timeout != 300:
+            args["timeout"] = timeout
+        steps.append(
+            {"name": f"Verify that {dest} is up on the restored database", "command": "server.verify", "args": args}
+        )
 
     rpc_call = recipe.get("rpc_call") or {}
     if rpc_call.get("enabled"):

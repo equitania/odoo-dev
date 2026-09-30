@@ -256,3 +256,111 @@ def test_find_latest_backup_ignores_directories(tmp_path):
     result = dx.find_latest_backup(str(tmp_path), "prod_*.tar.zst")
     assert result is not None
     assert result.endswith("prod_file.tar.zst")
+
+
+# --- docker_health_status ---
+
+
+def test_health_status_values(monkeypatch):
+    for stdout, expected in (
+        ("true|healthy\n", "healthy"),
+        ("true|starting\n", "starting"),
+        ("true|unhealthy\n", "unhealthy"),
+        ("true|none\n", "none"),
+        ("false|none\n", "stopped"),
+    ):
+        _patch_run(monkeypatch, lambda cmd, kw, out=stdout: FakeCompleted(0, out))
+        assert dx.docker_health_status("live-odoo") == expected
+
+
+def test_health_status_missing_container(monkeypatch):
+    _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(1, "", "No such object"))
+    assert dx.docker_health_status("nope") == "missing"
+
+
+# --- docker_published_port ---
+
+
+def test_published_port_loopback(monkeypatch):
+    calls = _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(0, "127.0.0.1:11000\n"))
+    assert dx.docker_published_port("live-odoo", 8069) == ("127.0.0.1", 11000)
+    assert calls[0] == ["docker", "port", "live-odoo", "8069"]
+
+
+def test_published_port_wildcard_is_reached_via_loopback(monkeypatch):
+    _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(0, "0.0.0.0:8080\n[::]:8080\n"))
+    assert dx.docker_published_port("odoo", 8069) == ("127.0.0.1", 8080)
+
+
+def test_published_port_not_published(monkeypatch):
+    _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(1, "", "no public port"))
+    assert dx.docker_published_port("live-db", 5432) is None
+
+
+# --- read_container_file ---
+
+
+def test_read_file_from_running_container_uses_exec(monkeypatch):
+    def responder(cmd, kw):
+        if cmd[1] == "inspect":
+            return FakeCompleted(0, "true\n")
+        return FakeCompleted(0, "content")
+
+    calls = _patch_run(monkeypatch, responder)
+    assert dx.read_container_file("live-odoo", "/opt/odoo/x") == "content"
+    assert calls[-1] == ["docker", "exec", "live-odoo", "cat", "/opt/odoo/x"]
+
+
+def test_read_file_from_stopped_container_runs_its_image(monkeypatch):
+    def responder(cmd, kw):
+        if cmd[1] == "inspect" and "{{.State.Running}}" in cmd:
+            return FakeCompleted(0, "false\n")
+        if cmd[1] == "inspect":
+            return FakeCompleted(0, "odoo/live:latest\n")
+        return FakeCompleted(0, "content")
+
+    calls = _patch_run(monkeypatch, responder)
+    assert dx.read_container_file("live-odoo", "/opt/odoo/x") == "content"
+    # throwaway run of the image: no network, no entrypoint script, removed afterwards
+    assert calls[-1] == [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--entrypoint",
+        "cat",
+        "odoo/live:latest",
+        "/opt/odoo/x",
+    ]
+
+
+def test_read_file_unreadable_is_none(monkeypatch):
+    _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(1, "", "boom"))
+    assert dx.read_container_file("nope", "/x") is None
+
+
+# --- ensure_dir_owner ---
+
+
+def test_ensure_dir_owner_creates_and_chowns(tmp_path, monkeypatch):
+    chowned = []
+    monkeypatch.setattr(dx.os, "chown", lambda path, uid, gid: chowned.append((path, uid, gid)))
+    target = tmp_path / "data" / "filestore"
+    assert dx.ensure_dir_owner(str(target), 1000, 1000) is True
+    assert target.is_dir()
+    assert chowned == [(str(target), 1000, 1000)]
+
+
+def test_ensure_dir_owner_leaves_a_correct_owner_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(dx.os, "chown", lambda *a: (_ for _ in ()).throw(AssertionError("must not chown")))
+    stat = os.stat(tmp_path)
+    assert dx.ensure_dir_owner(str(tmp_path), stat.st_uid, stat.st_gid) is True
+
+
+def test_ensure_dir_owner_reports_failure(tmp_path, monkeypatch):
+    def denied(path, uid, gid):
+        raise PermissionError("not root")
+
+    monkeypatch.setattr(dx.os, "chown", denied)
+    assert dx.ensure_dir_owner(str(tmp_path / "filestore"), 1000, 1000) is False

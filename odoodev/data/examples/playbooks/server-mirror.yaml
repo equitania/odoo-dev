@@ -34,6 +34,16 @@ vars:
   customer: acme
 
 steps:
+  # The test system's current database is saved before it is replaced. A target
+  # that has no database yet makes this step a no-op. The file is named
+  # ..._prerestore_... and is never picked up as the mirror's source.
+  - name: "Save the current state of test"
+    command: server.backup
+    args:
+      target: test
+      backup_dir: /opt/backups/docker
+      safety: true
+
   # Optional — skip this step to mirror from the newest nightly backup instead.
   - name: "Create fresh live backup"
     command: server.backup
@@ -42,22 +52,13 @@ steps:
       backup_dir: /opt/backups/docker
       compression_level: 5
 
-  # Optional — rebuild the test Odoo container from scratch (release fetch +
-  # docker build via update_docker_odoo.py from myodoo-docker; the access code
-  # lives in release.txt inside the container's build folder). The script
-  # starts the container itself, so container.stop below stays in place.
-  # - name: "Rebuild test-odoo container"
-  #   command: server.rebuild
-  #   args:
-  #     target: test                # container = odoo_container of the target
-  #     # script_path: ~/update_docker_odoo.py
-  #     # config: ~/docker2update.yaml
-  #     # timeout: 7200
-
   - name: "Stop test-odoo"
     command: container.stop
     args: { target: test, component: odoo }
 
+  # The dump goes into a staging database and is swapped in by renaming only
+  # after it restored completely — until then the existing database is
+  # untouched. Needs room for the old and the new database side by side.
   - name: "Restore newest live backup into test"
     command: server.restore
     args:
@@ -79,7 +80,8 @@ steps:
       deactivate_cron: true       # ir_cron off, mail/fetchmail servers off
       neutralize: true            # bank-sync cleanup (odoo-bin neutralize -> own step below)
       anonymize: false            # GDPR anonymization (Faker)
-      wipe: false                 # mail bodies / attachment index wipe
+      wipe: false                 # chatter and attachments deleted
+      # without_pgvector: true    # restore a pgvector backup into a server without it
 
   - name: "Customer-specific SQL (before the server starts)"
     command: sql.execute
@@ -92,22 +94,39 @@ steps:
         - "UPDATE website SET domain = 'https://{{ vars.customer }}-test.ownerp.app';"
     on_error: continue
 
-  - name: "Start test-odoo"
-    command: container.start
-    args: { target: test, component: odoo }
+  # The server's own update routine (update_docker_odoo.py from myodoo-docker),
+  # run against the database that was just restored: it fetches the release,
+  # builds the image, updates all modules and starts the container. The
+  # database it updates is the one named for this container in
+  # ~/docker2update.yaml — the preflight stops the run if that differs from the
+  # target's db_name. No container.start needed: the script starts Odoo itself.
+  - name: "Rebuild image, update all modules, start test-odoo"
+    command: server.rebuild
+    args:
+      target: test                # container = odoo_container of the target
+      # script_path: ~/update_docker_odoo.py
+      # config: ~/docker2update.yaml
+      # timeout: 7200
 
-  # odoo-bin steps need the RUNNING container (docker exec) — always after container.start.
+  # Without update_docker_odoo.py on the host, replace the step above by:
+  # - name: "Start test-odoo"
+  #   command: container.start
+  #   args: { target: test, component: odoo }
+  # - name: "Update all modules inside the running container"
+  #   command: server.update-all
+  #   args: { target: test, restart: true }
+
+  # odoo-bin steps need the RUNNING container (docker exec) — always after the start.
   - name: "Neutralize (odoo-bin neutralize in the container)"
     command: server.neutralize
     args: { target: test }
 
-  - name: "Update all modules"
-    command: server.update-all
-    args:
-      target: test
-      # defaults: /opt/odoo/odoo-server/odoo-bin + /opt/odoo/etc/odoo.conf
-      restart: true               # restart test-odoo afterwards (fresh registry)
-    on_error: continue
+  # A started container proves little. This waits for "healthy", checks that no
+  # module is stuck between two states and that the login page of the database
+  # loads.
+  - name: "Verify that test is up on the restored database"
+    command: server.verify
+    args: { target: test }
 
   - name: "Post-restore RPC configuration"
     command: rpc.execute

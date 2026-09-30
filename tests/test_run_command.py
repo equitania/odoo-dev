@@ -339,3 +339,209 @@ class TestRunVarOption:
         result = CliRunner().invoke(cli, ["run", str(pb), "--dry-run", "-D", "novalue"])
         assert result.exit_code != 0
         assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Server steps: what they say must reach the screen
+# =============================================================================
+
+
+class TestServerStepOutput:
+    def _result(self, **kwargs):
+        from odoodev.core.playbook import StepResult
+
+        defaults = {"name": "step", "command": "server.verify", "status": "ok", "exit_code": 0, "duration_ms": 5}
+        return StepResult(**{**defaults, **kwargs})
+
+    def _render(self, result) -> str:
+        from io import StringIO
+
+        from rich.console import Console
+
+        from odoodev.commands import run as run_mod
+
+        buffer = StringIO()
+        with patch.object(run_mod, "console", Console(file=buffer, width=200, color_system=None)):
+            run_mod._print_step_result_text(result)
+        return buffer.getvalue()
+
+    def test_ok_server_step_prints_its_message(self):
+        out = self._render(self._result(message="'acme_prod' is up in 'live-odoo': container healthy"))
+        assert "[OK]" in out
+        assert "'acme_prod' is up in 'live-odoo'" in out
+
+    def test_ok_dev_step_stays_a_single_line(self):
+        out = self._render(self._result(command="docker.up", message="Services started"))
+        assert "Services started" not in out
+
+    def test_preflight_warning_is_not_shown_as_a_plain_ok(self):
+        out = self._render(
+            self._result(name="Preflight", command="preflight", message="[warning] 'live-odoo' is switched off")
+        )
+        assert "[WARN]" in out and "[OK]" not in out
+        assert "[warning] 'live-odoo' is switched off" in out
+
+    def test_preflight_error_lists_every_finding(self):
+        message = "[error] odoo_version '18'\n[warning] never updated"
+        out = self._render(self._result(name="Preflight", command="preflight", status="error", message=message))
+        assert "[ERROR]" in out
+        assert "[error] odoo_version '18'" in out
+        assert "[warning] never updated" in out
+
+    def test_brackets_in_an_error_message_survive(self):
+        out = self._render(self._result(status="error", message="args were ['--verbose'] [red]"))
+        assert "['--verbose'] [red]" in out
+
+    def test_no_preflight_flag_reaches_the_runner(self, tmp_path, monkeypatch):
+        playbook = tmp_path / "pb.yaml"
+        playbook.write_text(yaml.dump({"version": "18", "steps": [{"command": "docker.status"}]}))
+        seen = {}
+
+        def fake_execute(self, pb, **kwargs):
+            from odoodev.core.playbook import PlaybookResult
+
+            seen.update(kwargs)
+            return PlaybookResult(playbook="pb", version="18", status="ok", steps=(), total_duration_ms=0)
+
+        monkeypatch.setattr("odoodev.core.playbook.PlaybookRunner.execute", fake_execute)
+        assert CliRunner().invoke(cli, ["run", str(playbook), "--no-preflight"]).exit_code == 0
+        assert seen["preflight"] is False
+        assert CliRunner().invoke(cli, ["run", str(playbook)]).exit_code == 0
+        assert seen["preflight"] is True
+
+
+# =============================================================================
+# Progress: which step is running, and what it is doing
+# =============================================================================
+
+
+class TestStepProgress:
+    def _console(self, monkeypatch):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from odoodev.commands import run as run_mod
+
+        buffer = StringIO()
+        monkeypatch.setattr(run_mod, "console", Console(file=buffer, width=200, color_system=None))
+        return run_mod, buffer
+
+    def test_into_a_pipe_each_step_and_report_is_a_plain_line(self, monkeypatch):
+        run_mod, buffer = self._console(monkeypatch)  # a StringIO is no terminal
+        progress = run_mod._StepProgress()
+        progress.start(2, 5, "Restore backup into test")
+        progress.update("restoring the dump into 'x__odoodev_new'")
+        progress.stop()
+        out = buffer.getvalue()
+        assert "[2/5] Restore backup into test" in out
+        assert "restoring the dump into 'x__odoodev_new'" in out
+        assert progress.position == "2/5"
+
+    def test_a_report_without_a_running_step_prints_nothing(self, monkeypatch):
+        run_mod, buffer = self._console(monkeypatch)
+        run_mod._StepProgress().update("stray")
+        assert buffer.getvalue() == ""
+
+    def test_result_line_carries_position_and_readable_duration(self, monkeypatch):
+        from odoodev.core.playbook import StepResult
+
+        run_mod, buffer = self._console(monkeypatch)
+        result = StepResult("Rebuild image", "server.rebuild", "ok", "rebuilt", 0, 439393)
+        run_mod._print_step_result_text(result, "1/2")
+        out = buffer.getvalue()
+        assert "[OK] 1/2 Rebuild image (7m 19s)" in out
+        assert "439393" not in out
+
+    @pytest.mark.parametrize(
+        ("ms", "text"),
+        [
+            (6, "6ms"),
+            (999, "999ms"),
+            (6368, "6.4s"),
+            (59999, "60.0s"),
+            (60000, "1m 00s"),
+            (439393, "7m 19s"),
+            (3_725_000, "1h 02m 05s"),
+        ],
+    )
+    def test_format_duration(self, ms, text):
+        from odoodev.commands.run import _format_duration
+
+        assert _format_duration(ms) == text
+
+    def _server_playbook(self, tmp_path):
+        playbook = tmp_path / "pb.yaml"
+        playbook.write_text(
+            yaml.dump(
+                {
+                    "version": "18",
+                    "targets": {"t": {"db_container": "t-db", "odoo_container": "t-odoo", "db_name": "d"}},
+                    "steps": [
+                        {"name": "Stop it", "command": "container.stop", "args": {"target": "t"}},
+                        {"name": "Check it", "command": "server.verify", "args": {"target": "t"}},
+                    ],
+                }
+            )
+        )
+        return str(playbook)
+
+    def _fake_handlers(self, monkeypatch):
+        from odoodev.core import server_automation as sa
+        from odoodev.core.playbook import StepResult
+
+        def stop(cfg, args):
+            assert "_progress" not in args  # only long-running steps get the callback
+            return StepResult("container.stop", "container.stop", "ok", "stopped", 0, 3)
+
+        def verify(cfg, args):
+            args["_progress"]("waiting for 't-odoo' to report healthy")
+            return StepResult("server.verify", "server.verify", "ok", "up", 0, 1500)
+
+        monkeypatch.setitem(sa.SERVER_COMMAND_HANDLERS, "container.stop", stop)
+        monkeypatch.setitem(sa.SERVER_COMMAND_HANDLERS, "server.verify", verify)
+
+    def test_text_run_shows_position_step_name_and_reports(self, tmp_path, monkeypatch):
+        self._fake_handlers(monkeypatch)
+        result = CliRunner().invoke(cli, ["run", self._server_playbook(tmp_path)])
+        assert result.exit_code == 0, result.output
+        lines = result.output.splitlines()
+        started = [line for line in lines if "..." in line]
+        assert "[1/2] Stop it" in started[0] and "[2/2] Check it" in started[1]
+        assert any("waiting for 't-odoo' to report healthy" in line for line in lines)
+        # results carry the playbook's own step names, not the command
+        assert any("[OK] 1/2 Stop it" in line for line in lines)
+        assert any("[OK] 2/2 Check it (1.5s)" in line for line in lines)
+
+    def test_json_run_emits_start_and_progress_events(self, tmp_path, monkeypatch):
+        self._fake_handlers(monkeypatch)
+        result = CliRunner().invoke(cli, ["run", self._server_playbook(tmp_path), "-o", "json"])
+        assert result.exit_code == 0, result.output
+        events = [json.loads(line) for line in result.output.splitlines() if line.startswith("{")]
+        kinds = [e["event"] for e in events]
+        assert kinds == [
+            "playbook_start",
+            "step_start",
+            "step_done",
+            "step_start",
+            "step_progress",
+            "step_done",
+            "playbook_done",
+        ]
+        assert events[1] == {
+            "event": "step_start",
+            "index": 1,
+            "total": 2,
+            "name": "Stop it",
+            "command": "container.stop",
+        }
+        assert events[4]["message"] == "waiting for 't-odoo' to report healthy"
+        assert events[4]["index"] == 2
+        assert events[5]["name"] == "Check it"
+
+    def test_dry_run_announces_nothing(self, tmp_path, monkeypatch):
+        result = CliRunner().invoke(
+            cli, ["run", self._server_playbook(tmp_path), "-o", "json", "--dry-run", "--no-preflight"]
+        )
+        kinds = [json.loads(line)["event"] for line in result.output.splitlines() if line.startswith("{")]
+        assert "step_start" not in kinds and "step_progress" not in kinds

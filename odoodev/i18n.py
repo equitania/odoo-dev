@@ -261,11 +261,51 @@ MESSAGES: dict[str, dict[str, str]] = {
             "the restore would overwrite the system you just backed up!"
         ),
         "playbook.server.dest.self_mirror_confirm": "Really restore back onto the source system?",
-        "playbook.server.recipe.rebuild": "Rebuild the destination Odoo container (server.rebuild)",
+        "playbook.server.recipe.rebuild": (
+            "Update the restored database with the server's own routine: rebuild image, "
+            "update all modules, start Odoo (server.rebuild)"
+        ),
+        "playbook.server.recipe.rebuild_position": "Run the rebuild before or after the restore?",
+        "playbook.server.recipe.safety_backup": (
+            "Save the destination's current database before it is replaced (server.backup)"
+        ),
+        "playbook.server.recipe.safety_backup_dir": "Directory for that safety backup on the server:",
+        "playbook.server.inventory.found": (
+            "{count} Odoo instance(s) found in ~/docker2update.yaml — you can pick from them instead of typing."
+        ),
+        "playbook.server.inventory.pick_source": "Which instance is the SOURCE (the backup is taken from it)?",
+        "playbook.server.inventory.pick_dest": "Which instance is the DESTINATION (the backup is restored into it)?",
+        "playbook.server.inventory.choice": (
+            "{container} — database {database} (DB container {db_container}){inactive}"
+        ),
+        "playbook.server.inventory.inactive": " — switched off in docker2update.yaml",
+        "playbook.server.inventory.manual": "Another container pair (enter by hand)",
+        "playbook.server.inventory.taken": (
+            "Taken from docker2update.yaml: DB container {db_container}, database {database}, data directory {data_dir}"
+        ),
+        "playbook.server.inventory.data_dir_runtime": "read from the container's mounts at run time",
+        "playbook.server.inventory.version_mismatch": (
+            "{container} is configured as Odoo {configured} in docker2update.yaml, this playbook is for "
+            "version {version}. The run will stop at its preflight until the two agree."
+        ),
+        "playbook.server.restore.pick_file": "Which backup file? (newest first, from {directory})",
+        "playbook.server.restore.file_choice": "{date}  {size:>9}  {name}",
+        "playbook.server.restore.file_other": "Another file (enter the path)",
+        "playbook.preflight.header": "Checked against this server — findings:",
+        "playbook.preflight.clean": (
+            "Checked against this server: no findings (only what can be read on this host is checked)."
+        ),
+        "playbook.preflight.blocks": (
+            "An [error] stops the run before its first step. Fix it, then check again with --dry-run."
+        ),
+        "playbook.preflight.failed": "The check against this server could not run: {error}",
+        "playbook.server.recipe.verify": "Verify afterwards that Odoo really serves the database (server.verify)",
         "playbook.server.recipe.stop_before": "Stop destination Odoo before restore (container.stop)",
         "playbook.server.recipe.sql": "Run custom SQL after restore (sql.execute)",
         "playbook.server.recipe.start_after": "Start destination Odoo after restore (container.start)",
-        "playbook.server.recipe.update_all": "Update all modules (server.update-all)",
+        "playbook.server.recipe.update_all": (
+            "Exception: update modules inside the running container instead (server.update-all)"
+        ),
         "playbook.server.recipe.rpc_call": "Post-restore RPC call (rpc.execute)",
         "playbook.server.recipe.backup_dir": "Backup directory on the server:",
         "playbook.server.recipe.compression_level": "zstd compression level (1-22):",
@@ -275,8 +315,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.recipe.rebuild_config": "Path to docker2update.yaml:",
         "playbook.server.recipe.rebuild_timeout": "Rebuild timeout in seconds:",
         "playbook.server.recipe.rebuild_hint": (
-            "The release access code lives in release.txt inside the build folder; "
-            "the container must be an active entry in docker2update.yaml."
+            "Runs after the restore, so it updates the restored database and starts Odoo itself. "
+            "The release access code lives in release.txt inside the build folder; the container must be "
+            "an active entry in docker2update.yaml, with the database name of the destination."
         ),
         "playbook.server.recipe.update_all_restart": "Restart the container after the module update?",
         "playbook.server.recipe.update_all_on_error": "If the module update fails:",
@@ -611,11 +652,52 @@ MESSAGES: dict[str, dict[str, str]] = {
             "der Restore würde das gerade gesicherte System überschreiben!"
         ),
         "playbook.server.dest.self_mirror_confirm": "Wirklich auf das Quellsystem zurückspielen?",
-        "playbook.server.recipe.rebuild": "Ziel-Odoo-Container neu aufbauen (server.rebuild)",
+        "playbook.server.recipe.rebuild": (
+            "Eingespielte Datenbank mit der Update-Routine des Servers aktualisieren: Image neu bauen, "
+            "alle Module aktualisieren, Odoo starten (server.rebuild)"
+        ),
+        "playbook.server.recipe.rebuild_position": "Rebuild vor oder nach dem Restore ausführen?",
+        "playbook.server.recipe.safety_backup": (
+            "Aktuelle Datenbank des Ziels sichern, bevor sie ersetzt wird (server.backup)"
+        ),
+        "playbook.server.recipe.safety_backup_dir": "Verzeichnis für diese Sicherung auf dem Server:",
+        "playbook.server.inventory.found": (
+            "{count} Odoo-Instanz(en) in ~/docker2update.yaml gefunden — Sie können daraus wählen, statt zu tippen."
+        ),
+        "playbook.server.inventory.pick_source": "Welche Instanz ist die QUELLE (von ihr wird gesichert)?",
+        "playbook.server.inventory.pick_dest": "Welche Instanz ist das ZIEL (in sie wird eingespielt)?",
+        "playbook.server.inventory.choice": (
+            "{container} — Datenbank {database} (DB-Container {db_container}){inactive}"
+        ),
+        "playbook.server.inventory.inactive": " — in docker2update.yaml abgeschaltet",
+        "playbook.server.inventory.manual": "Anderes Container-Paar (von Hand eingeben)",
+        "playbook.server.inventory.taken": (
+            "Aus docker2update.yaml übernommen: DB-Container {db_container}, Datenbank {database}, "
+            "Datenverzeichnis {data_dir}"
+        ),
+        "playbook.server.inventory.data_dir_runtime": "wird beim Lauf aus den Mounts des Containers gelesen",
+        "playbook.server.inventory.version_mismatch": (
+            "{container} ist in docker2update.yaml als Odoo {configured} eingetragen, dieses Playbook gilt für "
+            "Version {version}. Der Lauf hält an seiner Vorabprüfung an, bis beides übereinstimmt."
+        ),
+        "playbook.server.restore.pick_file": "Welche Backup-Datei? (neueste zuerst, aus {directory})",
+        "playbook.server.restore.file_choice": "{date}  {size:>9}  {name}",
+        "playbook.server.restore.file_other": "Andere Datei (Pfad eingeben)",
+        "playbook.preflight.header": "Gegen diesen Server geprüft — Befunde:",
+        "playbook.preflight.clean": (
+            "Gegen diesen Server geprüft: keine Befunde (geprüft wird nur, was auf diesem Rechner lesbar ist)."
+        ),
+        "playbook.preflight.blocks": (
+            "Ein [error] stoppt den Lauf vor dem ersten Schritt. Beheben, dann mit --dry-run erneut prüfen."
+        ),
+        "playbook.preflight.failed": "Die Prüfung gegen diesen Server konnte nicht laufen: {error}",
+        "playbook.server.recipe.verify": ("Danach prüfen, ob Odoo die Datenbank wirklich ausliefert (server.verify)"),
         "playbook.server.recipe.stop_before": "Ziel-Odoo vor dem Restore stoppen (container.stop)",
         "playbook.server.recipe.sql": "Eigenes SQL nach dem Restore ausführen (sql.execute)",
         "playbook.server.recipe.start_after": "Ziel-Odoo nach dem Restore starten (container.start)",
-        "playbook.server.recipe.update_all": "Alle Module aktualisieren (server.update-all)",
+        "playbook.server.recipe.update_all": (
+            "Ausnahme: Module stattdessen im laufenden Container aktualisieren (server.update-all)"
+        ),
         "playbook.server.recipe.rpc_call": "RPC-Aufruf nach dem Restore (rpc.execute)",
         "playbook.server.recipe.backup_dir": "Backup-Verzeichnis auf dem Server:",
         "playbook.server.recipe.compression_level": "zstd-Kompressionslevel (1-22):",
@@ -625,8 +707,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "playbook.server.recipe.rebuild_config": "Pfad zu docker2update.yaml:",
         "playbook.server.recipe.rebuild_timeout": "Rebuild-Timeout in Sekunden:",
         "playbook.server.recipe.rebuild_hint": (
-            "Der Release-Access-Code liegt in release.txt im Build-Ordner; "
-            "der Container muss als aktiver Eintrag in docker2update.yaml existieren."
+            "Läuft nach dem Restore, aktualisiert also die eingespielte Datenbank und startet Odoo selbst. "
+            "Der Release-Access-Code liegt in release.txt im Build-Ordner; der Container muss als aktiver "
+            "Eintrag in docker2update.yaml existieren, mit dem Datenbanknamen des Ziels."
         ),
         "playbook.server.recipe.update_all_restart": "Container nach dem Modul-Update neu starten?",
         "playbook.server.recipe.update_all_on_error": "Wenn das Modul-Update fehlschlägt:",

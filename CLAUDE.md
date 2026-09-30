@@ -67,6 +67,13 @@ These are the things that are wrong-by-default if you do not know them:
 - **Post-restore processing is OFF by default.** `db restore` leaves the database
   untouched unless a flag or `--sanitize` opts in; explicit `--no-*` always wins.
 - **Playbook secrets belong in the 0600 `env_file`,** never in the YAML.
+- **In a server playbook `server.rebuild` goes AFTER `server.restore`.** It is the step
+  that updates the restored database; before the restore it updates the one about to be
+  replaced. And its exit code is not the contract: the update script has exited 0 while
+  Odoo could not load the database, so the handler reads the output too.
+- **`server.restore` must stay swap-by-rename.** Restore into `<db>__odoodev_new`, rename
+  into place at the end. Anything that drops the target before the dump is in brings
+  back the failure where a bad archive leaves a server with no database at all.
 - **The registry's `python:` is only `major.minor`.** `uv venv --python 3.13` picks
   whatever 3.13 uv prefers, so `venv setup --force` alone can never change a patch
   version. Everything that builds or checks a venv must go through

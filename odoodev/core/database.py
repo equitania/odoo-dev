@@ -442,21 +442,83 @@ def restore_database(
     The dump is piped via stdin (not ``-f``) so the file path never has to
     exist inside the container when the exec fallback is active.
     """
+    ok, _errors = restore_database_report(db_name, sql_file, host=host, port=port, user=user)
+    return ok
+
+
+# psql keeps going after a failed statement and still exits 0. Most such errors
+# are harmless (an owner role that does not exist on this server); these are not —
+# each means the database that comes out is incomplete.
+_FATAL_RESTORE_ERROR_RE = re.compile(
+    r"No space left on device|could not extend file|could not write to file|out of memory|"
+    r"unexpected EOF|server closed the connection|connection to server was lost|invalid byte sequence",
+    re.IGNORECASE,
+)
+
+
+def restore_database_report(
+    db_name: str,
+    sql_file: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> tuple[bool, list[str]]:
+    """Restore a dump and say what psql complained about.
+
+    Returns ``(ok, error_lines)``. ``ok`` is False when psql itself failed or
+    when one of the errors means the data cannot be complete (disk full, lost
+    connection, truncated dump). Other ``ERROR:`` lines leave ``ok`` True and
+    are returned for the caller to report — psql exits 0 on them, so without
+    this they are never seen.
+    """
     try:
         mode = resolve_pg_exec_mode(port)
         cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-d", db_name]
         with open(sql_file, "rb") as infile:
-            subprocess.run(
+            result = subprocess.run(
                 cmd, check=True, stdin=infile, capture_output=True, text=True, env=_pg_exec_env(mode, host, port)
             )
-        logger.info("Database %s restored from %s.", db_name, sql_file)
-        return True
     except subprocess.CalledProcessError as e:
         logger.error("Failed to restore %s: %s", db_name, e.stderr)
-        return False
+        return False, [line for line in (e.stderr or "").splitlines() if line.strip()][-5:]
     except (OSError, PgToolsUnavailableError) as e:
         logger.error("Failed to restore %s: %s", db_name, e)
-        return False
+        return False, [str(e)]
+
+    errors = [line.strip() for line in (result.stderr or "").splitlines() if "ERROR:" in line or "FATAL:" in line]
+    fatal = [line for line in errors if _FATAL_RESTORE_ERROR_RE.search(line)]
+    if fatal:
+        logger.error("Restore of %s is incomplete: %s", db_name, fatal[0])
+        return False, fatal[:5]
+    if errors:
+        logger.warning("Restore of %s finished with %d SQL error(s); first: %s", db_name, len(errors), errors[0])
+    else:
+        logger.info("Database %s restored from %s.", db_name, sql_file)
+    return True, errors
+
+
+def count_installed_modules(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> int:
+    """Number of installed Odoo modules in a database; -1 when it cannot be read.
+
+    The cheapest proof that a restored database is an Odoo database with its
+    core tables filled: a dump that broke off early has no ``ir_module_module``
+    or an empty one.
+    """
+    ok, rows = _run_psql_tuples(
+        "SELECT count(*) FROM ir_module_module WHERE state = 'installed';",
+        db=db_name,
+        host=host,
+        port=port,
+        user=user,
+    )
+    if not ok or not rows or not rows[0] or not str(rows[0][0]).strip().isdigit():
+        return -1
+    return int(str(rows[0][0]).strip())
 
 
 # pg_dump writes CREATE EXTENSION before any table, so the head of a plain
@@ -583,6 +645,49 @@ def rename_database(
     _check_identifier(new_name)
     query = f"ALTER DATABASE {old_name} RENAME TO {new_name};"
     ok, err = _run_psql(query, db="postgres", host=host, port=port, user=user)
+    if ok:
+        logger.info("Database %s renamed to %s.", old_name, new_name)
+    else:
+        logger.error("Failed to rename %s to %s: %s", old_name, new_name, err)
+    return ok
+
+
+# Database names as customers really use them ("acme-test", "prod.2026") — wider
+# than a plain SQL identifier, but with nothing that could leave the double quotes
+# of a quoted identifier or the single quotes of a literal.
+_QUOTABLE_DB_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.$-]*$")
+# PostgreSQL truncates identifiers beyond this many bytes.
+PG_MAX_IDENTIFIER_BYTES = 63
+
+
+def is_quotable_db_name(name: str) -> bool:
+    """True if ``name`` can be used safely inside a quoted identifier."""
+    return bool(_QUOTABLE_DB_NAME_RE.match(name)) and len(name.encode("utf-8")) <= PG_MAX_IDENTIFIER_BYTES
+
+
+def rename_database_quoted(
+    old_name: str,
+    new_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> bool:
+    """Rename a database whose name may carry ``-`` or ``.``, after closing its connections.
+
+    ``rename_database`` refuses everything that is not a plain identifier; the
+    server restore swaps databases under names it does not choose.
+    """
+    if not (is_quotable_db_name(old_name) and is_quotable_db_name(new_name)):
+        logger.error("Refusing to rename %r to %r: unsupported database name", old_name, new_name)
+        return False
+    terminate = (
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{old_name}' AND pid <> pg_backend_pid();"
+    )
+    _run_psql(terminate, db="postgres", host=host, port=port, user=user)
+    ok, err = _run_psql(
+        f'ALTER DATABASE "{old_name}" RENAME TO "{new_name}";', db="postgres", host=host, port=port, user=user
+    )
     if ok:
         logger.info("Database %s renamed to %s.", old_name, new_name)
     else:

@@ -193,6 +193,105 @@ def chown_recursive(path: str, uid: int = 1000, gid: int = 1000) -> bool:
     return True
 
 
+def ensure_dir_owner(path: str, uid: int = 1000, gid: int = 1000) -> bool:
+    """Create a directory if missing and hand this one directory to ``uid:gid``.
+
+    Not recursive — meant for a parent like ``<data_dir>/filestore`` that a
+    root-run restore would otherwise leave root-owned, so the Odoo process could
+    not create the filestore of a second database next to the restored one.
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+        stat = os.stat(path)
+        if stat.st_uid != uid or stat.st_gid != gid:
+            os.chown(path, uid, gid)
+    except OSError as exc:
+        logger.error("Could not hand %s to %s:%s: %s", path, uid, gid, exc)
+        return False
+    return True
+
+
+def docker_health_status(name: str, cli: str = "docker") -> str:
+    """Health of a container: ``healthy``/``unhealthy``/``starting``, ``none`` when the
+    image defines no HEALTHCHECK, ``stopped`` when it is not running, ``missing``
+    when it cannot be inspected at all.
+    """
+    template = "{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}"
+    try:
+        result = subprocess.run(
+            [cli, "inspect", "-f", template, name],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return "missing"
+    if result.returncode != 0:
+        return "missing"
+    running, _, health = result.stdout.strip().partition("|")
+    if running != "true":
+        return "stopped"
+    return health or "none"
+
+
+def docker_published_port(name: str, container_port: int, cli: str = "docker") -> tuple[str, int] | None:
+    """Host address a container port is published on, or None when it is not published.
+
+    A wildcard bind (``0.0.0.0``/``::``) is returned as loopback — the caller
+    connects from the host itself.
+    """
+    try:
+        result = subprocess.run(
+            [cli, "port", name, str(container_port)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        host, _, port = line.strip().rpartition(":")
+        if not port.isdigit():
+            continue
+        host = host.strip("[]")
+        if host in ("", "0.0.0.0", "::"):  # noqa: S104 - recognising a wildcard bind, not binding to it
+            host = "127.0.0.1"
+        if ":" in host:  # IPv6 literal other than the wildcard: prefer an IPv4 line
+            continue
+        return host, int(port)
+    return None
+
+
+def read_container_file(name: str, path: str, cli: str = "docker") -> str | None:
+    """Content of a file inside a container's image, or None when it cannot be read.
+
+    A running container is read via ``docker exec``; a stopped one through a
+    throwaway ``docker run`` of its image (no network, entrypoint ``cat``), so
+    the check works in the middle of a restore where Odoo has to be down.
+    """
+    try:
+        if docker_container_running(name, cli):
+            cmd = [cli, "exec", name, "cat", path]
+        else:
+            image = subprocess.run(
+                [cli, "inspect", "-f", "{{.Config.Image}}", name],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+            )
+            if image.returncode != 0 or not image.stdout.strip():
+                return None
+            cmd = [cli, "run", "--rm", "--network", "none", "--entrypoint", "cat", image.stdout.strip(), path]
+        result = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
 def find_latest_backup(directory: str, pattern: str, select_by: str = "mtime") -> str | None:
     """Find the newest backup file matching a glob pattern in a directory.
 

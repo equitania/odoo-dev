@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Any
 
 import click
+from rich.markup import escape
+from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn, TimeElapsedColumn
 
 from odoodev.cli import resolve_version
 from odoodev.click_types import ExpandedPath
@@ -20,6 +23,9 @@ from odoodev.core.playbook import (
 )
 from odoodev.output import console, print_error, print_info, print_success
 
+# Step families whose success message is printed, not just their name.
+_VERBOSE_OK_PREFIXES = ("server.",)
+
 
 def _emit_json(event: str, **data: object) -> None:
     """Emit a single NDJSON line to stdout."""
@@ -28,16 +34,92 @@ def _emit_json(event: str, **data: object) -> None:
     sys.stdout.flush()
 
 
-def _print_step_result_text(result: StepResult) -> None:
-    """Print a step result in human-readable Rich format."""
-    duration = f"({result.duration_ms}ms)" if result.duration_ms > 0 else ""
+def _format_duration(duration_ms: int) -> str:
+    """439393 -> '7m 19s'; short steps keep their milliseconds."""
+    if duration_ms < 1000:
+        return f"{duration_ms}ms"
+    seconds = duration_ms / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, rest = divmod(int(round(seconds)), 60)
+    if minutes < 60:
+        return f"{minutes}m {rest:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m {rest:02d}s"
 
-    if result.status == "ok":
-        console.print(f"  [green][OK][/green] {result.name} {duration}")
+
+class _StepProgress:
+    """Shows which step is running and what it is doing right now.
+
+    On a terminal: a live line with a spinner, the step's position, its name and
+    the elapsed time, replaced by the result line when the step ends; whatever
+    the step reports scrolls above it and stays. Into a pipe or a log file: a
+    plain "started" line per step and one line per report, so a cron log shows
+    how far a run got.
+    """
+
+    def __init__(self) -> None:
+        self._live: Progress | None = None
+        self._task: TaskID | None = None
+        self._label = ""
+        self.position = ""  # "2/5" of the step whose result is printed next
+
+    def start(self, index: int, total: int, name: str) -> None:
+        self.stop()
+        self.position = f"{index}/{total}"
+        self._label = f"[{self.position}] {name}"
+        if console.is_terminal:
+            self._live = Progress(
+                SpinnerColumn(),
+                TextColumn("{task.description}"),
+                TimeElapsedColumn(),
+                console=console,
+                transient=True,
+            )
+            self._live.start()
+            self._task = self._live.add_task(escape(self._label), total=None)
+        else:
+            console.print(f"  [dim]...[/dim]  {escape(self._label)}")
+            console.file.flush()
+
+    def update(self, message: str) -> None:
+        if not self._label:
+            return
+        # Printed above the live line on a terminal, as a plain line into a pipe:
+        # either way what a step has already done stays on the screen.
+        console.print(f"         [dim]{escape(message)}[/dim]")
+        console.file.flush()
+
+    def stop(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+        self._live = None
+        self._task = None
+        self._label = ""
+
+
+def _print_step_result_text(result: StepResult, position: str = "") -> None:
+    """Print a step result in human-readable Rich format."""
+    duration = f"({_format_duration(result.duration_ms)})" if result.duration_ms > 0 else ""
+    prefix = f"[dim]{position}[/dim] " if position else ""
+
+    if result.command == "preflight":
+        # One finding per line; a warning must be as visible as an error.
+        heading = "[red][ERROR][/red]" if result.status == "error" else "[yellow][WARN][/yellow]"
+        console.print(f"  {heading} {result.name}")
+        for line in result.message.splitlines():
+            style = "red" if line.startswith("[error]") else "yellow"
+            console.print(f"       [{style}]{escape(line)}[/{style}]")
+    elif result.status == "ok":
+        console.print(f"  [green][OK][/green] {prefix}{escape(result.name)} {duration}")
         if result.message and "[dry-run]" in result.message:
             console.print(f"       {result.message}")
+        elif result.message and result.command.startswith(_VERBOSE_OK_PREFIXES):
+            # Server steps say what they did (file written, checks passed, a note
+            # about something left behind) — an "OK" alone would hide that.
+            console.print(f"       [dim]{escape(result.message)}[/dim]")
     elif result.status == "error":
-        console.print(f"  [red][ERROR][/red] {result.name}: {result.message} {duration}")
+        console.print(f"  [red][ERROR][/red] {prefix}{escape(result.name)}: {escape(result.message)} {duration}")
     elif result.status == "skipped":
         console.print(f"  [dim][SKIP][/dim] {result.name}: {result.message}")
     # Steps stream live while the playbook runs; flush so piped output keeps up.
@@ -69,13 +151,13 @@ def _print_playbook_result_text(result: PlaybookResult) -> None:
         print_success(
             f"Playbook '{result.playbook}' completed — "
             f"{ok_count} ok, {error_count} errors, {skip_count} skipped "
-            f"({result.total_duration_ms}ms)"
+            f"({_format_duration(result.total_duration_ms)})"
         )
     else:
         print_error(
             f"Playbook '{result.playbook}' failed — "
             f"{ok_count} ok, {error_count} errors, {skip_count} skipped "
-            f"({result.total_duration_ms}ms)"
+            f"({_format_duration(result.total_duration_ms)})"
         )
 
 
@@ -201,6 +283,11 @@ def _parse_cli_vars(var_options: tuple[str, ...]) -> dict[str, str]:
 @click.option("--list", "list_playbooks", is_flag=True, help="List discoverable playbooks and exit")
 @click.option("--steps", "list_steps", is_flag=True, help="List valid step commands and exit")
 @click.option("--var", "-D", "var_options", multiple=True, metavar="KEY=VALUE", help="Set/override a playbook variable")
+@click.option(
+    "--no-preflight",
+    is_flag=True,
+    help="Skip the checks a server playbook is held against before its first step",
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -212,6 +299,7 @@ def run(
     list_playbooks: bool,
     list_steps: bool,
     var_options: tuple[str, ...],
+    no_preflight: bool,
 ) -> None:
     """Execute a playbook or inline steps for automated Odoo development.
 
@@ -230,6 +318,10 @@ def run(
     Use --steps to list all valid step commands (annotated dev/server mode).
     Use --output json for machine-readable NDJSON output (one JSON line per event).
     Use --dry-run to preview steps without executing them.
+
+    Server playbooks (server.restore / server.rebuild) are checked against the
+    host first: update configuration, image version, existing database. Errors
+    stop the run before anything is changed; --dry-run reports them too.
     """
     if list_steps:
         _list_steps(output_format == "json")
@@ -293,17 +385,40 @@ def run(
         if is_json:
             _emit_json("playbook_start", playbook=playbook_name, version=version_final, dry_run=dry_run)
 
-        # Emit each step result live as it completes (NDJSON line / Rich line)
-        on_step = _print_step_result_json if is_json else _print_step_result_text
+        # Steps are announced when they start, report what they are doing, and
+        # print their result when they end (NDJSON events / one live Rich line).
+        progress = _StepProgress()
 
-        result = runner.execute(
-            pb_config,
-            version_override=version_override,
-            dry_run=dry_run,
-            playbook_name=playbook_name,
-            cli_vars=_parse_cli_vars(var_options),
-            on_step=on_step,
-        )
+        def on_event(event: str, data: dict[str, Any]) -> None:
+            if is_json:
+                _emit_json(event, **data)
+            elif event == "step_start":
+                progress.start(int(data["index"]), int(data["total"]), str(data["name"]))
+            elif event == "step_progress":
+                progress.update(str(data.get("message", "")))
+
+        def on_step(result: StepResult) -> None:
+            if is_json:
+                _print_step_result_json(result)
+                return
+            position = progress.position
+            progress.stop()
+            progress.position = ""
+            _print_step_result_text(result, position)
+
+        try:
+            result = runner.execute(
+                pb_config,
+                version_override=version_override,
+                dry_run=dry_run,
+                playbook_name=playbook_name,
+                cli_vars=_parse_cli_vars(var_options),
+                on_step=on_step,
+                preflight=not no_preflight,
+                on_event=on_event,
+            )
+        finally:
+            progress.stop()  # never leave a spinner behind, whatever ended the run
 
         if is_json:
             _print_playbook_result_json(result)

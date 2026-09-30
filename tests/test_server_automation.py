@@ -25,6 +25,12 @@ def version_cfg():
     return get_version("18")
 
 
+@pytest.fixture(autouse=True)
+def _no_container_release(monkeypatch):
+    """server.backup/verify read release.py out of the image — never from a real docker here."""
+    monkeypatch.setattr("odoodev.core.docker_exec.read_container_file", lambda name, path, cli="docker": None)
+
+
 def _current_container() -> str:
     """The container an enclosing pg_exec_container() block routes pg calls to."""
     mode = resolve_pg_exec_mode(0)
@@ -145,18 +151,30 @@ class TestServerRebuild:
         return {"script_path": str(script), "config": str(config)}
 
     def _fake_run(self, monkeypatch, returncode=0, stdout="", stderr="", raise_timeout=False):
+        """Stand-in for the update script: a fake Popen whose stdout yields the given lines."""
+        import subprocess
+
         calls: dict = {}
 
-        def fake_run(cmd, **kwargs):
-            calls["cmd"] = cmd
-            calls["kwargs"] = kwargs
-            if raise_timeout:
-                import subprocess
+        class FakePopen:
+            def __init__(self, cmd, **kwargs):
+                calls["cmd"] = cmd
+                calls["kwargs"] = kwargs
+                # stderr is merged into stdout by the handler (stderr=STDOUT)
+                self.stdout = iter((stdout + stderr).splitlines(keepends=True))
+                self.returncode = returncode
 
-                raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
-            return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+            def wait(self, timeout=None):
+                if timeout is not None:
+                    calls["kwargs"]["timeout"] = timeout
+                if raise_timeout and not calls.get("killed"):
+                    raise subprocess.TimeoutExpired(calls["cmd"], timeout)
+                return self.returncode
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+            def kill(self):
+                calls["killed"] = True
+
+        monkeypatch.setattr("subprocess.Popen", FakePopen)
         return calls
 
     def test_happy_path_command_shape(self, version_cfg, rebuild_env, monkeypatch):
@@ -234,6 +252,59 @@ class TestServerRebuild:
         result = sa.handle_server_rebuild(version_cfg, args)
         assert result.status == "error"
         assert "timed out" in result.message
+
+    DOUP_FAILED_UPDATE = (
+        "  update odoo\n"
+        "    13:45:50    15 CRIT  acme_prod odoo.modules.module: Couldn't load module base_setup\n"
+        "    13:45:50    15 ERROR acme_prod odoo.registry: Failed to load registry\n"
+        "    13:45:50    15 CRIT  acme_prod odoo.service.server: Failed to initialize database `acme_prod`.\n"
+        "    ImportError: cannot import name '_check_apikey_credentials' from 'odoo.addons.base.models.res_users'\n"
+        "  update odoo ................................. ok (33s)\n"
+        "  successful updates .......................... 1\n"
+    )
+
+    def test_exit_zero_with_failed_module_update_is_an_error(self, version_cfg, rebuild_env, monkeypatch):
+        # Seen on a customer server: the script reported a successful update while Odoo
+        # could not load the database at all.
+        self._fake_run(monkeypatch, returncode=0, stdout=self.DOUP_FAILED_UPDATE)
+        result = sa.handle_server_rebuild(version_cfg, {**rebuild_env, "odoo_container": "live-odoo"})
+        assert result.status == "error"
+        assert "exited 0" in result.message
+        assert "Failed to initialize database" in result.message
+        assert "_check_apikey_credentials" in result.message
+
+    def test_trust_exit_code_skips_the_output_check(self, version_cfg, rebuild_env, monkeypatch):
+        self._fake_run(monkeypatch, returncode=0, stdout=self.DOUP_FAILED_UPDATE)
+        args = {**rebuild_env, "odoo_container": "live-odoo", "trust_exit_code": True}
+        assert sa.handle_server_rebuild(version_cfg, args).status == "ok"
+
+    def test_import_error_alone_is_not_a_failed_update(self, version_cfg, rebuild_env, monkeypatch):
+        self._fake_run(monkeypatch, returncode=0, stdout="WARN some cron: ImportError: optional lib missing\n")
+        result = sa.handle_server_rebuild(version_cfg, {**rebuild_env, "odoo_container": "live-odoo"})
+        assert result.status == "ok"
+
+    def test_each_line_of_the_script_is_reported_as_progress(self, version_cfg, rebuild_env, monkeypatch):
+        self._fake_run(monkeypatch, stdout="  release manager ... ok (0s)\n\n  build image odoo/live\n  update odoo\n")
+        seen: list[str] = []
+        args = {**rebuild_env, "odoo_container": "live-odoo", "_progress": seen.append}
+        assert sa.handle_server_rebuild(version_cfg, args).status == "ok"
+        assert seen == ["release manager ... ok (0s)", "build image odoo/live", "update odoo"]
+
+    def test_the_script_runs_unbuffered_and_without_a_terminal(self, version_cfg, rebuild_env, monkeypatch):
+        import subprocess
+
+        calls = self._fake_run(monkeypatch)
+        sa.handle_server_rebuild(version_cfg, {**rebuild_env, "odoo_container": "live-odoo"})
+        # a Python child writing to a pipe buffers in blocks — progress would arrive at the very end
+        assert calls["kwargs"]["env"]["PYTHONUNBUFFERED"] == "1"
+        assert calls["kwargs"]["stdin"] == subprocess.DEVNULL
+        assert calls["kwargs"]["stderr"] == subprocess.STDOUT
+
+    def test_timeout_kills_the_script(self, version_cfg, rebuild_env, monkeypatch):
+        calls = self._fake_run(monkeypatch, raise_timeout=True)
+        result = sa.handle_server_rebuild(version_cfg, {**rebuild_env, "odoo_container": "x", "timeout": 5})
+        assert result.status == "error"
+        assert calls["killed"] is True
 
     def test_default_timeout_used(self, version_cfg, rebuild_env, monkeypatch):
         calls = self._fake_run(monkeypatch)
@@ -338,6 +409,63 @@ class TestServerBackup:
         result = sa.handle_server_backup(version_cfg, args)
         assert result.status == "error"
 
+    def _fake_archive(self, monkeypatch, seen=None):
+        monkeypatch.setattr(
+            "odoodev.core.database.backup_database_sql",
+            lambda db, out, host, port, user: open(out, "w").close() or True,
+        )
+
+        def fake_tar(sql_path, output_path, filestore_path=None, level=5):
+            if seen is not None:
+                seen["filestore_path"] = filestore_path
+            open(output_path, "w").close()
+            return True
+
+        monkeypatch.setattr("odoodev.core.database.create_backup_tar_zst", fake_tar)
+
+    def test_manifest_records_the_kernel_of_the_source(self, version_cfg, tmp_path, monkeypatch):
+        self._fake_archive(monkeypatch)
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.read_container_file",
+            lambda name, path, cli="docker": "version_info = (19, 0, 0, FINAL, 0, '-26.09.29')\n",
+        )
+        result = sa.handle_server_backup(version_cfg, self._args(tmp_path))
+        assert result.status == "ok", result.message
+        manifest = result.details["backup_file"] + ".manifest"
+        content = open(manifest).read()
+        assert "odoo_build=26.09.29" in content
+        assert "db_name=production" in content
+        assert os.stat(manifest).st_mode & 0o777 == 0o600
+
+    def test_safety_backup_of_missing_database_is_a_noop(self, version_cfg, tmp_path, monkeypatch):
+        monkeypatch.setattr("odoodev.core.database.database_exists", lambda db, host, port, user: False)
+        monkeypatch.setattr("odoodev.core.database.backup_database_sql", lambda *a, **kw: pytest.fail("must not dump"))
+        result = sa.handle_server_backup(version_cfg, self._args(tmp_path, safety=True))
+        assert result.status == "ok"
+        assert "nothing to back up" in result.message
+        assert "backup_file" not in result.details
+        assert os.listdir(tmp_path / "backups") == []
+
+    def test_safety_backup_never_feeds_a_from_backup_step_restore(self, version_cfg, tmp_path, monkeypatch):
+        self._fake_archive(monkeypatch)
+        monkeypatch.setattr("odoodev.core.database.database_exists", lambda db, host, port, user: True)
+        result = sa.handle_server_backup(version_cfg, self._args(tmp_path, safety=True))
+        assert result.status == "ok", result.message
+        assert "backup_file" not in result.details
+        name = os.path.basename(result.details["safety_backup_file"])
+        assert "_prerestore_" in name and "_dockerbackup_" not in name
+
+    def test_safety_backup_without_filestore_degrades_to_sql_only(self, version_cfg, tmp_path, monkeypatch):
+        seen = {}
+        self._fake_archive(monkeypatch, seen)
+        monkeypatch.setattr("odoodev.core.database.database_exists", lambda db, host, port, user: True)
+        args = self._args(tmp_path, safety=True)
+        args["db_name"] = "other_db"  # exists in PostgreSQL, has no filestore directory
+        result = sa.handle_server_backup(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert seen["filestore_path"] is None
+        assert "_sql_only" in result.details["safety_backup_file"]
+
 
 # =============================================================================
 # server.restore
@@ -377,7 +505,19 @@ class TestResolveBackupFile:
 
 
 class TestServerRestore:
-    def _setup(self, tmp_path, monkeypatch, *, running_odoo=False, with_filestore=True, **extra):
+    def _setup(
+        self,
+        tmp_path,
+        monkeypatch,
+        *,
+        running_odoo=False,
+        with_filestore=True,
+        existing=("production",),
+        restore_ok=True,
+        sql_errors=(),
+        installed_modules=120,
+        **extra,
+    ):
         backups = tmp_path / "backups"
         backups.mkdir()
         backup = backups / "production_live-db_dockerbackup_2026-07-12_02-00-00.tar.zst"
@@ -390,6 +530,7 @@ class TestServerRestore:
         (data_dir / "sessions" / "sess").write_text("s")
 
         events: list[str] = []
+        databases: set[str] = set(existing)
 
         def fake_extract(backup_file, extract_path):
             with open(os.path.join(extract_path, "dump.sql"), "w") as fh:
@@ -409,30 +550,61 @@ class TestServerRestore:
 
             return _fn
 
-        monkeypatch.setattr(
-            "odoodev.core.docker_exec.docker_container_running", lambda name, cli="docker": running_odoo
-        )
-        monkeypatch.setattr(
-            "odoodev.core.docker_exec.chown_recursive", lambda p, uid, gid: events.append("chown") or True
-        )
-        monkeypatch.setattr("odoodev.core.database.check_restore_space", lambda *a, **kw: (True, "", 0))
-        monkeypatch.setattr("odoodev.core.database.extract_backup", fake_extract)
-        monkeypatch.setattr("odoodev.core.database.drop_database", record("drop"))
-        monkeypatch.setattr("odoodev.core.database.restore_database", record("restore"))
-        monkeypatch.setattr("odoodev.core.database.deactivate_cronjobs", record("cron"))
-        monkeypatch.setattr("odoodev.core.database.neutralize_bank_sync", record("bank"))
-        monkeypatch.setattr("odoodev.core.database.anonymize_database", record("anon"))
-        monkeypatch.setattr("odoodev.core.database.wipe_database", record("wipe"))
+        def fake_exists(db_name, host, port, user):
+            _current_container()  # must run inside a pg_exec_container block
+            return db_name in databases
+
+        def fake_drop(db_name, host, port, user):
+            if db_name in databases:
+                databases.discard(db_name)
+                events.append(f"drop:{db_name}")
+            return True
 
         created = {}
 
         def fake_create(db_name, host, port, user, template="template1"):
             created["template"] = template
             created["user"] = user
-            events.append(f"create@{_current_container()}")
+            databases.add(db_name)
+            events.append(f"create:{db_name}")
             return True
 
+        def fake_restore(db_name, sql_file, host, port, user):
+            events.append(f"restore:{db_name}@{_current_container()}")
+            return restore_ok, list(sql_errors)
+
+        def fake_rename(old, new, host, port, user):
+            if old not in databases or new in databases:
+                return False
+            databases.discard(old)
+            databases.add(new)
+            events.append(f"rename:{old}>{new}")
+            return True
+
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.docker_container_running", lambda name, cli="docker": running_odoo
+        )
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.chown_recursive", lambda p, uid, gid: events.append("chown") or True
+        )
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.ensure_dir_owner", lambda p, uid, gid: events.append("own_root") or True
+        )
+        monkeypatch.setattr("odoodev.core.database.check_restore_space", lambda *a, **kw: (True, "", 0))
+        monkeypatch.setattr("odoodev.core.database.extract_backup", fake_extract)
+        monkeypatch.setattr("odoodev.core.database.database_exists", fake_exists)
+        monkeypatch.setattr("odoodev.core.database.drop_database", fake_drop)
         monkeypatch.setattr("odoodev.core.database.create_database", fake_create)
+        monkeypatch.setattr("odoodev.core.database.restore_database_report", fake_restore)
+        monkeypatch.setattr(
+            "odoodev.core.database.count_installed_modules", lambda db, host, port, user: installed_modules
+        )
+        monkeypatch.setattr("odoodev.core.database.rename_database_quoted", fake_rename)
+        monkeypatch.setattr("odoodev.core.database.dump_uses_pgvector", lambda sql_file: False)
+        monkeypatch.setattr("odoodev.core.database.deactivate_cronjobs", record("cron"))
+        monkeypatch.setattr("odoodev.core.database.neutralize_bank_sync", record("bank"))
+        monkeypatch.setattr("odoodev.core.database.anonymize_database", record("anon"))
+        monkeypatch.setattr("odoodev.core.database.wipe_database", record("wipe"))
 
         args = {
             "db_container": "test-db",
@@ -446,6 +618,7 @@ class TestServerRestore:
             },
             **extra,
         }
+        self.databases = databases
         return args, events, created, data_dir
 
     def test_full_restore_sequence(self, version_cfg, tmp_path, monkeypatch):
@@ -453,36 +626,218 @@ class TestServerRestore:
         result = sa.handle_server_restore(version_cfg, args)
         assert result.status == "ok", result.message
 
+        # restored into the staging database, swapped in by renaming, old copy dropped last
         assert events[0] == "extract"
-        assert events[1:4] == ["drop@test-db", "create@test-db", "restore@test-db"]
+        db_events = [e for e in events if e.split(":")[0] in ("create", "restore", "rename", "drop")]
+        assert db_events == [
+            "create:production__odoodev_new",
+            "restore:production__odoodev_new@test-db",
+            "rename:production>production__odoodev_old",
+            "rename:production__odoodev_new>production",
+            "drop:production__odoodev_old",
+        ]
+        assert self.databases == {"production"}
         assert "cron@test-db" in events
         assert "bank@test-db" in events
         assert created["template"] == "template0"
         assert created["user"] == "ownerp"
+        assert result.details["replaced_existing"] is True
 
-        # filestore swapped: stale gone, new blob in place, sessions removed
+        # filestore swapped: stale gone, new blob in place, sessions removed, no debris
         assert not (data_dir / "filestore" / "production" / "stale").exists()
         assert (data_dir / "filestore" / "production" / "aa" / "blob").read_text() == "new"
+        assert sorted(p.name for p in (data_dir / "filestore").iterdir()) == ["production"]
         assert not (data_dir / "sessions").exists()
         assert "chown" in events
+
+    def test_first_restore_into_empty_server(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, data_dir = self._setup(tmp_path, monkeypatch, existing=())
+        import shutil
+
+        shutil.rmtree(data_dir / "filestore")  # a fresh server has no filestore directory at all
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert self.databases == {"production"}
+        assert not any(e.startswith("drop:") for e in events)
+        assert (data_dir / "filestore" / "production" / "aa" / "blob").read_text() == "new"
+        # the parent directory is handed to the Odoo user, not left to root
+        assert "own_root" in events
+        assert result.details["replaced_existing"] is False
+
+    def test_failed_dump_leaves_existing_database_and_filestore(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, data_dir = self._setup(tmp_path, monkeypatch, restore_ok=False)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "unchanged" in result.message
+        assert self.databases == {"production"}
+        assert not any(e.startswith("rename:") for e in events)
+        assert (data_dir / "filestore" / "production" / "stale").read_text() == "old"
+        assert (data_dir / "sessions" / "sess").exists()
+
+    def test_failed_dump_quotes_what_psql_said(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(
+            tmp_path,
+            monkeypatch,
+            restore_ok=False,
+            sql_errors=["ERROR:  could not extend file: No space left on device"],
+        )
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "No space left on device" in result.message
+
+    def test_restored_copy_without_odoo_tables_is_never_swapped_in(self, version_cfg, tmp_path, monkeypatch):
+        # psql exits 0 on failed statements — a dump that broke off early "restores" fine.
+        args, events, _, data_dir = self._setup(
+            tmp_path,
+            monkeypatch,
+            installed_modules=-1,
+            sql_errors=['ERROR:  relation "ir_module_module" does not exist'],
+        )
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "not a usable Odoo database" in result.message
+        assert "ir_module_module" in result.message
+        assert not any(e.startswith("rename:") for e in events)
+        assert self.databases == {"production"}
+        assert (data_dir / "filestore" / "production" / "stale").read_text() == "old"
+
+    def test_check_restored_can_be_switched_off(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(tmp_path, monkeypatch, installed_modules=-1, check_restored=False)
+        assert sa.handle_server_restore(version_cfg, args).status == "ok"
+
+    def test_harmless_sql_errors_are_reported_not_hidden(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(tmp_path, monkeypatch, sql_errors=['ERROR:  role "other" does not exist'] * 3)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert "3 SQL error(s)" in result.message
+        assert 'role "other" does not exist' in result.message
+
+    def test_failed_swap_renames_previous_database_back(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, data_dir = self._setup(tmp_path, monkeypatch)
+        real_rename = db_mod.rename_database_quoted
+
+        def flaky(old, new, host, port, user):
+            if old == "production__odoodev_new":
+                return False
+            return real_rename(old, new, host, port, user)
+
+        monkeypatch.setattr("odoodev.core.database.rename_database_quoted", flaky)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "unchanged" in result.message
+        assert self.databases == {"production"}
+        assert (data_dir / "filestore" / "production" / "stale").read_text() == "old"
+        assert sorted(p.name for p in (data_dir / "filestore").iterdir()) == ["production"]
+
+    def test_failed_filestore_swap_rolls_everything_back(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, data_dir = self._setup(tmp_path, monkeypatch)
+        real_os_rename = os.rename
+
+        def failing(src, dst):
+            if str(src).endswith(".odoodev_new"):
+                raise OSError("disk says no")
+            return real_os_rename(src, dst)
+
+        monkeypatch.setattr("odoodev.core.server_automation.os.rename", failing)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "are unchanged" in result.message
+        assert self.databases == {"production"}
+        assert (data_dir / "filestore" / "production" / "stale").read_text() == "old"
+        assert sorted(p.name for p in (data_dir / "filestore").iterdir()) == ["production"]
+
+    def test_existing_database_without_drop_is_refused_untouched(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, _ = self._setup(tmp_path, monkeypatch, drop=False)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "drop: true" in result.message
+        assert events == []
+
+    def test_leftover_previous_database_stops_the_restore(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, _ = self._setup(tmp_path, monkeypatch, existing=("production__odoodev_old",))
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "interrupted restore" in result.message
+        assert events == []
+        assert self.databases == {"production__odoodev_old"}
+
+    def test_stale_staging_database_is_discarded(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, _ = self._setup(tmp_path, monkeypatch, existing=("production", "production__odoodev_new"))
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert events.index("drop:production__odoodev_new") < events.index("create:production__odoodev_new")
+        assert self.databases == {"production"}
+
+    def test_unsupported_database_name(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, _ = self._setup(tmp_path, monkeypatch)
+        args["db_name"] = 'prod"; DROP'
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "cannot be restored safely" in result.message
+        assert events == []
+
+    def test_hyphenated_database_name_is_supported(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(tmp_path, monkeypatch, existing=())
+        args["db_name"] = "acme-test.2026"
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert self.databases == {"acme-test.2026"}
+
+    def test_pgvector_missing_stops_before_any_change(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, data_dir = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr("odoodev.core.database.dump_uses_pgvector", lambda sql_file: True)
+        monkeypatch.setattr("odoodev.core.database.server_offers_pgvector", lambda host, port, user: False)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "pgvector" in result.message
+        assert events == ["extract"]
+        assert self.databases == {"production"}
+        assert (data_dir / "filestore" / "production" / "stale").exists()
+
+    def test_pgvector_missing_can_be_overridden(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(tmp_path, monkeypatch, without_pgvector=True)
+        monkeypatch.setattr("odoodev.core.database.dump_uses_pgvector", lambda sql_file: True)
+        monkeypatch.setattr("odoodev.core.database.server_offers_pgvector", lambda host, port, user: False)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+
+    def test_pgvector_offered_passes(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setattr("odoodev.core.database.dump_uses_pgvector", lambda sql_file: True)
+        monkeypatch.setattr("odoodev.core.database.server_offers_pgvector", lambda host, port, user: True)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert result.details["notes"] == []
+
+    def test_source_build_from_manifest_is_passed_on(self, version_cfg, tmp_path, monkeypatch):
+        args, _, _, _ = self._setup(tmp_path, monkeypatch)
+        backup = tmp_path / "backups" / "production_live-db_dockerbackup_2026-07-12_02-00-00.tar.zst"
+        (tmp_path / "backups" / (backup.name + ".manifest")).write_text("db_name=production\nodoo_build=26.09.29\n")
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert result.details["source_build"] == "26.09.29"
 
     def test_running_odoo_container_blocks_restore(self, version_cfg, tmp_path, monkeypatch):
         args, events, _, _ = self._setup(tmp_path, monkeypatch, running_odoo=True)
         result = sa.handle_server_restore(version_cfg, args)
         assert result.status == "error"
         assert "still running" in result.message
-        assert "drop@test-db" not in events
+        assert events == []
 
-    def test_missing_filestore_is_hard_error(self, version_cfg, tmp_path, monkeypatch):
-        args, _, _, _ = self._setup(tmp_path, monkeypatch, with_filestore=False)
+    def test_missing_filestore_is_hard_error_before_any_change(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _, _ = self._setup(tmp_path, monkeypatch, with_filestore=False)
         result = sa.handle_server_restore(version_cfg, args)
         assert result.status == "error"
         assert "no filestore" in result.message
+        assert events == ["extract"]
+        assert self.databases == {"production"}
 
     def test_missing_filestore_allowed_when_opted_in(self, version_cfg, tmp_path, monkeypatch):
-        args, _, _, _ = self._setup(tmp_path, monkeypatch, with_filestore=False, allow_missing_filestore=True)
+        args, _, _, data_dir = self._setup(tmp_path, monkeypatch, with_filestore=False, allow_missing_filestore=True)
         result = sa.handle_server_restore(version_cfg, args)
         assert result.status == "ok"
+        # an SQL-only backup replaces the database and leaves the filestore alone
+        assert (data_dir / "filestore" / "production" / "stale").read_text() == "old"
 
     def test_sanitize_flag_enables_default_steps(self, version_cfg, tmp_path, monkeypatch):
         args, events, _, _ = self._setup(tmp_path, monkeypatch, sanitize=True)
@@ -570,6 +925,129 @@ class TestOdooBinContainerHandlers:
         )
         assert result.status == "ok"
         assert "restarted" not in result.message
+
+
+# =============================================================================
+# server.verify
+# =============================================================================
+
+
+class TestServerVerify:
+    ARGS = {"odoo_container": "live-odoo", "db_container": "live-db", "db_name": "acme_prod", "timeout": 5}
+
+    def _patch(
+        self, monkeypatch, *, health="healthy", rows=(), psql_ok=True, port=("127.0.0.1", 11000), http=(200, "")
+    ):
+        seen: dict = {"urls": []}
+        healths = list(health) if isinstance(health, list | tuple) else [health]
+
+        def fake_health(name, cli="docker"):
+            return healths.pop(0) if len(healths) > 1 else healths[0]
+
+        def fake_tuples(query, db, host, port, user):
+            seen["query_container"] = _current_container()
+            seen["query_db"] = db
+            return psql_ok, [list(r) for r in rows]
+
+        def fake_http(url, timeout=20):
+            seen["urls"].append(url)
+            return http
+
+        monkeypatch.setattr("odoodev.core.docker_exec.docker_health_status", fake_health)
+        monkeypatch.setattr("odoodev.core.docker_exec.docker_published_port", lambda name, p, cli="docker": port)
+        monkeypatch.setattr("odoodev.core.database._run_psql_tuples", fake_tuples)
+        monkeypatch.setattr(sa, "_http_status", fake_http)
+        monkeypatch.setattr(sa.time, "sleep", lambda seconds: None)
+        return seen
+
+    def test_all_checks_pass(self, version_cfg, monkeypatch):
+        seen = self._patch(monkeypatch)
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "ok", result.message
+        assert seen["query_container"] == "live-db"
+        assert seen["query_db"] == "acme_prod"
+        assert seen["urls"] == ["http://127.0.0.1:11000/web/login?db=acme_prod"]
+        assert len(result.details["checks"]) == 3
+
+    def test_waits_while_the_container_is_starting(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch, health=["starting", "starting", "healthy"])
+        assert sa.handle_server_verify(version_cfg, dict(self.ARGS)).status == "ok"
+
+    @pytest.mark.parametrize(
+        ("health", "expected"),
+        [("unhealthy", "reports unhealthy"), ("stopped", "is not running"), ("missing", "does not exist")],
+    )
+    def test_container_state_is_an_error(self, version_cfg, monkeypatch, health, expected):
+        self._patch(monkeypatch, health=health)
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "error"
+        assert expected in result.message
+
+    def test_image_without_healthcheck_passes_on_running(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch, health="none")
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "ok"
+        assert "no healthcheck" in result.message
+
+    def test_pending_module_states_are_an_error(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch, rows=[("base_setup", "to upgrade"), ("web", "to upgrade")])
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "error"
+        assert "2 module(s)" in result.message
+        assert "base_setup (to upgrade)" in result.message
+
+    def test_unreadable_module_states_are_an_error_not_a_pass(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch, psql_ok=False)
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "error"
+        assert "Could not read the module states" in result.message
+
+    def test_http_500_is_an_error(self, version_cfg, monkeypatch):
+        # A healthy container whose registry cannot be built answers 500 on every page.
+        self._patch(monkeypatch, http=(500, "INTERNAL SERVER ERROR"))
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "error"
+        assert "HTTP 500" in result.message
+
+    def test_redirect_or_client_error_is_odoo_answering(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch, http=(404, "NOT FOUND"))
+        assert sa.handle_server_verify(version_cfg, dict(self.ARGS)).status == "ok"
+
+    def test_unpublished_port_skips_http_and_says_so(self, version_cfg, monkeypatch):
+        seen = self._patch(monkeypatch, port=None)
+        result = sa.handle_server_verify(version_cfg, dict(self.ARGS))
+        assert result.status == "ok"
+        assert seen["urls"] == []
+        assert "HTTP check skipped" in result.message
+
+    def test_checks_can_be_switched_off(self, version_cfg, monkeypatch):
+        seen = self._patch(monkeypatch, psql_ok=False, http=(500, ""))
+        args = {**self.ARGS, "check_modules": False, "http_check": False}
+        result = sa.handle_server_verify(version_cfg, args)
+        assert result.status == "ok"
+        assert seen["urls"] == []
+
+    def test_kernel_older_than_the_backup_is_an_error(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch)
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.read_container_file",
+            lambda name, path, cli="docker": "version_info = (19, 0, 0, FINAL, 0, '-26.03.10')\n",
+        )
+        args = {**self.ARGS, "_runtime": {"source_build": "26.09.29"}}
+        result = sa.handle_server_verify(version_cfg, args)
+        assert result.status == "error"
+        assert "26.03.10" in result.message and "26.09.29" in result.message
+
+    def test_kernel_as_new_as_the_backup_passes(self, version_cfg, monkeypatch):
+        self._patch(monkeypatch)
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.read_container_file",
+            lambda name, path, cli="docker": "version_info = (19, 0, 0, FINAL, 0, '-26.09.29')\n",
+        )
+        args = {**self.ARGS, "_runtime": {"source_build": "26.09.29"}}
+        result = sa.handle_server_verify(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert len(result.details["checks"]) == 4
 
 
 # =============================================================================
@@ -756,3 +1234,96 @@ class TestRpcExecute:
         assert odoo.host == "10.0.0.5"
         assert odoo.protocol == "jsonrpc"
         assert odoo.port == 8069
+
+
+# =============================================================================
+# rename_database_quoted — the swap's only primitive
+# =============================================================================
+
+
+class TestRenameDatabaseQuoted:
+    def _capture(self, monkeypatch, ok=True):
+        queries: list[str] = []
+
+        def fake_psql(command, db=None, host=None, port=None, user=None):
+            queries.append(command)
+            return ok, ""
+
+        monkeypatch.setattr(db_mod, "_run_psql", fake_psql)
+        return queries
+
+    def test_hyphenated_names_are_quoted(self, monkeypatch):
+        queries = self._capture(monkeypatch)
+        assert db_mod.rename_database_quoted("acme-test", "acme-test__odoodev_old", "h", 0, "ownerp") is True
+        # connections are closed first — ALTER DATABASE fails on a database in use
+        assert "pg_terminate_backend" in queries[0] and "'acme-test'" in queries[0]
+        assert queries[1] == 'ALTER DATABASE "acme-test" RENAME TO "acme-test__odoodev_old";'
+
+    @pytest.mark.parametrize("name", ['a"b', "a'b", "a b", "a;b", "", "x" * 64])
+    def test_names_that_could_leave_the_quotes_are_refused(self, monkeypatch, name):
+        queries = self._capture(monkeypatch)
+        assert db_mod.rename_database_quoted(name, "fine", "h", 0, "ownerp") is False
+        assert db_mod.rename_database_quoted("fine", name, "h", 0, "ownerp") is False
+        assert queries == []
+
+    def test_failed_alter_is_reported(self, monkeypatch):
+        self._capture(monkeypatch, ok=False)
+        assert db_mod.rename_database_quoted("a", "b", "h", 0, "ownerp") is False
+
+
+# =============================================================================
+# restore_database_report — psql exits 0 on failed statements
+# =============================================================================
+
+
+class TestRestoreDatabaseReport:
+    def _run(self, monkeypatch, tmp_path, stderr="", returncode=0):
+        dump = tmp_path / "dump.sql"
+        dump.write_text("-- sql")
+
+        def fake_run(cmd, **kwargs):
+            if returncode:
+                import subprocess
+
+                raise subprocess.CalledProcessError(returncode, cmd, stderr=stderr)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr=stderr)
+
+        monkeypatch.setattr(db_mod.subprocess, "run", fake_run)
+        return db_mod.restore_database_report("db", str(dump), host="localhost", port=18432, user="ownerp")
+
+    def test_clean_restore(self, monkeypatch, tmp_path):
+        assert self._run(monkeypatch, tmp_path) == (True, [])
+
+    def test_harmless_errors_are_returned_and_do_not_fail(self, monkeypatch, tmp_path):
+        ok, errors = self._run(monkeypatch, tmp_path, stderr='ERROR:  role "x" does not exist\nNOTICE: fine\n')
+        assert ok is True
+        assert errors == ['ERROR:  role "x" does not exist']
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            'ERROR:  could not extend file "base/16384/2619": No space left on device',
+            "ERROR:  out of memory",
+            "psql: error: FATAL:  server closed the connection unexpectedly",
+            'ERROR:  invalid byte sequence for encoding "UTF8": 0xff',
+        ],
+    )
+    def test_errors_that_mean_incomplete_data_fail(self, monkeypatch, tmp_path, line):
+        ok, errors = self._run(monkeypatch, tmp_path, stderr=f'ERROR:  role "x" does not exist\n{line}\n')
+        assert ok is False
+        assert errors == [line]
+
+    def test_psql_failure(self, monkeypatch, tmp_path):
+        ok, errors = self._run(monkeypatch, tmp_path, stderr="psql: error: connection refused", returncode=2)
+        assert ok is False
+        assert errors == ["psql: error: connection refused"]
+
+    def test_restore_database_keeps_its_bool_contract(self, monkeypatch, tmp_path):
+        dump = tmp_path / "dump.sql"
+        dump.write_text("-- sql")
+        monkeypatch.setattr(
+            db_mod.subprocess,
+            "run",
+            lambda cmd, **kw: types.SimpleNamespace(returncode=0, stdout="", stderr='ERROR:  role "x" does not exist'),
+        )
+        assert db_mod.restore_database("db", str(dump), host="localhost", port=18432, user="ownerp") is True

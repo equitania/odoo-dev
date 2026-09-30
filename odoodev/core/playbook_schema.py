@@ -25,8 +25,13 @@ from typing import Any
 # ``backup_source.mode: from_backup_step`` (no pattern fields); the neutralize
 # decision moved into the restore's sanitize question (recipe.neutralize is
 # still accepted in answers files, the wizard derives it).
-# The ANSWERS format is backward compatible across v1-v3 (targets + recipe).
-SCHEMA_VERSION = 3
+# v4 (0.72.0): the module update belongs behind the restore — recipe.rebuild
+# gains ``position`` (default ``after_restore``; answers files of v1-v3 keep
+# ``before_restore``), recipe.safety_backup saves the destination before it is
+# replaced, recipe.verify checks the instance afterwards, and
+# recipe.update_all is off by default (server.rebuild is the update).
+# The ANSWERS format is backward compatible across v1-v4 (targets + recipe).
+SCHEMA_VERSION = 4
 
 PLAYBOOK_TYPES = ("dev", "server")
 
@@ -293,7 +298,25 @@ SECTIONS: tuple[WizardSection, ...] = (
         key="server_recipe",
         applies_to=("server",),
         fields=(
-            _f("recipe.rebuild.enabled", "confirm", "playbook.server.recipe.rebuild", default=False),
+            _f("recipe.safety_backup.enabled", "confirm", "playbook.server.recipe.safety_backup", default=True),
+            _f(
+                "recipe.safety_backup.backup_dir",
+                "text",
+                "playbook.server.recipe.safety_backup_dir",
+                default="/opt/backups/docker",
+                depends_on="recipe.safety_backup.enabled",
+                depends_value=True,
+            ),
+            _f("recipe.rebuild.enabled", "confirm", "playbook.server.recipe.rebuild", default=True),
+            _f(
+                "recipe.rebuild.position",
+                "select",
+                "playbook.server.recipe.rebuild_position",
+                choices=("after_restore", "before_restore"),
+                default="after_restore",
+                depends_on="recipe.rebuild.enabled",
+                depends_value=True,
+            ),
             _f(
                 "recipe.rebuild.target",
                 "select",
@@ -370,7 +393,8 @@ SECTIONS: tuple[WizardSection, ...] = (
                 depends_value=True,
             ),
             _f("recipe.start_after_restore", "confirm", "playbook.server.recipe.start_after", default=True),
-            _f("recipe.update_all.enabled", "confirm", "playbook.server.recipe.update_all", default=True),
+            _f("recipe.verify.enabled", "confirm", "playbook.server.recipe.verify", default=True),
+            _f("recipe.update_all.enabled", "confirm", "playbook.server.recipe.update_all", default=False),
             _f(
                 "recipe.update_all.restart",
                 "confirm",
@@ -674,6 +698,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("backup_dir", "text", required=True),
                 _a("compression_level", "int", default=5),
                 _a("only_sql", "confirm", default=False),
+                _a("safety", "confirm", default=False),
             ),
         ),
         StepSpec(
@@ -686,6 +711,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("config", "text", default="~/docker2update.yaml"),
                 _a("timeout", "int", default=7200),
                 _a("extra_args", "list[str]"),
+                _a("trust_exit_code", "confirm", default=False),
             ),
         ),
         StepSpec(
@@ -698,6 +724,8 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("drop", "confirm", default=True),
                 _a("check_space", "confirm", default=True),
                 _a("allow_missing_filestore", "confirm", default=False),
+                _a("without_pgvector", "confirm", default=False),
+                _a("check_restored", "confirm", default=True),
                 _a("sanitize", "confirm", default=False),
                 _a("deactivate_cron", "confirm"),
                 _a("neutralize", "confirm"),
@@ -725,6 +753,18 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("extra_args", "list[str]"),
                 _a("odoo_bin_path", "text"),
                 _a("config_path", "text"),
+            ),
+        ),
+        StepSpec(
+            "server.verify",
+            "server",
+            (
+                _a("target", "text"),
+                _a("timeout", "int", default=300),
+                _a("check_modules", "confirm", default=True),
+                _a("http_check", "confirm", default=True),
+                _a("http_port", "int", default=8069),
+                _a("source_build", "text"),
             ),
         ),
         StepSpec(

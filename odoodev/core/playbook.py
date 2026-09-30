@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,7 @@ VALID_COMMANDS = frozenset(
         "server.restore",
         "server.neutralize",
         "server.update-all",
+        "server.verify",
         "sql.execute",
         "rpc.execute",
     }
@@ -54,6 +55,7 @@ SERVER_COMMANDS = frozenset(
         "server.restore",
         "server.neutralize",
         "server.update-all",
+        "server.verify",
         "sql.execute",
         "rpc.execute",
     }
@@ -447,6 +449,16 @@ def _resolve_rpc_config(rpc: dict[str, Any], context: dict[str, Any]) -> dict[st
 
 # --- Runner ---
 
+# Step result details that later steps may need, and the steps that receive them.
+_RUNTIME_KEYS = ("backup_file", "source_build")
+_RUNTIME_CONSUMERS = frozenset({"server.restore", "server.verify"})
+# Steps that run long enough to say what they are doing (they receive ``_progress``).
+_PROGRESS_COMMANDS = frozenset(
+    {"server.backup", "server.rebuild", "server.restore", "server.update-all", "server.verify"}
+)
+# Steps that change a server and are therefore worth a preflight.
+_PREFLIGHT_COMMANDS = frozenset({"server.restore", "server.rebuild"})
+
 
 class PlaybookRunner:
     """Execute playbook steps sequentially using automation handlers."""
@@ -458,6 +470,37 @@ class PlaybookRunner:
 
         self._handlers = {**COMMAND_HANDLERS, **SERVER_COMMAND_HANDLERS}
 
+    def _preflight(self, playbook: PlaybookConfig, version: str, context: dict[str, Any]) -> StepResult | None:
+        """Hold a server playbook against the host; None when there is nothing to report."""
+        if not any(step.command in _PREFLIGHT_COMMANDS for step in playbook.steps):
+            return None
+
+        from odoodev.core.server_preflight import ERROR, preflight_server_steps
+
+        resolved: list[tuple[str, dict[str, Any]]] = []
+        for step in playbook.steps:
+            try:
+                args = _inject_target_context(render_step_args(step.args, context), playbook.targets)
+            except PlaybookValidationError:
+                args = {}  # the step itself reports this when its turn comes
+            resolved.append((step.command, args))
+
+        started = time.monotonic()
+        findings = preflight_server_steps(version, resolved)
+        if not findings:
+            return None
+        errors = [f for f in findings if f.level == ERROR]
+        lines = [f"[{finding.level}] {finding.message}" for finding in findings]
+        return StepResult(
+            name="Preflight",
+            command="preflight",
+            status="error" if errors else "ok",
+            message="\n".join(lines),
+            exit_code=1 if errors else 0,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            details={"errors": len(errors), "warnings": len(findings) - len(errors)},
+        )
+
     def execute(
         self,
         playbook: PlaybookConfig,
@@ -466,6 +509,8 @@ class PlaybookRunner:
         playbook_name: str = "<inline>",
         cli_vars: dict[str, str] | None = None,
         on_step: Callable[[StepResult], None] | None = None,
+        preflight: bool = True,
+        on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> PlaybookResult:
         """Execute all steps in a playbook.
 
@@ -477,6 +522,14 @@ class PlaybookRunner:
             cli_vars: ``--var`` overrides for the playbook ``vars:`` block.
             on_step: Called with each StepResult as soon as the step finishes,
                 enabling live progress output while the playbook is running.
+            on_event: Called while a step is still running: ``("step_start",
+                {index, total, name, command})`` before each step and
+                ``("step_progress", {index, total, name, command, message})``
+                whenever a long-running step reports what it is doing. Not
+                called in a dry run.
+            preflight: Check a server playbook against the host before its first
+                step (see ``core/server_preflight.py``). Findings appear as a
+                leading ``preflight`` result; an error stops a real run.
 
         Returns:
             PlaybookResult with all step results.
@@ -494,20 +547,31 @@ class PlaybookRunner:
         results: list[StepResult] = []
         start_time = time.monotonic()
         aborted = False
-        # Runtime values produced by earlier steps and consumed by later ones —
-        # currently the backup file created by server.backup, picked up by
-        # server.restore via backup_source.mode "from_backup_step".
+        # Runtime values produced by earlier steps and consumed by later ones:
+        # the backup file created by server.backup (picked up by server.restore
+        # via backup_source.mode "from_backup_step") and the kernel the restored
+        # backup was taken on (held against the image by server.verify).
         runtime: dict[str, Any] = {}
 
         def record(result: StepResult) -> None:
             results.append(result)
-            backup_file = result.details.get("backup_file")
-            if result.status == "ok" and backup_file:
-                runtime["backup_file"] = backup_file
+            if result.status == "ok":
+                for key in _RUNTIME_KEYS:
+                    if result.details.get(key):
+                        runtime[key] = result.details[key]
             if on_step is not None:
                 on_step(result)
 
-        for step in playbook.steps:
+        if preflight:
+            preflight_result = self._preflight(playbook, version, context)
+            if preflight_result is not None:
+                record(preflight_result)
+                # A dry run lists the steps regardless; a real run must not start.
+                if preflight_result.status == "error" and not dry_run:
+                    aborted = True
+
+        total_steps = len(playbook.steps)
+        for index, step in enumerate(playbook.steps, start=1):
             if aborted:
                 record(
                     StepResult(
@@ -526,7 +590,7 @@ class PlaybookRunner:
                 step_args = _inject_target_context(step_args, playbook.targets)
                 if step.command == "rpc.execute" and "_rpc_config" not in step_args:
                     step_args["_rpc_config"] = rpc_config
-                if step.command == "server.restore" and "_runtime" not in step_args:
+                if step.command in _RUNTIME_CONSUMERS and "_runtime" not in step_args:
                     step_args["_runtime"] = runtime
             except PlaybookValidationError as exc:
                 record(
@@ -557,6 +621,16 @@ class PlaybookRunner:
                 )
                 continue
 
+            position = {"index": index, "total": total_steps, "name": step.name, "command": step.command}
+            if on_event is not None:
+                on_event("step_start", dict(position))
+                if step.command in _PROGRESS_COMMANDS:
+
+                    def report(message: str, _position: dict[str, Any] = position) -> None:
+                        on_event("step_progress", {**_position, "message": message})
+
+                    step_args["_progress"] = report
+
             handler = self._handlers.get(step.command)
             if not handler:
                 result = StepResult(
@@ -582,6 +656,10 @@ class PlaybookRunner:
                         duration_ms=duration_ms,
                     )
 
+            # The handlers name their result after the command; the playbook's own
+            # step name is what its author reads.
+            if step.name and result.name != step.name:
+                result = replace(result, name=step.name)
             record(result)
 
             # Check on_error policy

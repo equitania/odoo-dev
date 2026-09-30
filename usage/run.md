@@ -120,10 +120,12 @@ Sucht nach `*.yaml`/`*.yml` in `./playbooks/` und
 | `venv.check` | Venv-Status pruefen |
 | `venv.setup` | Venv erstellen/aktualisieren |
 | `container.stop` / `container.start` | Docker-Container eines Targets stoppen/starten (idempotent) |
-| `server.backup` | Frisches Backup vom Live-Paar (container2backup-kompatibles `.tar.zst`) |
-| `server.restore` | Backup ins Test-Paar einspielen (Drop, Restore, Filestore-Tausch, Sanitize) |
+| `server.backup` | Frisches Backup eines Container-Paars (container2backup-kompatibles `.tar.zst`); `safety: true` sichert das Ziel eines Restores |
+| `server.restore` | Backup einspielen: erst in eine Zwischen-Datenbank, dann Tausch per Umbenennen; Filestore-Tausch, Sanitize |
+| `server.rebuild` | Update-Routine des Servers (`update_docker_odoo.py`): Image bauen, Module aktualisieren, Odoo starten — gehört **hinter** den Restore |
 | `server.neutralize` | `odoo-bin neutralize` im laufenden Odoo-Container |
-| `server.update-all` | `odoo-bin -u all --stop-after-init` im laufenden Odoo-Container (+ Neustart) |
+| `server.update-all` | `odoo-bin -u all --stop-after-init` im laufenden Odoo-Container (+ Neustart) — Ausnahme für Hosts ohne `update_docker_odoo.py` |
+| `server.verify` | Prüft, ob Odoo die Datenbank wirklich ausliefert: Container healthy, keine hängenden Modulzustände, Login-Seite lädt |
 | `sql.execute` | SQL-Statements/-Datei gegen Target- oder Dev-Datenbank |
 | `rpc.execute` | Deklarativer Odoo-RPC-Aufruf via odoorpc-toolbox (`odoodev-equitania[rpc]`) |
 
@@ -146,12 +148,26 @@ rpc:                                          # Fallbacks: ODOO_URL/PORT/USER/PA
   host: "{{ env.ODOO_URL }}"
 ```
 
-Steps referenzieren ein Target per `target: test`. Wichtig für die Reihenfolge:
-`server.restore` verlangt einen **gestoppten** Odoo-Container; `server.neutralize`
-und `server.update-all` brauchen den **laufenden** Container (`docker exec`) und
-gehören daher hinter `container.start`. Kundenspezifisches SQL (Enterprise-Code,
-Website-Domain, Connector-Resets) vor dem Start ausführen. Vollständiges Beispiel:
-`server-mirror.yaml`.
+Steps referenzieren ein Target per `target: test`. Die Reihenfolge eines Mirrors:
+Ziel sichern (`server.backup` mit `safety: true`) → Quelle sichern → `container.stop`
+→ `server.restore` → kundenspezifisches SQL (Enterprise-Code, Website-Domain,
+Connector-Resets) → `server.rebuild` → `server.neutralize` → `server.verify`.
+
+- `server.restore` verlangt einen **gestoppten** Odoo-Container. Die bestehende
+  Datenbank bleibt unangetastet, bis der Dump vollständig eingespielt ist; erst dann
+  wird getauscht.
+- `server.rebuild` gehört **hinter** den Restore: Der Schritt aktualisiert die Module
+  der eingespielten Datenbank und startet den Container selbst. Ein `container.start`
+  davor ist überflüssig.
+- `server.neutralize`, `server.update-all` und `server.verify` brauchen den
+  **laufenden** Container.
+
+Vor dem ersten Schritt prüft odoodev den Server gegen das Playbook: ob
+`docker2update.yaml` dieselbe Datenbank und dieselbe Odoo-Version nennt, ob das Image
+zur Version passt, ob eine bestehende Datenbank ungesichert ersetzt würde. Ein Fehler
+stoppt den Lauf, bevor etwas verändert wird; `--dry-run` meldet dieselben Befunde,
+`--no-preflight` überspringt die Prüfung. Details und vollständiges Beispiel:
+`usage/playbook.md`, `server-mirror.yaml`.
 
 ### Beispiel-Playbooks
 
@@ -171,10 +187,25 @@ Mit `--output json` wird pro Event eine JSON-Zeile ausgegeben:
 
 ```json
 {"event": "playbook_start", "version": "18", "steps": 3}
+{"event": "step_start", "index": 1, "total": 3, "name": "Start Docker", "command": "docker.up"}
 {"event": "step_done", "name": "Start Docker", "command": "docker.up", "status": "ok"}
-{"event": "step_done", "name": "Pull code", "command": "pull", "status": "ok"}
+{"event": "step_start", "index": 2, "total": 3, "name": "Rebuild", "command": "server.rebuild"}
+{"event": "step_progress", "index": 2, "total": 3, "name": "Rebuild", "command": "server.rebuild", "message": "build image odoo/live"}
+{"event": "step_done", "name": "Rebuild", "command": "server.rebuild", "status": "ok"}
 {"event": "playbook_done", "status": "ok", "steps_ok": 3, "steps_failed": 0}
 ```
+
+`step_start` und `step_progress` gibt es seit 0.74.0, nicht im `--dry-run`. `step_done.name`
+ist der Name des Schritts aus dem Playbook. Ein Empfänger sollte unbekannte Ereignisse
+überspringen.
+
+### Fortschritt im Terminal
+
+Jeder Schritt wird beim Start angekündigt (`[2/5] Name`). Am Terminal ist das eine Zeile
+mit Spinner und verstrichener Zeit; was der Schritt meldet, bleibt darüber stehen. In
+einer Pipe oder einem Cron-Log erscheinen dieselben Meldungen als einfache Zeilen.
+`server.rebuild` reicht die Zeilen des Update-Skripts durch, `server.restore` nennt seine
+Phasen (entpacken, in die Zwischen-Datenbank einspielen, Filestore, Tausch, Sanitize).
 
 ---
 
@@ -294,10 +325,12 @@ Discovers `*.yaml`/`*.yml` files in `./playbooks/` and
 | `venv.check` | Check venv status |
 | `venv.setup` | Create/update venv |
 | `container.stop` / `container.start` | Stop/start a target's Docker container (idempotent) |
-| `server.backup` | Fresh backup from the live pair (container2backup-compatible `.tar.zst`) |
-| `server.restore` | Restore a backup into the test pair (drop, restore, filestore swap, sanitize) |
+| `server.backup` | Fresh backup of a container pair (container2backup-compatible `.tar.zst`); `safety: true` saves the destination of a restore |
+| `server.restore` | Restore a backup: into a staging database first, then swapped in by renaming; filestore swap, sanitize |
+| `server.rebuild` | The server's own update routine (`update_docker_odoo.py`): build the image, update the modules, start Odoo — belongs **after** the restore |
 | `server.neutralize` | `odoo-bin neutralize` inside the running Odoo container |
-| `server.update-all` | `odoo-bin -u all --stop-after-init` inside the running Odoo container (+ restart) |
+| `server.update-all` | `odoo-bin -u all --stop-after-init` inside the running Odoo container (+ restart) — the exception for hosts without `update_docker_odoo.py` |
+| `server.verify` | Checks that Odoo really serves the database: container healthy, no module stuck between states, login page loads |
 | `sql.execute` | SQL statements/file against a target or dev database |
 | `rpc.execute` | Declarative Odoo RPC call via odoorpc-toolbox (`odoodev-equitania[rpc]`) |
 
@@ -320,11 +353,24 @@ rpc:                                          # fallbacks: ODOO_URL/PORT/USER/PA
   host: "{{ env.ODOO_URL }}"
 ```
 
-Steps reference a target via `target: test`. Ordering matters: `server.restore`
-requires a **stopped** Odoo container; `server.neutralize` and `server.update-all`
-need the **running** container (`docker exec`) and therefore belong after
-`container.start`. Run customer-specific SQL (enterprise code, website domain,
-connector resets) before the start. Full example: `server-mirror.yaml`.
+Steps reference a target via `target: test`. The order of a mirror: save the
+destination (`server.backup` with `safety: true`) → back up the source →
+`container.stop` → `server.restore` → customer-specific SQL (enterprise code, website
+domain, connector resets) → `server.rebuild` → `server.neutralize` → `server.verify`.
+
+- `server.restore` requires a **stopped** Odoo container. The existing database stays
+  untouched until the dump has restored completely; only then is it swapped.
+- `server.rebuild` belongs **after** the restore: it updates the modules of the restored
+  database and starts the container itself. A `container.start` before it is redundant.
+- `server.neutralize`, `server.update-all` and `server.verify` need the **running**
+  container.
+
+Before the first step odoodev holds the server against the playbook: whether
+`docker2update.yaml` names the same database and the same Odoo version, whether the
+image matches the version, whether an existing database would be replaced without a
+backup. An error stops the run before anything is changed; `--dry-run` reports the same
+findings, `--no-preflight` skips the check. Details and the full example:
+`usage/playbook.md`, `server-mirror.yaml`.
 
 ### Example Playbooks
 
@@ -344,7 +390,21 @@ With `--output json`, one JSON line is emitted per event:
 
 ```json
 {"event": "playbook_start", "version": "18", "steps": 3}
+{"event": "step_start", "index": 1, "total": 3, "name": "Start Docker", "command": "docker.up"}
 {"event": "step_done", "name": "Start Docker", "command": "docker.up", "status": "ok"}
-{"event": "step_done", "name": "Pull code", "command": "pull", "status": "ok"}
+{"event": "step_start", "index": 2, "total": 3, "name": "Rebuild", "command": "server.rebuild"}
+{"event": "step_progress", "index": 2, "total": 3, "name": "Rebuild", "command": "server.rebuild", "message": "build image odoo/live"}
+{"event": "step_done", "name": "Rebuild", "command": "server.rebuild", "status": "ok"}
 {"event": "playbook_done", "status": "ok", "steps_ok": 3, "steps_failed": 0}
 ```
+
+`step_start` and `step_progress` exist since 0.74.0, not in `--dry-run`. `step_done.name`
+is the step's name from the playbook. A consumer should skip events it does not know.
+
+### Progress on the terminal
+
+Every step is announced when it starts (`[2/5] name`). On a terminal that is a line with a
+spinner and the elapsed time; what the step reports stays above it. Into a pipe or a cron
+log the same reports appear as plain lines. `server.rebuild` passes on the lines of the
+update script, `server.restore` names its phases (extract, restore into the staging
+database, filestore, swap, sanitize).

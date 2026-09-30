@@ -203,6 +203,40 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.74.0:**
+- **Neu:** `odoodev run` zeigt, wo ein Playbook steht. Jeder Schritt wird beim Start mit Position
+  und Namen angekündigt (`[2/5] Restore backup into test`), lange Schritte melden, was sie gerade
+  tun: `server.rebuild` reicht jede Zeile des Update-Skripts durch, `server.restore` nennt seine
+  Phasen. Am Terminal läuft dazu eine Zeile mit verstrichener Zeit, in einem Cron-Log stehen
+  dieselben Meldungen als einfache Zeilen. Zeiten erscheinen als `7m 19s` statt `439393ms`.
+
+**Version 0.73.0:**
+- **Neu:** Der Playbook-Assistent nutzt, was der Server schon weiß. Quelle und Ziel wählen Sie aus
+  den Instanzen in `~/docker2update.yaml`, statt Container, Datenbank und Datenverzeichnis zu
+  tippen. Das Backup-Verzeichnis kommt aus `~/container2backup.yaml`, vorhandene Backups erscheinen
+  als Liste mit Datum und Größe. Nach dem Schreiben prüft der Assistent das Playbook sofort gegen
+  den Server. Auf jedem anderen Rechner fragt er wie bisher.
+
+**Version 0.72.0:**
+- **Geändert:** `server.restore` löscht die bestehende Datenbank nicht mehr, bevor das Einspielen
+  gelungen ist. Der Dump geht in eine Zwischen-Datenbank, der Filestore in ein Zwischenverzeichnis,
+  getauscht wird erst am Ende per Umbenennen. Ein defektes Archiv oder eine volle Platte lassen den
+  alten Stand unberührt. Der Schritt braucht dafür Platz für beide Datenbanken nebeneinander.
+- **Geändert:** Das Modul-Update gehört hinter den Restore. `server.rebuild` (die Update-Routine des
+  Servers) lief bisher vor dem Einspielen und aktualisierte damit die Datenbank, die gleich ersetzt
+  wurde. Assistent und Beispiel-Playbook stellen den Schritt jetzt dahinter. Bestehende
+  Answers-Dateien (`schema_version` 1–3) behalten ihre Reihenfolge.
+- **Geändert:** `server.rebuild` verlässt sich nicht mehr allein auf den Exit-Code. Meldet Odoo im
+  Update „Failed to initialize database“, schlägt der Schritt fehl, auch wenn das Update-Skript
+  Erfolg meldet.
+- **Neu:** Vorabprüfung für Server-Playbooks. Vor dem ersten Schritt — und im `--dry-run` — prüft
+  odoodev, ob `docker2update.yaml` dieselbe Datenbank und Odoo-Version nennt wie das Playbook, ob
+  das Image zur Version passt und ob eine bestehende Datenbank ungesichert ersetzt würde.
+- **Neu:** `server.verify` prüft nach dem Start, ob Odoo die Datenbank wirklich ausliefert.
+  `server.backup` mit `safety: true` sichert das Ziel, bevor es ersetzt wird.
+- **Behoben:** `server.restore` hinterließ das Verzeichnis `filestore` im Besitz von root; die
+  pgvector-Prüfung aus 0.71.0 gilt jetzt auch im Server-Restore.
+
 **Version 0.71.0:**
 - **Neu:** pgvector für die Dev-Datenbank, standardmäßig aus: `PGVECTOR=true` in der `.env`, dann
   baut `odoodev docker up` einmalig ein Image auf demselben PostgreSQL-Image (Alpine bleibt Alpine).
@@ -727,6 +761,41 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.74.0:**
+- **Added:** `odoodev run` shows where a playbook is. Every step is announced when it starts, with
+  position and name (`[2/5] Restore backup into test`), and long steps report what they are doing:
+  `server.rebuild` passes on every line of the update script, `server.restore` names its phases.
+  On a terminal there is a live line with the elapsed time; in a cron log the same reports appear
+  as plain lines. Durations read `7m 19s` instead of `439393ms`.
+
+**Version 0.73.0:**
+- **Added:** The playbook assistant uses what the server already knows. Source and destination
+  are picked from the instances in `~/docker2update.yaml` instead of typing container, database
+  and data directory. The backup directory comes from `~/container2backup.yaml`, existing backups
+  appear as a list with date and size. After writing, the assistant checks the playbook against
+  the server right away. On any other machine it asks as before.
+
+**Version 0.72.0:**
+- **Changed:** `server.restore` no longer drops the existing database before the restore has
+  succeeded. The dump goes into a staging database, the filestore into a staging directory, and
+  both are swapped in by renaming at the end. A broken archive or a full disk leave the previous
+  state untouched. The step needs room for both databases side by side.
+- **Changed:** The module update belongs behind the restore. `server.rebuild` (the server's own
+  update routine) used to run before it and so updated the database about to be replaced. The
+  assistant and the example playbook now place it after the restore. Existing answers files
+  (`schema_version` 1–3) keep their order.
+- **Changed:** `server.rebuild` no longer trusts the exit code alone. When Odoo logs "Failed to
+  initialize database" during the update, the step fails even though the update script reports
+  success.
+- **Added:** Preflight for server playbooks. Before the first step — and in `--dry-run` — odoodev
+  checks whether `docker2update.yaml` names the same database and Odoo version as the playbook,
+  whether the image matches the version, and whether an existing database would be replaced
+  without a backup.
+- **Added:** `server.verify` checks after the start that Odoo really serves the database.
+  `server.backup` with `safety: true` saves the destination before it is replaced.
+- **Fixed:** `server.restore` left the `filestore` directory owned by root; the pgvector check of
+  0.71.0 now applies to the server restore as well.
 
 **Version 0.71.0:**
 - **Added:** pgvector for the dev database, off by default: `PGVECTOR=true` in the `.env`, and

@@ -132,6 +132,80 @@ class TestBuildServerPlaybook:
             "rpc.execute",
         ]
 
+    def test_schema_v4_puts_the_update_behind_the_restore(self):
+        answers = server_answers()
+        answers["schema_version"] = 4
+        answers["recipe"]["update_all"]["enabled"] = False
+        answers["recipe"]["verify"] = {"enabled": True}
+        answers["recipe"]["safety_backup"] = {"enabled": True, "backup_dir": "/opt/backups/docker"}
+        playbook = build_playbook_dict(answers)
+        validate_generated(playbook)
+        commands = [step["command"] for step in playbook["steps"]]
+        assert commands == [
+            "server.backup",  # destination, safety: true
+            "server.backup",  # source
+            "container.stop",
+            "server.restore",
+            "sql.execute",
+            "server.rebuild",  # builds, updates the RESTORED database, starts Odoo
+            "server.neutralize",
+            "server.verify",
+            "rpc.execute",
+        ]
+        assert playbook["steps"][0]["args"]["safety"] is True
+        assert playbook["steps"][0]["args"]["target"] == "test"
+        assert "safety" not in playbook["steps"][1]["args"]
+        # server.rebuild starts the container itself
+        assert "container.start" not in commands
+
+    def test_explicit_rebuild_position_wins_over_the_schema_version(self):
+        old_file = server_answers()  # schema_version 1
+        old_file["recipe"]["rebuild"]["position"] = "after_restore"
+        commands = [s["command"] for s in build_playbook_dict(old_file)["steps"]]
+        assert commands.index("server.rebuild") > commands.index("server.restore")
+
+        new_file = server_answers()
+        new_file["schema_version"] = 4
+        new_file["recipe"]["rebuild"]["position"] = "before_restore"
+        commands = [s["command"] for s in build_playbook_dict(new_file)["steps"]]
+        assert commands.index("server.rebuild") < commands.index("container.stop")
+        assert "container.start" in commands
+
+    def test_verify_needs_a_running_container(self):
+        answers = server_answers()
+        answers["schema_version"] = 4
+        answers["recipe"]["verify"] = {"enabled": True}
+        answers["recipe"]["rebuild"]["enabled"] = False
+        answers["recipe"]["start_after_restore"] = False
+        commands = [s["command"] for s in build_playbook_dict(answers)["steps"]]
+        assert "server.verify" not in commands
+
+    def test_verify_follows_every_update(self):
+        answers = server_answers()
+        answers["schema_version"] = 4
+        answers["recipe"]["verify"] = {"enabled": True, "timeout": 600}
+        playbook = build_playbook_dict(answers)
+        commands = [s["command"] for s in playbook["steps"]]
+        assert commands.index("server.verify") > commands.index("server.update-all")
+        verify = next(s for s in playbook["steps"] if s["command"] == "server.verify")
+        assert verify["args"] == {"target": "test", "timeout": 600}
+
+    def test_safety_backup_needs_a_directory(self):
+        answers = server_answers()
+        answers["recipe"]["safety_backup"] = {"enabled": True}
+        assert any("safety_backup.backup_dir" in p for p in validate_answers(answers))
+
+    def test_unknown_rebuild_position_is_rejected(self):
+        answers = server_answers()
+        answers["recipe"]["rebuild"]["position"] = "sometime"
+        assert any("recipe.rebuild.position" in p for p in validate_answers(answers))
+
+    def test_schema_versions_1_to_4_are_accepted(self):
+        for version in (1, 2, 3, 4):
+            answers = server_answers()
+            answers["schema_version"] = version
+            assert not any("schema_version" in p for p in validate_answers(answers)), version
+
     def test_disabled_recipe_items_are_skipped(self):
         answers = server_answers()
         answers["recipe"]["rebuild"]["enabled"] = False

@@ -1,5 +1,126 @@
 # Release Notes
 
+## Version 0.74.0 (30.09.2026)
+
+### Added
+- **`odoodev run` shows where a playbook is.** A rebuild of seven minutes used to show one
+  line, "Running playbook", and then nothing until it was over. Now every step is announced
+  when it starts, with its position and its name (`[2/5] Restore backup into test`), and
+  long-running steps report what they are doing:
+  - `server.rebuild` passes on every line of the update script as it is printed — release
+    fetch, image build, module update, restart.
+  - `server.restore` names its phases: extracting, restoring into the staging database,
+    moving the filestore, swapping, sanitizing.
+  - `server.backup`, `server.update-all` and `server.verify` say what they are waiting for.
+  On a terminal the running step is a live line with a spinner and the elapsed time, and what
+  the step reported stays above it. Into a pipe or a cron log the same appears as plain lines.
+- `--output json` emits two new events: `step_start` (`index`, `total`, `name`, `command`)
+  before each step, and `step_progress` (the same fields plus `message`). Not in a dry run.
+
+### Changed
+- A step's result carries the **name the playbook gives it**, not the command
+  (`[OK] 2/5 Restore backup into test` instead of `[OK] server.restore`). In NDJSON
+  `step_done.name` changes accordingly; `command` is unchanged.
+- Durations are printed readably: `7m 19s` instead of `439393ms`. NDJSON keeps `duration_ms`.
+- `server.rebuild` runs the update script with `PYTHONUNBUFFERED=1` and reads its output line
+  by line; stderr is merged into stdout.
+
+## Version 0.73.0 (30.09.2026)
+
+### Added
+- **The playbook assistant uses what the server already knows.** On a myodoo-docker server
+  `odoodev playbook create` no longer asks for container names, database names and data
+  directories by hand:
+  - **Instances from `~/docker2update.yaml`.** Source and destination are picked from the
+    instances the update routine maintains ("live-odoo — database acme_prod (DB container
+    live-db)"). Odoo container, database, DB container, database user and the host path of
+    the data directory are taken from that entry; the instance chosen as source is not offered
+    as destination. "Another container pair" keeps the manual entry. The version question is
+    preselected from the file, and an instance configured for another Odoo version than the
+    playbook is named the moment it is picked.
+  - **Backup directory from `~/container2backup.yaml`** (`defaults.backup_path` + `docker`) as
+    the default for the source backup, the safety backup and the newest-file search — instead
+    of a fixed `/opt/backups/docker`.
+  - **Existing backups as a list.** "Use an existing backup file" shows the newest archives of
+    that directory with date and size; "Another file" keeps the path prompt.
+  - **Checked against the server at the end.** After writing the playbook the assistant runs
+    the preflight of 0.72.0 on the spot and prints its findings. The playbook is written either
+    way; a host that cannot be read yields "no findings" and says what that covers.
+  On any other machine nothing changes: without the two files the assistant asks as before.
+  The `--answers` mode and the schema are unchanged.
+
+### Changed
+- The assistant no longer asks for a "rebuild target". Behind the restore the rebuild is the
+  update of the destination; there was nothing to choose, and picking the source there would
+  have rebuilt the wrong instance.
+
+## Version 0.72.0 (30.09.2026)
+
+Server playbooks, after the first restore onto a fresh customer server: the restore itself
+worked, the instance did not come up, and nothing in the run said so.
+
+### Changed
+- **`server.restore` no longer drops the database before the restore has succeeded.** The dump
+  is restored into a staging database (`<db>__odoodev_new`), the filestore into
+  `filestore/<db>.odoodev_new`, and only a complete restore is renamed into place; the previous
+  state is parked as `…_old` for the swap and removed afterwards. A broken archive, a full disk
+  or a missing extension used to leave the server with neither the old database nor the new
+  one. Consequences: the step needs room for both databases side by side; a leftover
+  `<db>__odoodev_old` from an interrupted run stops the next restore, because it may be the
+  only copy; `drop: false` now refuses an existing database with a clear message instead of
+  failing in `createdb`. Database names may contain `-` and `.`.
+- **`server.restore` reads what `psql` reported.** `psql` exits 0 when statements of a dump
+  fail, so a restore that ran out of disk space counted as a success. Errors that mean
+  incomplete data (disk full, lost connection, truncated or mis-encoded dump) now fail the
+  step; every other SQL error is counted and quoted in the step's message. Before the swap the
+  restored copy must have installed modules in `ir_module_module`; `check_restored: false`
+  allows a non-Odoo dump. `db restore` is unchanged.
+- **The module update belongs behind the restore.** `server.rebuild` — the server's own update
+  routine `update_docker_odoo.py` — was generated *before* stop and restore, so it updated the
+  database about to be replaced and left the restored one on the module state of its backup.
+  The assistant and the bundled `server-mirror.yaml` now place it after the restore; it starts
+  the container itself, so no `container.start` is generated next to it. `server.update-all`
+  (`odoo-bin -u all` inside the running container) stays available as the exception for hosts
+  without the update script and is off by default. **Answers files keep their behaviour:**
+  `schema_version` 1–3 still put the rebuild first; `schema_version: 4` or
+  `recipe.rebuild.position: "after_restore"` selects the new order.
+- **`server.rebuild` no longer trusts exit code 0 alone.** The update script reported
+  `successful updates 1` while Odoo could not load the database at all — a release whose modules
+  were newer than its kernel, so the first import failed. Output carrying `Failed to initialize
+  database`, `Failed to load registry` or `Couldn't load module` now fails the step and quotes
+  those lines. `trust_exit_code: true` restores the old behaviour.
+- `odoodev run` prints what a successful `server.*` step reports (file written, checks passed,
+  notes) instead of its name only.
+
+### Added
+- **Preflight for server playbooks.** Before the first step of a playbook with `server.restore`
+  or `server.rebuild`, the host is held against it: `docker2update.yaml` names another database
+  or another `odoo_version` than the playbook, the container is missing there, the image is
+  another Odoo major version, the image's kernel is older than the one the backup was taken
+  on, an existing database would be replaced without a backup, or nothing updates the restored
+  database. Errors stop the run before anything is changed; `--dry-run` runs the same checks
+  and exits 1 on an error (it used to list the steps and check nothing); `--no-preflight` skips
+  them. What cannot be read — no Docker, no config file, no manifest — yields no finding.
+- **`server.verify`** — checks that Odoo really serves the database: the container reports
+  healthy, no module is left in `to upgrade`/`to install`/`to remove`, the database's login page
+  answers below HTTP 500, and the image's kernel is not older than the backup's.
+- **`server.backup` with `safety: true`** — the backup of a restore's destination before it is
+  replaced: a no-op when the database does not exist yet, SQL-only when it has no filestore,
+  named `…_prerestore_…` and never handed to a `from_backup_step` restore. The assistant offers
+  it by default.
+- **`server.backup` writes a manifest** (`<file>.manifest`, 0600) naming the kernel the database
+  ran on; restore, preflight and `server.verify` compare the destination image against it.
+- **`server.restore` checks for pgvector before touching anything**, as `db restore` does since
+  0.71.0: a dump that creates the `vector` extension stops the step when the database server
+  does not offer it; `without_pgvector: true` restores without the AI tables.
+
+### Fixed
+- `server.restore` left `<data_dir>/filestore` owned by root on a server that had no filestore
+  yet. The database's own folder was handed to the Odoo user, its parent was not, so Odoo could
+  not create the filestore of a second database. The parent is now handed over as well.
+- A backup without a filestore was refused only *after* the database had been replaced; the
+  check now runs before the first change.
+
 ## Version 0.71.0 (29.09.2026)
 
 ### Added

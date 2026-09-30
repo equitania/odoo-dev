@@ -98,7 +98,7 @@ Notation: `[ARG]` optional positional · `ARG` required positional · `a|b` choi
 | `odoodev requirements diff` | Show baseline vs. overlay vs. installed packages per name. Writes nothing. | [VERSION], --json (`{"version", "rows": [{"name","base","local","installed","status"}]}`; status ∈ `"local override"`\|`"local only"`\|`"not installed"`\|`"ok"`) |
 | `odoodev requirements prune` | Remove overlay entries the baseline already covers: `redundant` (identical), `holds back` (older pin), `drops extras` (loses baseline extras), `unpins` (no specifier where the baseline has one, or a range over an exact pin). Keeps newer pins, packages the baseline does not know, passthrough lines, and a range over a baseline range. Backs the overlay up as `requirements.local.txt.pre-prune`, then syncs. | [VERSION], --dry-run, --yes/-y |
 | `odoodev requirements sync` | Regenerate `requirements.txt` from the shipped baseline plus `requirements.local.txt`. Refuses on a hand-maintained file with no overlay yet — run `adopt` first. | [VERSION], --all (every configured version), --check (write nothing, exit 1 if stale) |
-| `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run, --list, --steps, --var/-D TEXT |
+| `odoodev run` | Execute a playbook or inline steps for automated Odoo development. | [PLAYBOOK], --step/-s TEXT, --version/-V TEXT, --output/-o text\|json, --dry-run (server playbooks: also runs the preflight, exit 1 on an error), --no-preflight, --list, --steps, --var/-D TEXT |
 | `odoodev setup` | Interactive setup wizard for odoodev configuration. | --non-interactive, --reset |
 | `odoodev shell-setup` | Install odoodev shell wrapper function. | --shell fish\|bash\|zsh\|auto |
 | `odoodev start` | Start Odoo server for the given version. Since v0.59.0: instance-info table (ports, database, config, dirs) prints FIRST, then ONE confirmation, then the side-effecting preflight checks — `-y/--yes` skips only the prompt (info still prints). | [VERSION], --dev, --shell, --test, --prepare, --no-confirm, --tui, --load-language TEXT, --i18n-overwrite, --clean-sessions, -d/--database TEXT, -u/--update TEXT, -i/--init TEXT, --host TEXT, --runtime docker\|apple, -c/--config PATH (v0.46.1, explicit config override), --allow-default-credentials, -y/--yes (alias for --no-confirm), [EXTRA_ARGS] |
@@ -255,24 +255,62 @@ optional `owner`/`data_dir` — empty `data_dir` is resolved via `docker inspect
 `ODOO_PASSWORD`/`ODOO_DATABASE` from the env_file). Steps reference targets via `target: <name>`.
 
 Steps: `container.stop`/`container.start` (idempotent; `component: odoo|db`), `server.backup`
-(`backup_dir`, container2backup-compatible `.tar.zst`), `server.rebuild` (full container rebuild via
-the deployed `update_docker_odoo.py`: release fetch + `docker build` + recreate; args `script_path`
-default `~/update_docker_odoo.py`, `config` default `~/docker2update.yaml`, `timeout` default 7200s;
-exit code is the contract), `server.restore` (`backup_source:` `{mode: from_backup_step}` — the exact
-file a previous `server.backup` step of the same run created (v0.57.0) —
+(`backup_dir`, container2backup-compatible `.tar.zst` plus a `<file>.manifest` naming the kernel the
+database ran on; `safety: true` = backup of a restore's DESTINATION: no-op when the database does
+not exist yet, SQL-only when it has no filestore, named `…_prerestore_…`, never handed to
+`from_backup_step`), `server.rebuild` (the server's own update routine, the deployed
+`update_docker_odoo.py`: release fetch + `docker build` + module update of the database named in
+`docker2update.yaml` + start; args `script_path` default `~/update_docker_odoo.py`, `config` default
+`~/docker2update.yaml`, `timeout` default 7200s; exit 0 is NOT enough — output carrying `Failed to
+initialize database` / `Failed to load registry` / `Couldn't load module` fails the step,
+`trust_exit_code: true` switches that off), `server.restore` (`backup_source:`
+`{mode: from_backup_step}` — the exact file a previous `server.backup` step of the same run created —
 or `{mode: file, path: …}` or `{mode: newest_in_dir, dir, pattern, select_by: mtime|filename_timestamp}`;
-`template: template0`; sanitize flags `deactivate_cron`/`neutralize`/`anonymize`/`wipe`/
-`purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute` (`statements:` list or
-`file:`, Jinja-templated; works against a `target` or the dev DB), `server.neutralize`,
-`server.update-all` (`restart: true` default), `rpc.execute` (`model`, `method`, `args`/`kwargs`, or
-`domain` + `values` → search-then-write; needs extra `odoodev-equitania[rpc]`).
+`template: template0`; `drop: false` refuses an existing database; `without_pgvector: true` restores
+a pgvector backup into a server without it; sanitize flags `deactivate_cron`/`neutralize`/
+`anonymize`/`wipe`/`purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute`
+(`statements:` list or `file:`, Jinja-templated; works against a `target` or the dev DB),
+`server.neutralize`, `server.update-all` (`odoo-bin -u all` inside the running container — the
+exception for hosts without `update_docker_odoo.py`; `restart: true` default), `server.verify`
+(waits for the container to report healthy, fails on modules left in `to upgrade`/`to install`/
+`to remove`, on HTTP ≥ 500 from the database's login page and on an image kernel older than the
+backup's; args `timeout` 300, `check_modules`, `http_check`), `rpc.execute` (`model`, `method`,
+`args`/`kwargs`, or `domain` + `values` → search-then-write; needs extra `odoodev-equitania[rpc]`).
 
-**Ordering guardrails:** `server.restore` refuses to run while the target Odoo container is up
-(stop it first); `server.neutralize`/`server.update-all` exec into the RUNNING container — place
-them after `container.start`. Run customer SQL (enterprise code, website domain) before the start.
-`server.rebuild` starts the container itself at the end — place it BEFORE `container.stop` +
-`server.restore`; it runs a host-wide `docker system prune -f` and has no lock, so never run two
-rebuilds on the same host in parallel.
+**Order of a mirror (0.72.0):** `server.backup` (destination, `safety: true`) → `server.backup`
+(source) → `container.stop` → `server.restore` → `sql.execute` → `server.rebuild` →
+`server.neutralize` → `server.verify` → `rpc.execute`. `server.rebuild` goes AFTER the restore: it
+is what updates the restored database, and it starts the container itself, so no `container.start`.
+Placed before the restore it updates the database about to be replaced. `server.restore` refuses to
+run while the target Odoo container is up; `server.neutralize`/`server.update-all`/`server.verify`
+need the RUNNING container. The rebuild prunes dangling images and the build cache host-wide and
+has no lock, so never run two rebuilds on the same host in parallel.
+
+**`server.restore` never leaves a server without a database:** the dump is restored into
+`<db>__odoodev_new`, the filestore into `filestore/<db>.odoodev_new`, and only a complete restore is
+renamed into place (the old state goes to `…_old` and is dropped after the swap). A broken archive,
+a missing `vector` extension, a full disk or a dump without a filled `ir_module_module`
+(`check_restored: false` to allow that) leave the existing database untouched; other SQL errors of
+the dump are counted and quoted in the step message. Needs room for
+both databases side by side. A leftover `<db>__odoodev_old` stops the next restore — it may be the
+only copy; rename it back or remove it by hand.
+
+**Preflight:** before the first step of a playbook with `server.restore`/`server.rebuild`, the
+host is read: `docker2update.yaml` names another database or `odoo_version` than the playbook
+(error), the container is missing there (error) or `active: false` (warning); the image's Odoo
+major differs from the playbook version (error); the image kernel is older than the one in the
+backup's manifest (error, warning if a rebuild follows); an existing database with `drop: false`
+(error) or without a safety backup (warning); a restore that nothing updates afterwards (warning).
+Findings come as a leading `preflight` result (`step_done` with `command: "preflight"` in NDJSON,
+only when there is something to report); an error stops a real run before step 1 and makes
+`--dry-run` exit 1. What cannot be read (no Docker, no config file, no manifest) yields no finding.
+`--no-preflight` skips it.
+
+**Progress (v0.74.0):** every step is announced when it starts (`[2/5] name`) and long steps
+report what they are doing (`server.rebuild`: each line of the update script; `server.restore`:
+its phases). NDJSON: `step_start` {index, total, name, command} and `step_progress` {…, message}
+before the step's `step_done`; none in `--dry-run`. `step_done.name` is the playbook's step name.
+Text durations read `7m 19s`; NDJSON keeps `duration_ms`.
 Bundled example: `server-mirror.yaml`. Requires root on the server (chown, data-dir access).
 
 ### Generate a playbook (assistant / GUI)
@@ -290,13 +328,22 @@ automatically consumes the file that backup creates via `backup_source.mode: fro
 no pattern questions (v0.57.0) — / existing backup file / newest by pattern; prompt "Source
 name"), then the DESTINATION target (prompt "Destination name"; self-mirror guard: restoring
 back onto the source pair needs explicit confirmation), then the infrastructure options
-(rebuild → stop → SQL presets incl. enterprise code + website-domain swap → start →
-update-all → rpc) — `server.restore` is always included, and what happens to the restored
+(safety backup of the destination → stop → SQL presets incl. enterprise code + website-domain
+swap → rebuild = module update behind the restore → start → update-all as the exception →
+verify → rpc) — `server.restore` is always included, and what happens to the restored
 database is ONE question (sanitize flags; picking `neutralize` also adds the
-`server.neutralize` step). Server-side paths stay literal (`~/...` is expanded on the server, never on
+`server.neutralize` step). **On a myodoo-docker server (v0.73.0)** the wizard reads the
+host instead of asking: source and destination are picked from the instances in
+`~/docker2update.yaml` (container, database, DB container, owner, data dir taken from the entry;
+"Another container pair" = manual entry), the backup directory defaults to
+`defaults.backup_path`/`docker` from `~/container2backup.yaml`, "existing backup file" lists the
+newest archives there, and after writing the playbook the preflight runs against the host and its
+findings are printed (never fatal). Without those files it asks everything as before.
+Server-side paths stay literal (`~/...` is expanded on the server, never on
 the machine running the wizard). Secrets never land in the YAML: the assistant writes them into a
 0600 env_file referenced via `{{ env.X }}` (nothing entered → no file written). Answers-file
-format and schema JSON (`schema_version: 3`; `1`/`2` still accepted): see `usage/playbook.md`.
+format and schema JSON (`schema_version: 4`; `1`–`3` still accepted and keep their old step order,
+rebuild before the restore): see `usage/playbook.md`.
 Answers files may contain inline secrets — treat them like the env_file (0600, never commit,
 delete after use). In non-interactive mode an existing output/env file is refused without
 `--force`.

@@ -23,6 +23,7 @@ from odoodev import i18n
 from odoodev.click_types import ExpandedPath
 from odoodev.core.playbook import SERVER_COMMANDS, PlaybookValidationError, load_playbook
 from odoodev.core.playbook_builder import (
+    REBUILD_AFTER_RESTORE,
     AnswersValidationError,
     answers_from_file,
     build_playbook_dict,
@@ -47,6 +48,14 @@ from odoodev.core.playbook_schema import (
     SQL_PRESETS,
     STEP_ARG_SPECS,
     wizard_schema,
+)
+from odoodev.core.server_inventory import (
+    DEFAULT_BACKUP_DIR,
+    Instance,
+    default_backup_dir,
+    format_size,
+    list_backups,
+    load_instances,
 )
 from odoodev.output import (
     checkbox_with_separators,
@@ -178,7 +187,12 @@ def _wizard_type(answers: dict[str, Any]) -> None:
     answers["playbook_type"] = select(i18n.t("playbook.type.question"), choices=type_choices, default="server")
 
 
-def _wizard_basics(answers: dict[str, Any]) -> None:
+def _wizard_basics(answers: dict[str, Any], version_hint: str = "") -> None:
+    """Name, description, version, error policy.
+
+    ``version_hint`` preselects the version the server's own configuration
+    names — a suggestion only, the question is still asked.
+    """
     from odoodev.core.version_registry import available_versions, detect_version_from_cwd
 
     answers["name"] = _required_text(i18n.t("playbook.common.name"))
@@ -187,6 +201,8 @@ def _wizard_basics(answers: dict[str, Any]) -> None:
     versions = available_versions()
     detected = detect_version_from_cwd()
     default_version = detected if detected in versions else (versions[-1] if versions else "")
+    if version_hint in versions:
+        default_version = version_hint
     answers["version"] = select(i18n.t("playbook.common.version"), choices=versions, default=default_version)
     answers["on_error"] = _on_error_select("playbook.common.on_error", "stop")
 
@@ -200,18 +216,120 @@ def _wizard_basics(answers: dict[str, Any]) -> None:
 # Neutralize is NOT in here: what happens to the restored database is ONE
 # decision, asked in the restore's sanitize question (which derives the
 # server.neutralize step).
+# Listed in the order the steps run. The module update is server.rebuild — the
+# server's own routine, placed behind the restore; server.update-all stays
+# available as the exception for hosts without update_docker_odoo.py.
 _RECIPE_ITEMS = (
-    ("rebuild", "playbook.server.recipe.rebuild", False),
+    ("safety_backup", "playbook.server.recipe.safety_backup", True),
     ("stop_before_restore", "playbook.server.recipe.stop_before", True),
     ("sql_after_restore", "playbook.server.recipe.sql", False),
+    ("rebuild", "playbook.server.recipe.rebuild", True),
     ("start_after_restore", "playbook.server.recipe.start_after", True),
-    ("update_all", "playbook.server.recipe.update_all", True),
+    ("update_all", "playbook.server.recipe.update_all", False),
+    ("verify", "playbook.server.recipe.verify", True),
     ("rpc_call", "playbook.server.recipe.rpc_call", False),
 )
 
 _SOURCE_FRESH = "fresh_backup"
 _SOURCE_FILE = "existing_file"
 _SOURCE_NEWEST = "newest_in_dir"
+
+
+_MANUAL = "__manual__"
+
+
+def _server_instances() -> list[Instance]:
+    """The instances this server's update configuration defines; [] anywhere else."""
+    return load_instances()
+
+
+def _pick_instance(
+    answers: dict[str, Any], instances: list[Instance], question_key: str, exclude: tuple[str, ...] = ()
+) -> str:
+    """Offer the server's own instances as a target; returns the target name, '' for manual entry.
+
+    Everything the playbook needs about a container pair stands in
+    docker2update.yaml, so choosing an instance replaces five prompts — and
+    rules out the typo that makes playbook and update routine disagree.
+    """
+    import questionary
+
+    offered = [instance for instance in instances if instance.container not in exclude]
+    if not offered:
+        return ""
+    choices = [
+        questionary.Choice(
+            i18n.t(
+                "playbook.server.inventory.choice",
+                container=instance.container,
+                database=instance.database,
+                db_container=instance.db_container,
+                inactive="" if instance.active else i18n.t("playbook.server.inventory.inactive"),
+            ),
+            value=instance.container,
+        )
+        for instance in offered
+    ]
+    choices.append(questionary.Choice(i18n.t("playbook.server.inventory.manual"), value=_MANUAL))
+    picked = select(i18n.t(question_key), choices=choices, default=offered[0].container)
+    if picked == _MANUAL:
+        return ""
+
+    instance = next(item for item in offered if item.container == picked)
+    targets: dict[str, dict[str, str]] = answers.setdefault("targets", {})
+    name = instance.target_name
+    suffix = 2
+    while name in targets:
+        name = f"{instance.target_name}-{suffix}"
+        suffix += 1
+    targets[name] = instance.as_target()
+    print_info(
+        i18n.t(
+            "playbook.server.inventory.taken",
+            db_container=instance.db_container,
+            database=instance.database,
+            data_dir=instance.data_dir or i18n.t("playbook.server.inventory.data_dir_runtime"),
+        )
+    )
+    version = str(answers.get("version", "") or "")
+    if instance.odoo_version and version and instance.odoo_version.split(".")[0] != version.split(".")[0]:
+        print_warning(
+            i18n.t(
+                "playbook.server.inventory.version_mismatch",
+                container=instance.container,
+                configured=instance.odoo_version,
+                version=version,
+            )
+        )
+    return name
+
+
+def _pick_backup_file(directory: str) -> str:
+    """Offer the archives lying in the backup directory; '' when the path is to be typed."""
+    from datetime import datetime
+
+    import questionary
+
+    backups = list_backups(directory)
+    if not backups:
+        return ""
+    choices = [
+        questionary.Choice(
+            i18n.t(
+                "playbook.server.restore.file_choice",
+                date=datetime.fromtimestamp(backup.mtime).strftime("%Y-%m-%d %H:%M"),
+                size=format_size(backup.size),
+                name=os.path.basename(backup.path),
+            ),
+            value=backup.path,
+        )
+        for backup in backups
+    ]
+    choices.append(questionary.Choice(i18n.t("playbook.server.restore.file_other"), value=_MANUAL))
+    picked = select(
+        i18n.t("playbook.server.restore.pick_file", directory=directory), choices=choices, default=backups[0].path
+    )
+    return "" if picked == _MANUAL else str(picked)
 
 
 def _wizard_one_target(
@@ -243,15 +361,9 @@ def _wizard_one_target(
     return name
 
 
-def _select_target(answers: dict[str, Any], label_key: str, default: str = "") -> str:
-    names = list(answers["targets"].keys())
-    if len(names) == 1:
-        return names[0]
-    effective_default = default if default in names else names[0]
-    return select(i18n.t(label_key), choices=names, default=effective_default)
-
-
-def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
+def _wizard_source(
+    answers: dict[str, Any], instances: list[Instance] | None = None, backup_dir: str = DEFAULT_BACKUP_DIR
+) -> dict[str, Any]:
     """Ask what the mirror restores FROM.
 
     Three modes: create a fresh backup from a container pair (adds the source
@@ -273,8 +385,10 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
 
     if mode == _SOURCE_FRESH:
         print_info(i18n.t("playbook.server.source.header"))
-        name = _wizard_one_target(answers, "live", "playbook.server.source.name")
-        backup_dir = _required_text(i18n.t("playbook.server.recipe.backup_dir"), default="/opt/backups/docker")
+        name = _pick_instance(answers, instances or [], "playbook.server.inventory.pick_source")
+        if not name:
+            name = _wizard_one_target(answers, "live", "playbook.server.source.name")
+        backup_dir = _required_text(i18n.t("playbook.server.recipe.backup_dir"), default=backup_dir)
         recipe["backup"] = {
             "enabled": True,
             "target": name,
@@ -288,14 +402,12 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
         source["target"] = name
         source["backup_source"] = {"mode": "from_backup_step"}
     elif mode == _SOURCE_FILE:
-        source["backup_source"] = {
-            "mode": "file",
-            "path": _required_text(i18n.t("playbook.server.restore.source_path")),
-        }
+        path = _pick_backup_file(backup_dir) or _required_text(i18n.t("playbook.server.restore.source_path"))
+        source["backup_source"] = {"mode": "file", "path": path}
     else:
         source["backup_source"] = {
             "mode": "newest_in_dir",
-            "dir": _required_text(i18n.t("playbook.server.restore.source_dir"), default="/opt/backups/docker"),
+            "dir": _required_text(i18n.t("playbook.server.restore.source_dir"), default=backup_dir),
             "pattern": _required_text(
                 i18n.t("playbook.server.restore.source_pattern"), default="*_dockerbackup_*.tar.zst"
             ),
@@ -304,12 +416,18 @@ def _wizard_source(answers: dict[str, Any]) -> dict[str, Any]:
     return source
 
 
-def _wizard_destination(answers: dict[str, Any], source: dict[str, Any]) -> str:
+def _wizard_destination(
+    answers: dict[str, Any], source: dict[str, Any], instances: list[Instance] | None = None
+) -> str:
     """Ask the destination target; guard against restoring back onto the source."""
     print_info(i18n.t("playbook.server.dest.header"))
     source_target = answers["targets"].get(str(source.get("target", "")), {})
+    # The instance the backup is taken from cannot be where it is restored to.
+    taken = (str(source_target.get("odoo_container", "")),) if source_target else ()
     while True:
-        name = _wizard_one_target(answers, "test", "playbook.server.dest.name")
+        name = _pick_instance(answers, instances or [], "playbook.server.inventory.pick_dest", exclude=taken)
+        if not name:
+            name = _wizard_one_target(answers, "test", "playbook.server.dest.name")
         db_container = answers["targets"][name]["db_container"]
         if source.get("mode") == _SOURCE_FRESH and db_container == source_target.get("db_container"):
             print_warning(i18n.t("playbook.server.dest.self_mirror_warning", name=db_container))
@@ -319,7 +437,7 @@ def _wizard_destination(answers: dict[str, Any], source: dict[str, Any]) -> str:
         return name
 
 
-def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
+def _wizard_server(answers: dict[str, Any], total_steps: int, instances: list[Instance] | None = None) -> None:
     import questionary
 
     answers["targets"] = {}
@@ -327,11 +445,12 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
     answers["recipe"] = recipe
     answers["extra_steps"] = []
     pending_env: set[str] = set()
+    backup_dir = default_backup_dir()
 
     _step_header(2, total_steps, "playbook.step.source", "playbook.step.source_sub")
-    source = _wizard_source(answers)
+    source = _wizard_source(answers, instances, backup_dir)
     _step_header(3, total_steps, "playbook.step.dest", "playbook.step.dest_sub")
-    dest = _wizard_destination(answers, source)
+    dest = _wizard_destination(answers, source, instances)
     recipe["destination"] = dest
     while confirm(i18n.t("playbook.server.target.add_more"), default=False):
         _wizard_one_target(answers, "")
@@ -342,11 +461,20 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
     ]
     selected = set(checkbox_with_separators(i18n.t("playbook.server.recipe.question"), choices))
 
+    if "safety_backup" in selected:
+        recipe["safety_backup"] = {
+            "enabled": True,
+            "backup_dir": _required_text(i18n.t("playbook.server.recipe.safety_backup_dir"), default=backup_dir),
+        }
+
     if "rebuild" in selected:
         print_info(i18n.t("playbook.server.recipe.rebuild_hint"))
         recipe["rebuild"] = {
             "enabled": True,
-            "target": _select_target(answers, "playbook.server.recipe.rebuild_target", default=dest),
+            "position": REBUILD_AFTER_RESTORE,
+            # Behind the restore the rebuild IS the update of the destination —
+            # there is nothing to choose.
+            "target": dest,
             "script_path": text_input(
                 i18n.t("playbook.server.recipe.rebuild_script"), default="~/update_docker_odoo.py"
             ).strip(),
@@ -357,7 +485,8 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
         }
 
     recipe["stop_before_restore"] = "stop_before_restore" in selected
-    start_after = "start_after_restore" in selected
+    # server.rebuild starts the container itself, so Odoo is up afterwards either way.
+    start_after = "start_after_restore" in selected or "rebuild" in selected
 
     # server.restore is the core of the mirror — always included. Its sanitize
     # question is the ONE place deciding what happens to the restored database
@@ -375,7 +504,9 @@ def _wizard_server(answers: dict[str, Any], total_steps: int) -> None:
         else:
             print_info(i18n.t("playbook.server.sql.none_added"))
 
-    recipe["start_after_restore"] = start_after
+    recipe["start_after_restore"] = "start_after_restore" in selected
+    if "verify" in selected:
+        recipe["verify"] = {"enabled": True}
 
     if "update_all" in selected:
         recipe["update_all"] = {
@@ -683,9 +814,13 @@ def _run_wizard(output_default: str = "") -> dict[str, Any]:
     if answers["playbook_type"] == "server":
         total = 6
         print_info(i18n.t("playbook.server.intro"))
+        instances = _server_instances()
+        if instances:
+            print_info(i18n.t("playbook.server.inventory.found", count=len(instances)))
+        versions = {instance.odoo_version.split(".")[0] for instance in instances if instance.odoo_version}
         _step_header(1, total, "playbook.step.basics")
-        _wizard_basics(answers)
-        _wizard_server(answers, total)  # steps 2-4: source, destination, flow
+        _wizard_basics(answers, version_hint=versions.pop() if len(versions) == 1 else "")
+        _wizard_server(answers, total, instances)  # steps 2-4: source, destination, flow
     else:
         total = 4
         _step_header(1, total, "playbook.step.basics")
@@ -749,6 +884,33 @@ def _summarize_and_confirm(answers: dict[str, Any], playbook_dict: dict[str, Any
         raise SystemExit(0)
 
 
+def _report_preflight(playbook_path: Path) -> None:
+    """Hold the playbook just written against this host and say what was found.
+
+    The assistant usually runs on the server the playbook is for, so the
+    mismatches a dry run would report can be shown right away. Never fatal:
+    the playbook is written either way, and a host that cannot be read (a
+    workstation) simply yields no findings.
+    """
+    from odoodev.core.playbook import PlaybookRunner, build_template_context
+    from odoodev.core.server_preflight import ERROR
+
+    try:
+        config = load_playbook(str(playbook_path))
+        result = PlaybookRunner()._preflight(config, config.version, build_template_context(config.vars, None, {}))
+    except Exception as exc:  # a failed check must not take the freshly written playbook down with it
+        print_warning(i18n.t("playbook.preflight.failed", error=str(exc)))
+        return
+    if result is None:
+        print_info(i18n.t("playbook.preflight.clean"))
+        return
+    print_warning(i18n.t("playbook.preflight.header"))
+    for line in result.message.splitlines():
+        (print_error if line.startswith(f"[{ERROR}]") else print_warning)(f"  {line}")
+    if result.status == "error":
+        print_error(i18n.t("playbook.preflight.blocks"))
+
+
 def _write_outputs(answers: dict[str, Any], *, force: bool, interactive: bool) -> Path:
     playbook_dict = build_playbook_dict(answers)
     validate_generated(playbook_dict)
@@ -776,6 +938,8 @@ def _write_outputs(answers: dict[str, Any], *, force: bool, interactive: bool) -
         written = write_env_file(env_path, env_cfg.get("secrets") or {}, merge_existing=merge)
         print_success(i18n.t("playbook.secrets.written", path=str(written)))
 
+    if interactive and answers.get("playbook_type") == "server":
+        _report_preflight(output_path)
     print_info(i18n.t("playbook.summary.hint_validate", path=str(output_path)))
     print_info(i18n.t("playbook.summary.hint_dryrun", path=str(output_path)))
     if answers.get("playbook_type") == "server":
