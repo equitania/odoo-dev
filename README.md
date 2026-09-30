@@ -203,6 +203,13 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.75.0:**
+- **Neu:** `server.restore` läuft ohne root. Wird der Server mit einem eingeschränkten Konto in der
+  Gruppe `docker` betrieben, darf dieses den Filestore des Containers (UID 1000) weder beschreiben
+  noch übergeben. Der Schritt erledigt diesen Teil dann über einen kurzlebigen Hilfscontainer aus
+  dem Image des Datenbank-Containers, ohne Netzwerk. Als root ändert sich nichts.
+- **Behoben:** Ein nicht lesbarer Playbook-Pfad endet in einer Fehlermeldung statt im Traceback.
+
 **Version 0.74.0:**
 - **Neu:** `odoodev run` zeigt, wo ein Playbook steht. Jeder Schritt wird beim Start mit Position
   und Namen angekündigt (`[2/5] Restore backup into test`), lange Schritte melden, was sie gerade
@@ -761,6 +768,13 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.75.0:**
+- **Added:** `server.restore` works without root. On a server operated by an unprivileged account
+  in the `docker` group, which can neither write nor hand over the container's filestore (uid
+  1000), the step does that part through a short-lived helper container from the database
+  container's image, without network. As root nothing changes.
+- **Fixed:** A playbook path that may not be read ends in an error message, not a traceback.
 
 **Version 0.74.0:**
 - **Added:** `odoodev run` shows where a playbook is. Every step is announced when it starts, with

@@ -74,6 +74,10 @@ These are the things that are wrong-by-default if you do not know them:
 - **`server.restore` must stay swap-by-rename.** Restore into `<db>__odoodev_new`, rename
   into place at the end. Anything that drops the target before the dump is in brings
   back the failure where a bad archive leaves a server with no database at all.
+- **Server steps must not assume root.** Customer servers are also run by an unprivileged
+  account in the `docker` group; the filestore belongs to the container's uid 1000. Changes
+  to the data directory go through `docker_exec.data_dir_ops()`, which falls back to a
+  helper container — never call `os.rename`/`chown`/`rmtree` on it directly.
 - **The registry's `python:` is only `major.minor`.** `uv venv --python 3.13` picks
   whatever 3.13 uv prefers, so `venv setup --force` alone can never change a patch
   version. Everything that builds or checks a venv must go through
