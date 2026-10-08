@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.75.1"
+version = "0.75.2"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -61,6 +61,18 @@ packages = ["odoodev"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "usage/AGENT.md" = "odoodev/data/AGENT.md"
+
+# Hatch has no MANIFEST.in; without this list the sdist packs the whole working
+# tree - planning notes, security scan reports, agent settings, untracked files.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/odoodev",
+    "/usage/AGENT.md",
+    "/README.md",
+    "/LICENSE",
+    "/RELEASE_NOTES.md",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 120

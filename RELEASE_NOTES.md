@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.75.2 (08.10.2026)
+
+### Fixed
+- **The source package (sdist) contains only what a build needs.** Hatch does not read
+  `MANIFEST.in`; without its own list the sdist packed the whole working directory, including
+  planning notes, local tool settings and security scan reports. It now ships the `odoodev`
+  package, `usage/AGENT.md`, README, LICENSE, RELEASE_NOTES and `pyproject.toml`. The wheel
+  was not affected. 0.75.1 was tagged but not published on PyPI; its changes are part of this
+  release.
+
 ## Version 0.75.1 (08.10.2026)
 
 ### Changed

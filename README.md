@@ -203,6 +203,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.75.2:**
+- **Behoben:** Das Quellpaket (sdist) enthält nur noch, was ein Build braucht – vorher packte es
+  das ganze Arbeitsverzeichnis ein. Das Wheel war nicht betroffen.
+
 **Version 0.75.1:**
 - **Geändert:** Die Baselines für v16, v18, v19 und v20 verlangen eq-chatbot-core 4.0.1 oder neuer
   und cryptography 50.0.2. Ab 4.0 muss jeder Aufruf sein Modell selbst nennen.
@@ -772,6 +776,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.75.2:**
+- **Fixed:** The source package (sdist) contains only what a build needs; before, it packed the
+  whole working directory. The wheel was not affected.
 
 **Version 0.75.1:**
 - **Changed:** The v16, v18, v19 and v20 baselines require eq-chatbot-core 4.0.1 or newer and
