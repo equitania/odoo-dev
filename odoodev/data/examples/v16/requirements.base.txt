@@ -2,7 +2,7 @@
 # psycopg2-binary used instead of psycopg2 for native development
 Babel==2.16.0
 chardet==4.0.0
-cryptography==50.0.0  # floor required by eq-chatbot-core 3.x; 13 advisories against 44.0.0,
+cryptography==50.0.2  # floor required by eq-chatbot-core 4.x; 13 advisories against 44.0.0,
                       # incl. CVE-2026-69247 (Bleichenbacher oracle in PKCS#7) and CVE-2024-12797
 decorator==4.4.2
 docutils==0.16
@@ -68,9 +68,11 @@ openai                    # v16-ai, v16-equitania, v16-supedio import it directl
 # install. Same version as v18/v19; v16 runs on Python 3.12, which meets the >=3.12
 # floor. Azure, Vertex and NovaSonic (removed in 3.0.0) are not used in the v16
 # tree, and the pricing_catalog import is try/except-guarded.
-# Floor 3.3.0: eq_chatbot_mcp passes allow_private_ranges= to get_mcp_client(),
-# which older releases reject with a TypeError on connect.
-eq-chatbot-core[rag,security,docs]>=3.3.0
+# Floor 4.0.1: 4.0 drops all built-in model IDs (callers must pass model=, else
+# ModelNotSpecifiedError); 4.0.0 was yanked on PyPI for a bloated sdist. 3.3.0
+# was the previous floor: eq_chatbot_mcp passes allow_private_ranges= to
+# get_mcp_client(), which older releases reject with a TypeError on connect.
+eq-chatbot-core[rag,security,docs]>=4.0.1
 
 # Declared by eq_chatbot_rag. Until now it only arrived transitively through
 # langchain-qdrant, which is gone with the langchain block below.
