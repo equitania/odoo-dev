@@ -203,6 +203,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.75.1:**
+- **Geändert:** Die Baselines für v16, v18, v19 und v20 verlangen eq-chatbot-core 4.0.1 oder neuer
+  und cryptography 50.0.2. Ab 4.0 muss jeder Aufruf sein Modell selbst nennen.
+
 **Version 0.75.0:**
 - **Neu:** `server.restore` läuft ohne root. Wird der Server mit einem eingeschränkten Konto in der
   Gruppe `docker` betrieben, darf dieses den Filestore des Containers (UID 1000) weder beschreiben
@@ -768,6 +772,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.75.1:**
+- **Changed:** The v16, v18, v19 and v20 baselines require eq-chatbot-core 4.0.1 or newer and
+  cryptography 50.0.2. From 4.0 on every call must name its model.
 
 **Version 0.75.0:**
 - **Added:** `server.restore` works without root. On a server operated by an unprivileged account

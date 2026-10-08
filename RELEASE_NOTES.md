@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.75.1 (08.10.2026)
+
+### Changed
+- **Baselines v16, v18, v19 and v20 require eq-chatbot-core 4.0.1 or newer.** 4.0 no longer
+  ships model IDs — every call must name its model — and 4.0.0 was withdrawn from PyPI.
+  4.0.1 needs cryptography 50.0.2 or newer, so the pin moves from 50.0.0 to 50.0.2; with the
+  old pin the v18 baseline could not be resolved.
+
 ## Version 0.75.0 (30.09.2026)
 
 ### Added
