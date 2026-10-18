@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.75.4 (18.10.2026)
+
+### Fixed
+- **`odoodev requirements prune` no longer deletes the comments of entries it keeps.** The
+  command used to rebuild `requirements.local.txt` from scratch: the template header, then the
+  kept pins, each with only its trailing `# ...` comment. A comment written on its own line above
+  a kept pin (typically the reason why the pin exists) was lost, even though the pin stayed.
+  Prune now edits the file line by line. It removes the redundant entries and the comment block
+  directly above each of them (consecutive `#` lines up to the next blank line); everything else,
+  including comments above kept pins, the template header and passthrough lines, stays as it was.
+  Blank lines that a removal would leave doubled are collapsed.
+
 ## Version 0.75.3 (18.10.2026)
 
 ### Changed

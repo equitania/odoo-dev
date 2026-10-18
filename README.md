@@ -203,6 +203,11 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.75.4:**
+- **Behoben:** `odoodev requirements prune` löscht nicht mehr die Kommentare über Einträgen, die
+  bestehen bleiben. Entfernt werden nur die überflüssigen Einträge samt dem Kommentarblock
+  unmittelbar darüber.
+
 **Version 0.75.3:**
 - **Geändert:** Alle fünf Baselines (v16–v20) enthalten websocket-client 1.8.0. Ohne das Paket
   überspringt Odoo jeden Browser- und JS-Test und meldet trotzdem „0 failed“.
@@ -780,6 +785,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.75.4:**
+- **Fixed:** `odoodev requirements prune` no longer deletes the comments above entries it keeps.
+  Only the redundant entries are removed, together with the comment block directly above them.
 
 **Version 0.75.3:**
 - **Changed:** All five baselines (v16–v20) include websocket-client 1.8.0. Without it Odoo skips

@@ -234,8 +234,8 @@ def requirements_prune(ctx: click.Context, version: str | None, dry_run: bool, y
         PRE_PRUNE_SUFFIX,
         backup_overlay,
         prune_candidates,
+        prune_overlay,
         sync_version,
-        write_overlay,
     )
     from odoodev.output import confirm
 
@@ -262,6 +262,6 @@ def requirements_prune(ctx: click.Context, version: str | None, dry_run: bool, y
     if backup:
         print_info(f"Previous overlay kept at {backup}")
 
-    write_overlay(cfg, list(report.kept), list(report.passthrough))
+    prune_overlay(cfg, [candidate.entry for candidate in report.removable])
     print_success(f"v{target}: {len(report.removable)} entries removed, {len(report.kept)} kept")
     _print_sync_outcome(sync_version(target, cfg))

@@ -5,6 +5,7 @@ import os
 import pytest
 
 from odoodev.core.requirements_sync import (
+    OVERLAY_TEMPLATE,
     DiffRow,
     SyncOutcome,
     adopt_candidates,
@@ -18,6 +19,7 @@ from odoodev.core.requirements_sync import (
     overlay_has_content,
     overlay_path,
     prune_candidates,
+    prune_overlay,
     seed_overlay,
     sync_allowed,
     sync_version,
@@ -416,3 +418,64 @@ def test_prune_candidates_flag_an_overlay_that_unpins_the_baseline(cfg, tmp_path
     }
     # lxml: the baseline itself is a range, so the overlay is not weakening a pin
     assert [r.name for r in report.kept] == ["lxml"]
+
+
+def _prune(cfg, tmp_path, monkeypatch, overlay: str) -> str:
+    """Run the prune classification and rewrite against a baseline that covers two pins."""
+    base_file = tmp_path / "base.txt"
+    base_file.write_text("urllib3==2.7.0\nwebsocket-client==1.8.0\nBabel==2.16.0\n", encoding="utf-8")
+    monkeypatch.setattr("odoodev.core.requirements_sync.get_base_requirements_path", lambda version: base_file)
+    path = tmp_path / "requirements.local.txt"
+    path.write_text(overlay, encoding="utf-8")
+    report = prune_candidates("20", cfg)
+    prune_overlay(cfg, [c.entry for c in report.removable])
+    return path.read_text(encoding="utf-8")
+
+
+def test_prune_keeps_comments_of_kept_entries_and_drops_those_of_removed_ones(cfg, tmp_path, monkeypatch):
+    overlay = (
+        OVERLAY_TEMPLATE
+        + "\n"
+        + "# 14.10.2026: Homebrew python@3.14 now links OpenSSL 4.0.3, which drops ssl.PROTOCOL_TLSv1;\n"
+        + "# urllib3 2.7.0 (baseline) uses it at import time and no Odoo 20 process starts. 2.8.0 guards it.\n"
+        + "urllib3==2.8.0\n"
+        + "\n"
+        + "# 18.10.2026: Odoo skips every HttpCase browser/JS test without it.\n"
+        + "# Test-only, not in Odoo's requirements.txt.\n"
+        + "websocket-client==1.8.0\n"
+    )
+    result = _prune(cfg, tmp_path, monkeypatch, overlay)
+    assert result == (
+        OVERLAY_TEMPLATE
+        + "\n"
+        + "# 14.10.2026: Homebrew python@3.14 now links OpenSSL 4.0.3, which drops ssl.PROTOCOL_TLSv1;\n"
+        + "# urllib3 2.7.0 (baseline) uses it at import time and no Odoo 20 process starts. 2.8.0 guards it.\n"
+        + "urllib3==2.8.0\n"
+    )
+
+
+def test_prune_removes_an_entry_with_an_inline_comment(cfg, tmp_path, monkeypatch):
+    result = _prune(cfg, tmp_path, monkeypatch, "Babel==2.16.0  # old pin\nurllib3==2.8.0\n")
+    assert result == "urllib3==2.8.0\n"
+
+
+def test_prune_removes_two_adjacent_entries_with_their_blocks(cfg, tmp_path, monkeypatch):
+    overlay = "# keep me\nurllib3==2.8.0\n\n# a\nBabel==2.16.0\n# b\nwebsocket-client==1.8.0\n\n# tail\nfintech\n"
+    result = _prune(cfg, tmp_path, monkeypatch, overlay)
+    assert result == "# keep me\nurllib3==2.8.0\n\n# tail\nfintech\n"
+
+
+def test_prune_leaves_a_comment_separated_by_a_blank_line(cfg, tmp_path, monkeypatch):
+    result = _prune(cfg, tmp_path, monkeypatch, "# section note\n\nBabel==2.16.0\nfintech\n")
+    assert result == "# section note\n\nfintech\n"
+
+
+def test_prune_handles_a_removed_entry_at_the_end_of_the_file(cfg, tmp_path, monkeypatch):
+    result = _prune(cfg, tmp_path, monkeypatch, "fintech\n\n# why\nBabel==2.16.0\n")
+    assert result == "fintech\n"
+
+
+def test_prune_keeps_the_template_header_above_a_removed_entry(cfg, tmp_path, monkeypatch):
+    # no blank line between the template header and the removed entry
+    result = _prune(cfg, tmp_path, monkeypatch, OVERLAY_TEMPLATE + "websocket-client==1.8.0\n")
+    assert result == OVERLAY_TEMPLATE

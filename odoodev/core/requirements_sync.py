@@ -406,6 +406,48 @@ def prune_candidates(version: str, version_cfg) -> PruneReport:
     return PruneReport(tuple(removable), tuple(kept), tuple(passthrough))
 
 
+def prune_overlay(version_cfg, removable: list[Requirement]) -> str:
+    """Remove the given entries from the overlay file, line by line, and keep everything else.
+
+    The comment block directly above a removed entry (contiguous `#` lines up to
+    the first blank line) goes with it; comments above kept entries, the template
+    header and passthrough lines stay untouched. Blank lines left doubled by a
+    removal are collapsed.
+    """
+    from odoodev.core.requirements_merge import parse_requirements
+
+    path = overlay_path(version_cfg)
+    parsed = parse_requirements(_read(path))
+    # the template header is never part of an entry's comment block, even without a blank line after it
+    template = OVERLAY_TEMPLATE.rstrip("\n").split("\n")
+    header = 0
+    while header < min(len(template), len(parsed)) and parsed[header].raw.rstrip() == template[header].rstrip():
+        header += 1
+    drop: set[int] = set()
+    for index, line in enumerate(parsed):
+        if line.requirement is None or line.requirement not in removable:
+            continue
+        drop.add(index)
+        above = index - 1
+        while above >= header and parsed[above].raw.strip().startswith("#"):
+            drop.add(above)
+            above -= 1
+
+    lines: list[str] = []
+    removed_since_kept = False
+    for index, line in enumerate(parsed):
+        if index in drop:
+            removed_since_kept = True
+            continue
+        if removed_since_kept and not line.raw.strip() and lines and not lines[-1].strip():
+            continue
+        removed_since_kept = False
+        lines.append(line.raw)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines).rstrip("\n") + "\n")
+    return path
+
+
 def adopt_passthrough_lines(version_cfg) -> list[str]:
     """Non-requirement content lines in the current requirements.txt.
 
