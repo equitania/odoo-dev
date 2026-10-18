@@ -203,6 +203,10 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.75.3:**
+- **Geändert:** Alle fünf Baselines (v16–v20) enthalten websocket-client 1.8.0. Ohne das Paket
+  überspringt Odoo jeden Browser- und JS-Test und meldet trotzdem „0 failed“.
+
 **Version 0.75.2:**
 - **Behoben:** Das Quellpaket (sdist) enthält nur noch, was ein Build braucht – vorher packte es
   das ganze Arbeitsverzeichnis ein. Das Wheel war nicht betroffen.
@@ -776,6 +780,10 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.75.3:**
+- **Changed:** All five baselines (v16–v20) include websocket-client 1.8.0. Without it Odoo skips
+  every browser and JS test and still reports "0 failed".
 
 **Version 0.75.2:**
 - **Fixed:** The source package (sdist) contains only what a build needs; before, it packed the

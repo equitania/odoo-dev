@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.75.3 (18.10.2026)
+
+### Changed
+- **All five baselines (v16–v20) include websocket-client 1.8.0.** Odoo does not list it in its
+  own requirements because only the test framework needs it. Without it every HttpCase browser
+  test — tours and JS suites — is skipped with "websocket-client module is not installed", and
+  the run still ends with "0 failed", so a green test run silently contained no browser test.
+  Machines that added the package to `requirements.local.txt` can drop that entry with
+  `odoodev requirements prune`.
+
 ## Version 0.75.2 (08.10.2026)
 
 ### Fixed

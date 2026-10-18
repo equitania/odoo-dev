@@ -1,6 +1,6 @@
 # Odoo 19 Requirements for Native macOS/Linux Development
 # Based on: prepare-19 Docker image (Python 3.13.12, Debian Trixie slim)
-# Updated: 19.08.2026
+# Updated: 18.10.2026
 #
 # Key differences for macOS:
 #   - psycopg2-binary instead of psycopg2 (no pg_config needed)
@@ -75,6 +75,8 @@ requests==2.33.0  # CVE-2026-25645 (insecure temp file reuse)
 rjsmin==1.2.0
 urllib3==2.7.0  # CVE-2026-44431 / CVE-2026-44432 (cross-origin header leak, bomb)
 vobject==0.9.6.1
+websocket-client==1.8.0  # not in Odoo's requirements: without it HttpCase skips every
+                         # browser/JS test (tours) and still reports 0 failed
 Werkzeug==3.0.6  # CVE-2024-34069 (RCE via debugger); no <3.1 ceiling here, unlike
                  # v16 - v19's odoo/http.py never reads werkzeug.__version__
 watchdog
