@@ -1,13 +1,21 @@
 """Tests for odoodev db backup command and core backup functions."""
 
 import io
+import os
 import zipfile
 
 import pytest
 from click.testing import CliRunner
 
 from odoodev.cli import cli
-from odoodev.core.database import backup_database_sql, create_backup_zip, extract_backup
+from odoodev.core.database import (
+    backup_database_sql,
+    check_backup_space,
+    create_backup_zip,
+    extract_backup,
+    get_backup_temp_dir,
+    get_database_size,
+)
 
 
 class TestBackupHelp:
@@ -85,6 +93,134 @@ class TestBackupDefaultDestination:
         assert captured["path"].startswith(str(home / "Downloads"))
         assert "testdb_" in captured["path"]
         assert captured["path"].endswith(".sql")
+
+
+def _stub_backup_env(monkeypatch, db_mod, db_bytes=1):
+    """Stub everything db backup needs from a real environment / database."""
+    monkeypatch.setattr(db_mod, "resolve_version", lambda ctx, v: "18")
+    monkeypatch.setattr(db_mod, "get_version", lambda v: object())
+    monkeypatch.setattr(db_mod, "_load_env_vars", lambda cfg: {})
+    monkeypatch.setattr(
+        db_mod,
+        "_get_db_params",
+        lambda cfg, env: {"host": "localhost", "port": 18432, "user": "ownerp"},
+    )
+    monkeypatch.setattr(db_mod, "_print_migration_hint", lambda v: None)
+    monkeypatch.setattr("odoodev.core.prerequisites.check_port", lambda h, p: True)
+    monkeypatch.setattr(db_mod, "database_exists", lambda *a, **k: True)
+    monkeypatch.setattr(db_mod, "get_database_size", lambda *a, **k: db_bytes)
+
+
+class TestBackupStaging:
+    """ZIP/tar.zst dumps are staged next to the output, not in the system temp dir (issue #2)."""
+
+    def test_zip_dump_staged_in_output_dir_and_removed(self, tmp_path, monkeypatch):
+        from odoodev.commands import db as db_mod
+
+        _stub_backup_env(monkeypatch, db_mod)
+        monkeypatch.setattr(db_mod, "get_filestore_path", lambda v, n: str(tmp_path / "no-fs"))
+        staged: dict[str, str] = {}
+
+        def fake_sql(name, output_path, **params):
+            staged["path"] = output_path
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write("SQL")
+            return True
+
+        monkeypatch.setattr(db_mod, "backup_database_sql", fake_sql)
+        out = tmp_path / "out"
+
+        result = CliRunner().invoke(cli, ["db", "backup", "18", "-n", "testdb", "-t", "zip", "-o", str(out)])
+
+        assert result.exit_code == 0, result.output
+        staging_dir = os.path.dirname(staged["path"])
+        assert os.path.dirname(staging_dir) == str(out)
+        assert os.path.basename(staging_dir).startswith(".odoodev_backup_")
+        # Only the finished archive is left behind
+        names = [p.name for p in out.iterdir()]
+        assert len(names) == 1 and names[0].endswith(".zip")
+
+    def test_failed_dump_names_staging_dir_and_cleans_up(self, tmp_path, monkeypatch):
+        from odoodev.commands import db as db_mod
+
+        _stub_backup_env(monkeypatch, db_mod)
+        monkeypatch.setattr(db_mod, "get_filestore_path", lambda v, n: str(tmp_path / "no-fs"))
+        monkeypatch.setattr(db_mod, "backup_database_sql", lambda *a, **k: False)
+        out = tmp_path / "out"
+
+        result = CliRunner().invoke(cli, ["db", "backup", "18", "-n", "testdb", "-t", "zip", "-o", str(out)])
+
+        assert result.exit_code == 1
+        assert "Database dump failed" in result.output
+        assert ".odoodev_backup_" in result.output
+        assert list(out.iterdir()) == []
+
+    def test_low_space_warns_but_continues(self, tmp_path, monkeypatch):
+        from odoodev.commands import db as db_mod
+
+        _stub_backup_env(monkeypatch, db_mod, db_bytes=10**15)
+        monkeypatch.setattr(db_mod, "get_filestore_path", lambda v, n: str(tmp_path / "no-fs"))
+        calls: list[str] = []
+        monkeypatch.setattr(db_mod, "backup_database_sql", lambda name, path, **k: (calls.append(path), False)[1])
+
+        result = CliRunner().invoke(
+            cli, ["db", "backup", "18", "-n", "testdb", "-t", "zip", "-o", str(tmp_path / "out")]
+        )
+
+        assert "Low disk space for backup" in result.output
+        assert calls, "the dump must still be attempted after the warning"
+
+    def test_get_backup_temp_dir_is_hidden_inside_output(self, tmp_path):
+        path = get_backup_temp_dir(str(tmp_path))
+        assert os.path.dirname(path) == str(tmp_path)
+        assert os.path.basename(path).startswith(".odoodev_backup_")
+
+
+class TestCheckBackupSpace:
+    def _free(self, monkeypatch, free):
+        import shutil
+        from collections import namedtuple
+
+        usage = namedtuple("usage", "total used free")
+        monkeypatch.setattr(shutil, "disk_usage", lambda p: usage(free, 0, free))
+
+    def test_enough_space(self, tmp_path, monkeypatch):
+        self._free(monkeypatch, 10 * 1024**3)
+        assert check_backup_space(str(tmp_path), 2 * 1024**3, 3 * 1024**3) == (True, "")
+
+    def test_low_space_counts_database_and_filestore(self, tmp_path, monkeypatch):
+        self._free(monkeypatch, 5 * 1024**3)
+        enough, msg = check_backup_space(str(tmp_path), 3 * 1024**3, 3 * 1024**3)
+        assert not enough
+        assert str(tmp_path) in msg
+        assert "available 5.0 GB" in msg
+
+    def test_unknown_free_space_does_not_warn(self, tmp_path, monkeypatch):
+        import shutil
+
+        def boom(p):
+            raise OSError("nope")
+
+        monkeypatch.setattr(shutil, "disk_usage", boom)
+        assert check_backup_space(str(tmp_path), 10**15) == (True, "")
+
+
+class TestGetDatabaseSize:
+    def test_parses_size(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.database._run_psql_tuples", lambda q, **k: (True, [["12345"]]))
+        assert get_database_size("testdb") == 12345
+
+    def test_quotes_name(self, monkeypatch):
+        seen: list[str] = []
+        monkeypatch.setattr(
+            "odoodev.core.database._run_psql_tuples", lambda q, **k: (seen.append(q), (True, [["1"]]))[1]
+        )
+        get_database_size("it's")
+        assert "'it''s'" in seen[0]
+
+    def test_failure_returns_none(self, monkeypatch):
+        monkeypatch.setattr("odoodev.core.database._run_psql_tuples", lambda q, **k: (False, []))
+        assert get_database_size("testdb") is None
 
 
 class TestCreateBackupZip:

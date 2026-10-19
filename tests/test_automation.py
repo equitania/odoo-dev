@@ -11,6 +11,7 @@ import pytest
 import odoodev.cli  # noqa: F401
 from odoodev.core.automation import (
     COMMAND_HANDLERS,
+    handle_db_backup,
     handle_db_drop,
     handle_db_list,
     handle_db_restore,
@@ -135,6 +136,34 @@ class TestDbHandlers:
         result = handle_db_drop(mock_version_cfg, {})
         assert result.status == "error"
         assert "name" in result.message.lower()
+
+
+class TestDbBackupHandler:
+    """Playbook db.backup stages the ZIP dump next to the output, not in /tmp (issue #2)."""
+
+    def test_zip_dump_staged_in_output_dir(self, monkeypatch, tmp_path, mock_version_cfg):
+        import odoodev.core.database as dbmod
+
+        out = tmp_path / "out"
+        staged: dict[str, str] = {}
+
+        def fake_sql(name, path, **k):
+            staged["path"] = path
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("SQL")
+            return True
+
+        monkeypatch.setattr("odoodev.core.automation._load_env_vars", lambda cfg: {})
+        monkeypatch.setattr(dbmod, "database_exists", lambda *a, **k: True)
+        monkeypatch.setattr(dbmod, "get_database_size", lambda *a, **k: 1)
+        monkeypatch.setattr(dbmod, "get_filestore_path", lambda v, n: str(tmp_path / "no-fs"))
+        monkeypatch.setattr(dbmod, "backup_database_sql", fake_sql)
+
+        result = handle_db_backup(mock_version_cfg, {"name": "testdb", "type": "zip", "output": str(out)})
+
+        assert result.status == "ok", result.message
+        assert os.path.dirname(os.path.dirname(staged["path"])) == str(out)
+        assert [p.name for p in out.iterdir()] == [os.path.basename(result.details["file"])]
 
 
 class TestDbRestoreHandler:

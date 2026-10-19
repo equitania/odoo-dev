@@ -32,6 +32,9 @@ you must pass it explicitly.
 - **Untouched-by-default restore:** the DB is left as-is; opt in per flag (`--deactivate-cron`/`--neutralize`/`--anonymize`/`--wipe`/`--purge-master-data`, or `--sanitize` for all of them). Since v0.48.0 `--sanitize` includes `--purge-master-data`, a full template-DB reset that DELETES movement + customer/master data (escape with `--no-purge-master-data`). `--purge-transactions` (movement-only) and `--anonymize-users` remain separate opt-ins (not in `--sanitize`).
 - **Space-aware, low-overhead restore:** pre-checks free disk space, moves the filestore instead of
   copying it (no triple data-holding), and can delete the original backup afterwards.
+- **Backups stage on the output disk:** ZIP/tar.zst dumps are written to a hidden `.odoodev_backup_*`
+  directory inside `-o` (not `/tmp`, which is often a small tmpfs on Linux); a pre-check warns (does
+  not abort) when database + filestore likely exceed the free space there.
 - Clone/update Git repos and (re)generate the dated `odoo_*.conf` addons_path.
 - Manage per-version UV virtualenvs and `.env` files.
 - **Requirements baseline/overlay (v0.63.0):** `requirements.txt` is generated from a shipped

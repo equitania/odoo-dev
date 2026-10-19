@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from odoodev.core.database import (
     anonymize_database,
     anonymize_users,
     backup_database_sql,
+    check_backup_space,
     check_restore_space,
     cleanup_restore_temp,
     copy_database,
@@ -30,11 +30,14 @@ from odoodev.core.database import (
     database_exists,
     deactivate_cronjobs,
     detect_backup_type,
+    dir_size,
     drop_database,
     dump_uses_pgvector,
     extract_backup,
     format_size,
     get_active_connection_count,
+    get_backup_temp_dir,
+    get_database_size,
     get_filestore_path,
     get_restore_temp_dir,
     list_databases,
@@ -261,18 +264,6 @@ def _filestore_root(version: str) -> str:
     return os.path.dirname(get_filestore_path(version, "_"))
 
 
-def _dir_size(path: str) -> int:
-    """Total size in bytes of a directory tree (best-effort, broken links skipped)."""
-    total = 0
-    for dirpath, _dirnames, filenames in os.walk(path):
-        for name in filenames:
-            try:
-                total += os.path.getsize(os.path.join(dirpath, name))
-            except OSError:
-                continue
-    return total
-
-
 @dataclass(frozen=True)
 class _OrphanFilestore:
     """A filestore directory without a matching database (db cleanup)."""
@@ -326,7 +317,7 @@ def db_cleanup(ctx: click.Context, version: str | None, delete_orphans: bool, as
     orphaned = sorted(filestores - databases)
     missing = sorted(databases - filestores)
     orphan_infos = [
-        _OrphanFilestore(name=name, path=os.path.join(root, name), size_bytes=_dir_size(os.path.join(root, name)))
+        _OrphanFilestore(name=name, path=os.path.join(root, name), size_bytes=dir_size(os.path.join(root, name)))
         for name in orphaned
     ]
 
@@ -1962,17 +1953,30 @@ def db_backup(
         is_tar_zst = backup_type == "tar.zst"
         extension = "tar.zst" if is_tar_zst else "zip"
         label = "tar.zst" if is_tar_zst else "ZIP"
-        tmp_dir = tempfile.mkdtemp(prefix="odoodev_backup_")
+        filestore_path = get_filestore_path(version, name)
+        fs_dir = filestore_path if os.path.isdir(filestore_path) else None
+
+        # Warn only: pg_database_size is a rough stand-in for the dump size
+        db_bytes = get_database_size(name, **params)
+        if db_bytes is not None:
+            enough, msg = check_backup_space(output_dir, db_bytes, dir_size(fs_dir) if fs_dir else 0)
+            if not enough:
+                print_warning(msg)
+
+        # Stage the dump next to the archive, not in the (possibly tmpfs) system temp dir
+        tmp_dir = get_backup_temp_dir(output_dir)
         try:
             sql_path = os.path.join(tmp_dir, "dump.sql")
             print_info(f"Dumping database '{name}'...")
 
             if not backup_database_sql(name, sql_path, **params):
                 print_error("Database dump failed")
+                try:
+                    free = format_size(shutil.disk_usage(tmp_dir).free)
+                    print_info(f"Dump was staged in {tmp_dir} ({free} free there)")
+                except OSError:
+                    pass
                 raise SystemExit(1)
-
-            filestore_path = get_filestore_path(version, name)
-            fs_dir = filestore_path if os.path.isdir(filestore_path) else None
 
             output_file = os.path.join(output_dir, f"{name}_{date_suffix}.{extension}")
             print_info(f"Creating {label} backup...")

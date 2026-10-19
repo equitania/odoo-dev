@@ -3288,6 +3288,92 @@ def purge_master_data(
     )
 
 
+def get_backup_temp_dir(output_dir: str) -> str:
+    """Create the staging directory for a ZIP/tar.zst backup inside ``output_dir``.
+
+    The uncompressed dump.sql is written here before it is bundled with the
+    filestore. Staging next to the final archive keeps both on the same
+    filesystem the user chose with ``-o`` — the system temp directory is often
+    a RAM-backed tmpfs on Linux and too small for a large database. The dot
+    prefix keeps the half-written directory from looking like a finished backup.
+
+    Args:
+        output_dir: Existing directory the finished archive is written to.
+
+    Returns:
+        Path to a newly created staging directory.
+    """
+    return tempfile.mkdtemp(prefix=".odoodev_backup_", dir=output_dir)
+
+
+def get_database_size(
+    db_name: str,
+    host: str = DEFAULT_DB_HOST,
+    port: int = 18432,
+    user: str = DEFAULT_DB_USER,
+) -> int | None:
+    """Return the on-disk size of a database in bytes, or None if it cannot be read."""
+    ok, rows = _run_psql_tuples(f"SELECT pg_database_size({_sql_literal(db_name)})", host=host, port=port, user=user)
+    if not ok or not rows or not rows[0]:
+        return None
+    try:
+        return int(rows[0][0])
+    except ValueError:
+        return None
+
+
+def dir_size(path: str) -> int:
+    """Total size in bytes of a directory tree (best-effort, broken links skipped)."""
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for name in filenames:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, name))
+            except OSError:
+                continue
+    return total
+
+
+def check_backup_space(
+    output_dir: str,
+    db_bytes: int,
+    filestore_bytes: int = 0,
+    margin: float = 1.15,
+) -> tuple[bool, str]:
+    """Check whether ``output_dir`` likely has room for a ZIP/tar.zst backup.
+
+    At its peak a bundled backup holds the uncompressed dump and the finished
+    archive side by side. ``pg_database_size`` stands in for the dump (it
+    includes indexes and bloat, so it usually overestimates); the archive is
+    dominated by the filestore, which barely compresses. The estimate is
+    therefore deliberately generous — callers warn, they do not abort.
+
+    Pure computation — no output, no side effects.
+
+    Args:
+        output_dir: Directory the backup is staged and written in.
+        db_bytes: Database size as reported by ``pg_database_size``.
+        filestore_bytes: Size of the filestore that goes into the archive.
+        margin: Safety multiplier applied to the estimate (default 1.15).
+
+    Returns:
+        Tuple ``(enough, message)``. ``message`` is empty when there is enough
+        space or the free space cannot be determined.
+    """
+    required = int((db_bytes + filestore_bytes) * margin)
+    try:
+        free = shutil.disk_usage(_nearest_existing_dir(output_dir)).free
+    except OSError:
+        return True, ""
+    if free >= required:
+        return True, ""
+    return False, (
+        f"Low disk space for backup in {output_dir}: estimated need ~{format_size(required)} "
+        f"(database {format_size(db_bytes)} + filestore {format_size(filestore_bytes)} "
+        f"+ {int((margin - 1) * 100)}% margin), available {format_size(free)}."
+    )
+
+
 # Heuristic multiplier for estimating the uncompressed size of compressed
 # backups whose contained sizes cannot be read cheaply (tar.zst, 7z, tar.gz,
 # gz). Filestores are largely incompressible (images/PDFs) while SQL dumps

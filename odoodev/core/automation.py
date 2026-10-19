@@ -458,10 +458,18 @@ def handle_db_list(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResu
 def handle_db_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Create a database backup (SQL or ZIP)."""
     import shutil
-    import tempfile
     from datetime import datetime
 
-    from odoodev.core.database import backup_database_sql, create_backup_zip, database_exists, get_filestore_path
+    from odoodev.core.database import (
+        backup_database_sql,
+        check_backup_space,
+        create_backup_zip,
+        database_exists,
+        dir_size,
+        get_backup_temp_dir,
+        get_database_size,
+        get_filestore_path,
+    )
 
     name = args.get("name")
     if not name:
@@ -486,14 +494,21 @@ def handle_db_backup(version_cfg: VersionConfig, args: dict[str, Any]) -> StepRe
         return _step_ok("db.backup", "db.backup", f"Backup created: {output_file}", 0, file=output_file)
 
     # ZIP backup
-    tmp_dir = tempfile.mkdtemp(prefix="odoodev_backup_")
+    filestore_path = get_filestore_path(version_cfg.version, name)
+    fs_dir = filestore_path if os.path.isdir(filestore_path) else None
+
+    db_bytes = get_database_size(name, **params)
+    if db_bytes is not None:
+        enough, msg = check_backup_space(output_dir, db_bytes, dir_size(fs_dir) if fs_dir else 0)
+        if not enough:
+            logger.warning(msg)
+
+    # Stage the dump next to the archive, not in the (possibly tmpfs) system temp dir
+    tmp_dir = get_backup_temp_dir(output_dir)
     try:
         sql_path = os.path.join(tmp_dir, "dump.sql")
         if not backup_database_sql(name, sql_path, **params):
-            return _step_error("db.backup", "db.backup", "Database dump failed", 0)
-
-        filestore_path = get_filestore_path(version_cfg.version, name)
-        fs_dir = filestore_path if os.path.isdir(filestore_path) else None
+            return _step_error("db.backup", "db.backup", f"Database dump failed (staged in {tmp_dir})", 0)
 
         output_file = os.path.join(output_dir, f"{name}_{date_suffix}.zip")
         if not create_backup_zip(sql_path, output_file, fs_dir):

@@ -1,5 +1,22 @@
 # Release Notes
 
+## Version 0.75.5 (19.10.2026)
+
+### Fixed
+- **ZIP and tar.zst backups of large databases no longer fail with "No space left on device".**
+  `odoodev db backup -t zip|tar.zst` and the playbook step `db.backup` first write the
+  uncompressed `dump.sql` to a staging directory and then bundle it with the filestore. That
+  directory used to be created in the system temp directory, which on many Linux machines is a
+  RAM-backed tmpfs with a few GB of room — far less than the dump of a large database, while the
+  disk chosen with `-o` had plenty of space. The staging directory is now a hidden
+  `.odoodev_backup_*` folder inside the output directory and is removed after the run, so dump
+  and archive share the disk the user picked. If the dump still fails, odoodev names the staging
+  directory and the free space left there.
+- **A pre-check warns when the output directory looks too small.** Before dumping, odoodev
+  compares database size plus filestore size (+15 %) with the free space in the output
+  directory. The database size includes indexes, so the estimate is generous: it only warns,
+  the backup still runs.
+
 ## Version 0.75.4 (18.10.2026)
 
 ### Fixed
