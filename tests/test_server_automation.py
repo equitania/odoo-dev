@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tempfile
 import types
 
 import pytest
@@ -621,6 +622,74 @@ class TestServerRestore:
         }
         self.databases = databases
         return args, events, created, data_dir
+
+    def test_read_only_backup_dir_falls_back_to_the_data_dir_parent(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _created, data_dir = self._setup(tmp_path, monkeypatch)
+        backups = os.path.dirname(sa._resolve_backup_file(args, "server.restore"))
+        real_mkdtemp = tempfile.mkdtemp
+        used: list[str] = []
+
+        def mkdtemp(prefix=None, dir=None):
+            used.append(dir)
+            if dir == backups:
+                raise OSError(30, "Read-only file system")
+            return real_mkdtemp(prefix=prefix, dir=dir)
+
+        monkeypatch.setattr(sa.tempfile, "mkdtemp", mkdtemp)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert used == [backups, str(data_dir.parent)]
+        assert not [p for p in data_dir.parent.iterdir() if p.name.startswith("odoodev_server_restore_")]
+
+    def test_space_is_checked_in_the_directory_chosen(self, version_cfg, tmp_path, monkeypatch):
+        args, _events, _created, data_dir = self._setup(tmp_path, monkeypatch)
+        backups = os.path.dirname(sa._resolve_backup_file(args, "server.restore"))
+        checked: list[str] = []
+
+        def space(backup_file, temp_dir, dest):
+            checked.append(temp_dir)
+            return (temp_dir != backups, "no room", 0)
+
+        monkeypatch.setattr("odoodev.core.database.check_restore_space", space)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        assert checked == [backups, str(data_dir.parent)]
+
+    def test_no_usable_directory_names_every_one_tried(self, version_cfg, tmp_path, monkeypatch):
+        args, events, _created, _data_dir = self._setup(tmp_path, monkeypatch)
+
+        def refuse(prefix=None, dir=None):
+            raise OSError(30, "Read-only file system")
+
+        monkeypatch.setattr(sa.tempfile, "mkdtemp", refuse)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert "No directory to extract" in result.message
+        assert str(tmp_path / "backups") in result.message and "Read-only file system" in result.message
+        assert "extract" not in events and not any(e.startswith("create") for e in events)
+
+    def test_unwritable_explicit_temp_dir_is_a_clear_error(self, version_cfg, tmp_path, monkeypatch):
+        missing = str(tmp_path / "nope")
+        args, events, _created, _data_dir = self._setup(tmp_path, monkeypatch, temp_dir=missing)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "error"
+        assert result.message.startswith("temp_dir cannot be used")
+        assert missing in result.message
+        assert events == []
+
+    def test_writable_backup_dir_is_used_as_before(self, version_cfg, tmp_path, monkeypatch):
+        args, _events, _created, _data_dir = self._setup(tmp_path, monkeypatch)
+        backups = os.path.dirname(sa._resolve_backup_file(args, "server.restore"))
+        real_mkdtemp = tempfile.mkdtemp
+        used: list[str] = []
+
+        def mkdtemp(prefix=None, dir=None):
+            used.append(dir)
+            return real_mkdtemp(prefix=prefix, dir=dir)
+
+        monkeypatch.setattr(sa.tempfile, "mkdtemp", mkdtemp)
+        assert sa.handle_server_restore(version_cfg, args).status == "ok"
+        assert used == [backups]
 
     def test_full_restore_sequence(self, version_cfg, tmp_path, monkeypatch):
         args, events, created, data_dir = self._setup(tmp_path, monkeypatch, deactivate_cron=True, neutralize=True)

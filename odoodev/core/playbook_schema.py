@@ -723,6 +723,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("template", "text", default="template0"),
                 _a("drop", "confirm", default=True),
                 _a("check_space", "confirm", default=True),
+                _a("temp_dir", "text"),
                 _a("allow_missing_filestore", "confirm", default=False),
                 _a("without_pgvector", "confirm", default=False),
                 _a("check_restored", "confirm", default=True),

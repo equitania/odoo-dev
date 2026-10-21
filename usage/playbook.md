@@ -297,6 +297,11 @@ the existing database exactly as it was.
   modules in `ir_module_module` — a dump that broke off early never replaces a working
   database. `check_restored: false` switches that last check off for a non-Odoo dump.
 - `drop: false` refuses an existing database instead of replacing it.
+- The backup is extracted into the first directory that really accepts a new directory (probed
+  by creating one, so a read-only network share is skipped): the backup's own directory, the
+  parent of the data directory, the system temp directory. The space check runs against the one
+  chosen. `temp_dir: /path` fixes it; it is then never replaced by a fallback, and an unusable
+  one stops the step with the directory and the reason. The preflight reports the same case.
 - A backup that uses pgvector stops the step before any change when the database server
   does not offer the `vector` extension; `without_pgvector: true` restores without the
   AI tables.

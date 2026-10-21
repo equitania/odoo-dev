@@ -155,7 +155,9 @@ Connector-Resets) → `server.rebuild` → `server.neutralize` → `server.verif
 
 - `server.restore` verlangt einen **gestoppten** Odoo-Container. Die bestehende
   Datenbank bleibt unangetastet, bis der Dump vollständig eingespielt ist; erst dann
-  wird getauscht.
+  wird getauscht. Das Backup wird in ein beschreibbares Verzeichnis entpackt: das des
+  Backups, sonst das übergeordnete des Datenverzeichnisses, sonst das System-Temp
+  (`temp_dir:` legt es fest). Die Vorprüfung (`--dry-run`) meldet, wenn keines beschreibbar ist.
 - `server.rebuild` gehört **hinter** den Restore: Der Schritt aktualisiert die Module
   der eingespielten Datenbank und startet den Container selbst. Ein `container.start`
   davor ist überflüssig.
@@ -359,7 +361,10 @@ destination (`server.backup` with `safety: true`) → back up the source →
 domain, connector resets) → `server.rebuild` → `server.neutralize` → `server.verify`.
 
 - `server.restore` requires a **stopped** Odoo container. The existing database stays
-  untouched until the dump has restored completely; only then is it swapped.
+  untouched until the dump has restored completely; only then is it swapped. The backup is
+  extracted into a writable directory: the backup's own, else the parent of the data directory,
+  else the system temp dir (`temp_dir:` sets it). The preflight (`--dry-run`) reports when none
+  is writable.
 - `server.rebuild` belongs **after** the restore: it updates the modules of the restored
   database and starts the container itself. A `container.start` before it is redundant.
 - `server.neutralize`, `server.update-all` and `server.verify` need the **running**

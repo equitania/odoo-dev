@@ -541,6 +541,58 @@ def _swap_in(
     return ""
 
 
+STAGING_DIR_PREFIX = "odoodev_server_restore_"
+
+
+def staging_dir_candidates(backup_file: str, data_dir: str) -> list[str]:
+    """Directories a restore may stage its extraction in, best first, without duplicates.
+
+    1. The backup's own directory (the historic default).
+    2. The parent of the data directory: same filesystem as the filestore, so the filestore is moved
+       into place by renaming, and not inside the volume mounted into the Odoo container.
+    3. The system temp directory as the last resort.
+    """
+    candidates = [os.path.dirname(os.path.abspath(backup_file))]
+    if data_dir:
+        candidates.append(os.path.dirname(os.path.abspath(data_dir)))
+    candidates.append(tempfile.gettempdir())
+    unique: list[str] = []
+    for path in candidates:
+        if path not in unique:
+            unique.append(path)
+    return unique
+
+
+def make_staging_dir(
+    candidates: list[str],
+    space_check: Callable[[str], tuple[bool, str, int]] | None = None,
+    explicit: bool = False,
+) -> tuple[str, str]:
+    """Create the extraction directory in the first candidate that is writable and has room.
+
+    Returns ``(path, "")`` or ``("", error)``. The error names every directory tried and why it was
+    rejected. With ``explicit`` (the user set ``temp_dir``) there is exactly one candidate and no
+    fallback: a directory the user chose is never silently replaced by another.
+    """
+    rejected: list[str] = []
+    for parent in candidates:
+        try:
+            path = tempfile.mkdtemp(prefix=STAGING_DIR_PREFIX, dir=parent)
+        except OSError as exc:
+            rejected.append(f"{parent}: not writable ({exc.strerror or exc})")
+            continue
+        if space_check is not None:
+            enough, message, _needed = space_check(parent)
+            if not enough:
+                shutil.rmtree(path, ignore_errors=True)
+                rejected.append(f"{parent}: {message}")
+                continue
+        return path, ""
+    if explicit:
+        return "", f"temp_dir cannot be used — {rejected[0]}"
+    return "", "No directory to extract the backup in: " + "; ".join(rejected)
+
+
 @_timed
 def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Restore a backup into a target's DB container, swap the filestore, sanitize.
@@ -647,15 +699,21 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
             0,
         )
 
-    temp_parent = os.path.expanduser(str(args.get("temp_dir", "") or "")) or os.path.dirname(backup_file)
-    if check_space:
-        ok_space, space_msg, _needed = check_restore_space(backup_file, temp_parent, filestore_dest)
-        if not ok_space:
-            return _step_error(command, command, space_msg, 0)
+    explicit_temp = os.path.expanduser(str(args.get("temp_dir", "") or ""))
+    candidates = [explicit_temp] if explicit_temp else staging_dir_candidates(backup_file, data_dir)
 
     notes: list[str] = []
     report = _reporter(args)
-    extract_path = tempfile.mkdtemp(prefix="odoodev_server_restore_", dir=temp_parent)
+    # Probed by really creating the directory: the backup directory is often a read-only network
+    # share, and os.access() says nothing reliable there. This still happens before anything is
+    # changed — the first destructive act is the staging database further down.
+    extract_path, staging_error = make_staging_dir(
+        candidates,
+        space_check=(lambda parent: check_restore_space(backup_file, parent, filestore_dest)) if check_space else None,
+        explicit=bool(explicit_temp),
+    )
+    if staging_error:
+        return _step_error(command, command, staging_error, 0)
     try:
         report(f"extracting {os.path.basename(backup_file)}")
         if not extract_backup(backup_file, extract_path):

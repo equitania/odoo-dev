@@ -205,6 +205,27 @@ class TestRestoreChecks:
         assert pf.preflight_server_steps("19", steps) == []
 
 
+class TestStagingDirCheck:
+    def test_unwritable_explicit_temp_dir_is_an_error(self, host, tmp_path):
+        findings = pf.preflight_server_steps("19", [_restore(temp_dir=str(tmp_path / "missing" / "dir"))])
+        assert any("temp_dir cannot be used" in m for m in _messages(findings, pf.ERROR))
+
+    def test_writable_explicit_temp_dir_is_clean_and_leaves_nothing_behind(self, host, tmp_path):
+        stage = tmp_path / "stage"
+        stage.mkdir()
+        findings = pf.preflight_server_steps("19", [_restore(temp_dir=str(stage))])
+        assert not any("extract" in m or "temp_dir" in m for m in _messages(findings))
+        assert list(stage.iterdir()) == []
+
+    def test_no_writable_candidate_is_an_error(self, host, monkeypatch):
+        def refuse(prefix=None, dir=None):
+            raise OSError(30, "Read-only file system")
+
+        monkeypatch.setattr("odoodev.core.server_automation.tempfile.mkdtemp", refuse)
+        findings = pf.preflight_server_steps("19", [_restore()])
+        assert any("No directory to extract" in m for m in _messages(findings, pf.ERROR))
+
+
 class TestKernelChecks:
     def _backup(self, tmp_path, build="26.09.29") -> str:
         backup = tmp_path / "acme_prod_live-odoo_dockerbackup_2026-09-30_10-00-00.tar.zst"

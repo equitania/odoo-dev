@@ -82,6 +82,8 @@ steps:
       anonymize: false            # GDPR anonymization (Faker)
       wipe: false                 # chatter and attachments deleted
       # without_pgvector: true    # restore a pgvector backup into a server without it
+      # temp_dir: /var/tmp        # where the backup is extracted. Default: the first writable one of the
+      #                           # backup's directory, the parent of the data directory, the system temp dir
 
   - name: "Customer-specific SQL (before the server starts)"
     command: sql.execute

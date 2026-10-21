@@ -269,7 +269,8 @@ initialize database` / `Failed to load registry` / `Couldn't load module` fails 
 `trust_exit_code: true` switches that off), `server.restore` (`backup_source:`
 `{mode: from_backup_step}` — the exact file a previous `server.backup` step of the same run created —
 or `{mode: file, path: …}` or `{mode: newest_in_dir, dir, pattern, select_by: mtime|filename_timestamp}`;
-`template: template0`; `drop: false` refuses an existing database; `without_pgvector: true` restores
+`template: template0`; `temp_dir:` extraction directory (default: first writable of the backup's
+directory, parent of the data directory, system temp — a read-only backup share is fine); `drop: false` refuses an existing database; `without_pgvector: true` restores
 a pgvector backup into a server without it; sanitize flags `deactivate_cron`/`neutralize`/
 `anonymize`/`wipe`/`purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute`
 (`statements:` list or `file:`, Jinja-templated; works against a `target` or the dev DB),

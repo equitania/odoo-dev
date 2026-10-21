@@ -1,5 +1,26 @@
 # Release Notes
 
+## Version 0.75.6 (21.10.2026)
+
+### Fixed
+- **`server.restore` no longer fails when the backup directory is read-only.** The step extracted
+  the backup next to the archive. A backup directory on a read-only network share could be read
+  but not written, so the step stopped with `Read-only file system` after the Odoo container had
+  already been stopped. The extraction directory is now the first one that really accepts a new
+  directory (probed by creating it, not by `os.access`, which is unreliable on network shares):
+  the backup's directory, then the parent of the data directory (same filesystem as the
+  filestore, so it is moved into place by renaming), then the system temp directory. The space
+  check runs against the directory actually chosen; a directory without room is skipped too, and
+  when none works the message names every directory tried and why.
+- **A `temp_dir` that cannot be written is reported plainly** (directory and reason) instead of
+  as a bare errno string. An explicit `temp_dir` is never replaced by a fallback.
+
+### Added
+- **Documented step argument `temp_dir` for `server.restore`** (playbook schema, example
+  playbook, usage docs).
+- **Preflight:** `odoodev run --dry-run` reports an error when no writable extraction directory
+  exists for a `server.restore` step, before any container is stopped.
+
 ## Version 0.75.5 (19.10.2026)
 
 ### Fixed

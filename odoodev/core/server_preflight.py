@@ -222,6 +222,31 @@ def _database_state(db_container: str, db_name: str, owner: str) -> bool | None:
         return database_exists(db_name, host="container", port=0, user=owner)
 
 
+def _check_staging_dir(args: dict[str, Any], backup_file: str) -> list[Finding]:
+    """The restore extracts the backup somewhere: report when no writable directory exists for that.
+
+    Probes by creating and removing a directory, as the step does (os.access is unreliable on a
+    network share with root_squash). Nothing is left behind.
+    """
+    import shutil
+
+    from odoodev.core.server_automation import make_staging_dir, staging_dir_candidates
+
+    explicit = os.path.expanduser(str(args.get("temp_dir", "") or ""))
+    if explicit:
+        candidates = [explicit]
+    else:
+        data_dir = os.path.expanduser(str(args.get("data_dir", "") or ""))
+        candidates = staging_dir_candidates(backup_file or os.path.join(os.sep, "unknown", "backup"), data_dir)
+        if not backup_file:
+            candidates = candidates[1:]
+    path, error = make_staging_dir(candidates, explicit=bool(explicit))
+    if error:
+        return [Finding(ERROR, f"{error}. The restore would fail after the container was stopped.")]
+    shutil.rmtree(path, ignore_errors=True)
+    return []
+
+
 def _check_restore(version: str, index: int, steps: list[tuple[str, dict[str, Any]]]) -> list[Finding]:
     _command, args = steps[index]
     findings: list[Finding] = []
@@ -277,6 +302,7 @@ def _check_restore(version: str, index: int, steps: list[tuple[str, dict[str, An
             )
 
     backup_file = _resolvable_backup_file(args)
+    findings.extend(_check_staging_dir(args, backup_file))
     if backup_file and os.path.isfile(backup_file) and container:
         source_build = read_backup_manifest(backup_file).get("odoo_build", "")
         if source_build:
