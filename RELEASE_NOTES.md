@@ -1,5 +1,32 @@
 # Release Notes
 
+## Version 0.75.7 (21.10.2026)
+
+### Added
+- **New playbook step `server.uninstall`: uninstall modules on a restored test copy.** It does
+  what the Apps menu does: inside the running Odoo container it starts `odoo-bin shell --no-http`
+  (as the `odoo` user, script via stdin) and calls `button_immediate_uninstall`, one requested
+  module at a time; Odoo takes the dependent modules along. Args: `modules` (required list of
+  technical names, only `[a-z0-9_]`), `restart` (default `true`), `timeout` (default 1800),
+  `odoo_bin_path`, `config_path`. Place it after `server.rebuild`.
+  - Marking modules `state = 'to remove'` by SQL before the rebuild never worked (the rebuild's
+    `-u all` writes `installed` back), and SQL plus `server.update-all` ran `odoo-bin -u` next to
+    the serving process and ended in `DeadlockDetected` on `ir_module_module`. The step avoids
+    both: it waits until the container reports healthy before it starts its own process.
+  - The shell prints one result line (modules that were installed, modules actually uninstalled
+    including dependents, unknown, already uninstalled, failed); Odoo's log output around it is
+    ignored. Afterwards the step asks the database: a requested module still `installed`,
+    `to remove` or `to upgrade` fails the step.
+  - Nothing to uninstall (already uninstalled, or unknown because the backup predates the
+    module) is a successful no-op, so the step can run on every restore.
+- `docker_exec()` takes `user` and `timeout`.
+- Documented in `usage/run.md`, `usage/playbook.md`, `usage/AGENT.md`; commented example in
+  `server-mirror.yaml`.
+
+### Changed
+- The healthy-wait of `server.verify` is now a shared helper (`_wait_container_healthy`);
+  behaviour unchanged.
+
 ## Version 0.75.6 (21.10.2026)
 
 ### Fixed

@@ -42,7 +42,7 @@
 - Datenbank kopieren/umbenennen (`db copy`, `db rename`) inkl. Filestore
 - Maschinenlesbare Ausgabe (`--json`) für `db list`, `config versions`, `venv check`
 - Playbook-Variablen (`vars:`-Block, `{{ vars.x }}`, `{{ env.X }}`, `{{ date }}`, `--var`-Overrides) und Playbook-Discovery (`run --list`)
-- Server-Modus-Playbooks: automatisiertes Live→Test-Spiegeln auf Kundenservern (Docker-Container ohne Dev-Layout) — `targets:`/`env_file:`/`rpc:`-Sektionen, Steps `server.backup`, `server.restore`, `server.neutralize`, `server.update-all`, `container.stop/start`, `sql.execute`, `rpc.execute` (Beispiel: `data/examples/playbooks/server-mirror.yaml`)
+- Server-Modus-Playbooks: automatisiertes Live→Test-Spiegeln auf Kundenservern (Docker-Container ohne Dev-Layout) — `targets:`/`env_file:`/`rpc:`-Sektionen, Steps `server.backup`, `server.restore`, `server.neutralize`, `server.update-all`, `server.uninstall`, `container.stop/start`, `sql.execute`, `rpc.execute` (Beispiel: `data/examples/playbooks/server-mirror.yaml`)
 
 ### Schnellstart
 
@@ -626,7 +626,7 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - Database copy/rename (`db copy`, `db rename`) incl. filestore
 - Machine-readable output (`--json`) for `db list`, `config versions`, `venv check`
 - Playbook variables (`vars:` block, `{{ vars.x }}`, `{{ env.X }}`, `{{ date }}`, `--var` overrides) and playbook discovery (`run --list`)
-- Server-mode playbooks: automated live→test mirroring on customer servers (Docker containers without a dev layout) — `targets:`/`env_file:`/`rpc:` sections, steps `server.backup`, `server.restore`, `server.neutralize`, `server.update-all`, `container.stop/start`, `sql.execute`, `rpc.execute` (example: `data/examples/playbooks/server-mirror.yaml`)
+- Server-mode playbooks: automated live→test mirroring on customer servers (Docker containers without a dev layout) — `targets:`/`env_file:`/`rpc:` sections, steps `server.backup`, `server.restore`, `server.neutralize`, `server.update-all`, `server.uninstall`, `container.stop/start`, `sql.execute`, `rpc.execute` (example: `data/examples/playbooks/server-mirror.yaml`)
 
 ### Quick Start
 

@@ -1515,6 +1515,147 @@ def run_uninstall_modules(
         return False, (e.stdout or "") + (e.stderr or "")
 
 
+# Technical module names: what Odoo accepts as a directory name, narrowed to what
+# is safe to put into a generated script.
+_MODULE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+UNINSTALL_REPORT_MARKER = "odoodev-uninstall-result: "
+
+
+def validate_module_names(raw: str | list[str] | None) -> list[str]:
+    """Normalize and validate a module list; raise ``ValueError`` on any invalid name.
+
+    Names end up in a generated Python script that runs inside the Odoo
+    container, so only ``[a-z0-9_]`` passes.
+    """
+    names = parse_module_names(raw)
+    invalid = [n for n in names if not _MODULE_NAME_RE.match(n)]
+    if invalid:
+        raise ValueError(f"invalid module name(s): {', '.join(repr(n) for n in invalid)} (only [a-z0-9_] allowed)")
+    return names
+
+
+def _build_uninstall_report_script(modules: list[str]) -> str:
+    """Build the ``odoo-bin shell`` script behind ``server.uninstall``.
+
+    Uninstalls like the Apps menu does (``button_immediate_uninstall``; Odoo's
+    ``button_uninstall`` takes the downstream dependents along), one requested
+    module at a time — third-party overrides assume a singleton. States of all
+    modules are snapshotted before and after, so the report can name what was
+    really removed (requested modules plus dependents). The only machine output
+    is one ``odoodev-uninstall-result: {json}`` line; Odoo's log noise around it
+    is ignored by the parser. ``modules`` must come from :func:`validate_module_names`.
+    The script exits 0 even when a module failed — the failure is in the report
+    and the database check decides; ``odoo-bin shell`` rolls back on exit, so
+    every successful uninstall is committed explicitly.
+    """
+    return textwrap.dedent(
+        f"""\
+        import json
+        import sys
+        import traceback
+
+        MODULES = {modules!r}
+        _cr, _uid, _ctx = env.cr, env.uid, env.context
+
+
+        def _states():
+            _env = odoo.api.Environment(_cr, _uid, _ctx)
+            _recs = _env["ir.module.module"].with_context(active_test=False).search([])
+            return {{_r.name: _r.state for _r in _recs}}
+
+
+        _before = _states()
+        _unknown = [m for m in MODULES if m not in _before]
+        _installed = [m for m in MODULES if _before.get(m) == "installed"]
+        _not_installed = [m for m in MODULES if m in _before and _before[m] != "installed"]
+        _failed = []
+        for _name in _installed:
+            env = odoo.api.Environment(_cr, _uid, _ctx)
+            _rec = env["ir.module.module"].with_context(active_test=False).search([("name", "=", _name)])
+            if _rec.state != "installed":
+                continue  # removed as a dependent of an earlier module
+            try:
+                _rec.button_immediate_uninstall()
+                env.cr.commit()
+            except Exception:
+                traceback.print_exc(file=sys.stderr)
+                env.cr.rollback()
+                _failed.append(_name)
+        _after = _states()
+        _uninstalled = sorted(n for n, s in _before.items() if s == "installed" and _after.get(n) != "installed")
+        print(
+            {UNINSTALL_REPORT_MARKER!r}
+            + json.dumps(
+                {{
+                    "requested": MODULES,
+                    "installed": _installed,
+                    "uninstalled": _uninstalled,
+                    "not_installed": _not_installed,
+                    "unknown": _unknown,
+                    "failed": _failed,
+                }}
+            )
+        )
+        """
+    )
+
+
+def parse_uninstall_report(output: str) -> dict[str, list[str]] | None:
+    """Extract the result dict from ``odoo-bin shell`` output, ignoring log noise.
+
+    Returns ``None`` when no valid marker line is present. The last marker wins.
+    """
+    import json
+
+    report: dict[str, list[str]] | None = None
+    for line in output.splitlines():
+        idx = line.find(UNINSTALL_REPORT_MARKER)
+        if idx < 0:
+            continue
+        try:
+            data = json.loads(line[idx + len(UNINSTALL_REPORT_MARKER) :])
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            report = {k: [str(x) for x in v] for k, v in data.items() if isinstance(v, list)}
+    return report
+
+
+def run_uninstall_modules_container(
+    db_name: str,
+    odoo_container: str,
+    modules: list[str],
+    odoo_bin_path: str = SERVER_ODOO_BIN_PATH,
+    config_path: str = SERVER_ODOO_CONF_PATH,
+    cli: str = "docker",
+    user: str = "odoo",
+    timeout: float | None = None,
+) -> tuple[bool, str]:
+    """Run :func:`_build_uninstall_report_script` in ``odoo-bin shell`` inside the running container.
+
+    The script goes in via stdin (``docker exec -i -u <user> <container> python3
+    odoo-bin shell -c <conf> -d <db> --no-http``). Returns ``(success, stdout)``
+    on success, ``(False, error)`` otherwise; stdout carries the result marker.
+    """
+    from odoodev.core.docker_exec import docker_container_running, docker_exec
+
+    if not docker_container_running(odoo_container, cli):
+        return False, f"Container '{odoo_container}' is not running — docker exec needs a running container"
+    cmd = ["python3", odoo_bin_path, "shell", "-c", config_path, "-d", db_name, "--no-http"]
+    ok, stdout, stderr = docker_exec(
+        odoo_container,
+        cmd,
+        stdin_data=_build_uninstall_report_script(modules),
+        cli=cli,
+        user=user,
+        timeout=timeout,
+    )
+    if not ok:
+        tail = "\n".join((stderr or stdout).strip().splitlines()[-15:])
+        return False, tail or f"odoo-bin shell failed in container '{odoo_container}'"
+    return True, stdout
+
+
 # --------------------------------------------------------------------------- #
 # GDPR data anonymization (post-restore)
 #

@@ -275,7 +275,13 @@ a pgvector backup into a server without it; sanitize flags `deactivate_cron`/`ne
 `anonymize`/`wipe`/`purge_transactions`/`purge_master_data` or `sanitize: true`), `sql.execute`
 (`statements:` list or `file:`, Jinja-templated; works against a `target` or the dev DB),
 `server.neutralize`, `server.update-all` (`odoo-bin -u all` inside the running container — the
-exception for hosts without `update_docker_odoo.py`; `restart: true` default), `server.verify`
+exception for hosts without `update_docker_odoo.py`; `restart: true` default), `server.uninstall` (`modules:` required list of `[a-z0-9_]` names; runs
+`ir.module.module.button_immediate_uninstall` in `odoo-bin shell --no-http` via `docker exec -i -u odoo`,
+dependents go along; waits for the container to be healthy first, checks the DB afterwards — any requested
+module still `installed`/`to remove`/`to upgrade` fails the step; already-uninstalled or unknown names are a
+no-op, not an error; `restart: true` default, `timeout` 1800, `odoo_bin_path`, `config_path`; place it
+AFTER `server.rebuild`, never mark modules via SQL + `-u`: `-u all` resets the mark and `-u` beside the
+serving process deadlocks), `server.verify`
 (waits for the container to report healthy, fails on modules left in `to upgrade`/`to install`/
 `to remove`, on HTTP ≥ 500 from the database's login page and on an image kernel older than the
 backup's; args `timeout` 300, `check_modules`, `http_check`), `rpc.execute` (`model`, `method`,
@@ -286,7 +292,7 @@ backup's; args `timeout` 300, `check_modules`, `http_check`), `rpc.execute` (`mo
 `server.neutralize` → `server.verify` → `rpc.execute`. `server.rebuild` goes AFTER the restore: it
 is what updates the restored database, and it starts the container itself, so no `container.start`.
 Placed before the restore it updates the database about to be replaced. `server.restore` refuses to
-run while the target Odoo container is up; `server.neutralize`/`server.update-all`/`server.verify`
+run while the target Odoo container is up; `server.neutralize`/`server.update-all`/`server.uninstall`/`server.verify`
 need the RUNNING container. The rebuild prunes dangling images and the build cache host-wide and
 has no lock, so never run two rebuilds on the same host in parallel.
 

@@ -95,6 +95,7 @@ nur noch für optionale Zusatz-Targets:
    Datenbank aktualisiert und nicht die, die gleich ersetzt wird ·
    `container.start` (entfällt, wenn der Rebuild gewählt ist — der startet selbst) ·
    `server.update-all` (Ausnahme für Hosts ohne `update_docker_odoo.py`) ·
+   `server.uninstall` — entfernt Module (z. B. Bankanbindung) von der Testkopie ·
    `server.verify` — prüft, ob Odoo die Datenbank wirklich ausliefert ·
    `rpc.execute`
 4. **Restore-Details** — `template`, `drop`, dann die EINE Frage **„Was soll mit

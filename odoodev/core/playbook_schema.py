@@ -757,6 +757,18 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
             ),
         ),
         StepSpec(
+            "server.uninstall",
+            "server",
+            (
+                _a("target", "text"),
+                _a("modules", "list[str]", required=True),
+                _a("restart", "confirm", default=True),
+                _a("timeout", "int", default=1800),
+                _a("odoo_bin_path", "text"),
+                _a("config_path", "text"),
+            ),
+        ),
+        StepSpec(
             "server.verify",
             "server",
             (

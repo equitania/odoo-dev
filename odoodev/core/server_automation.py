@@ -967,6 +967,123 @@ def handle_server_update_all(version_cfg: VersionConfig, args: dict[str, Any]) -
 
 
 # =============================================================================
+# server.uninstall — uninstall modules the way the Apps menu does
+# =============================================================================
+
+UNINSTALL_TIMEOUT = 1800
+UNINSTALL_HEALTH_TIMEOUT = 600
+# Module states that mean "not (cleanly) gone".
+_NOT_UNINSTALLED_STATES = ("installed", "to remove", "to upgrade")
+
+
+@_timed
+def handle_server_uninstall(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
+    """Uninstall modules in the target's running Odoo container via ``odoo-bin shell``.
+
+    Why not SQL + ``-u``: a rebuild updates every loaded module and rewrites
+    ``state='installed'`` after loading, so a ``to remove`` mark set beforehand is
+    lost; and ``odoo-bin -u`` next to the serving process deadlocks on
+    ``ir_module_module``. This step does what the Apps menu does instead
+    (``button_immediate_uninstall``, dependents included) in a shell that does not
+    serve HTTP, after the serving process has finished its own startup.
+
+    A module that is already uninstalled or unknown to the database is not an
+    error (a backup may predate it). The database is checked afterwards; the
+    container restarts by default so the serving process loads a clean registry.
+    """
+    from odoodev.core.database import (
+        SERVER_ODOO_BIN_PATH,
+        SERVER_ODOO_CONF_PATH,
+        _run_psql_tuples,
+        parse_uninstall_report,
+        pg_exec_container,
+        run_uninstall_modules_container,
+        validate_module_names,
+    )
+    from odoodev.core.docker_exec import docker_start, docker_stop
+
+    command = "server.uninstall"
+    odoo_container = _require(args, "odoo_container", command)
+    db_container = _require(args, "db_container", command)
+    db_name = _require(args, "db_name", command)
+    owner = str(args.get("owner", "") or "ownerp")
+    try:
+        modules = validate_module_names(args.get("modules"))
+    except ValueError as exc:
+        return _step_error(command, command, f"{command}: {exc}", 0)
+    if not modules:
+        return _step_error(command, command, f"{command}: missing required arg 'modules' (list of module names)", 0)
+    timeout = int(args.get("timeout", UNINSTALL_TIMEOUT))
+    report = _reporter(args)
+
+    # Wait for "healthy" first. The serving process loads its registry right after
+    # the start and takes locks on ir_module_module while it does; a second Odoo
+    # process writing module states at the same time ends in DeadlockDetected.
+    _health, problem = _wait_container_healthy(odoo_container, UNINSTALL_HEALTH_TIMEOUT, report)
+    if problem:
+        return _step_error(command, command, problem, 0)
+
+    report(f"uninstalling {', '.join(modules)} from '{db_name}' inside '{odoo_container}'")
+    ok, output = run_uninstall_modules_container(
+        db_name,
+        odoo_container,
+        modules,
+        odoo_bin_path=str(args.get("odoo_bin_path", "") or SERVER_ODOO_BIN_PATH),
+        config_path=str(args.get("config_path", "") or SERVER_ODOO_CONF_PATH),
+        timeout=timeout,
+    )
+    if not ok:
+        return _step_error(command, command, f"Uninstall shell failed: {output}", 0)
+    result = parse_uninstall_report(output)
+    if result is None:
+        return _step_error(command, command, "Uninstall shell gave no result line — check 'docker logs'", 0)
+
+    installed = result.get("installed", [])
+    unknown = result.get("unknown", [])
+    uninstalled = result.get("uninstalled", [])
+    failed = result.get("failed", [])
+    notes = f" (not in this database: {', '.join(unknown)})" if unknown else ""
+
+    # The database has the last word, whatever the shell reported.
+    report(f"checking the module states of '{db_name}'")
+    states = ", ".join(f"'{state}'" for state in _NOT_UNINSTALLED_STATES)
+    names = ", ".join(f"'{name}'" for name in modules)  # validated: [a-z0-9_] only
+    query = f"SELECT name, state FROM ir_module_module WHERE name IN ({names}) AND state IN ({states}) ORDER BY name;"  # noqa: S608
+    with pg_exec_container(db_container):
+        db_ok, rows = _run_psql_tuples(query, db=db_name, host=_UNUSED_HOST, port=_UNUSED_PORT, user=owner)
+    if not db_ok:
+        return _step_error(command, command, f"Could not read the module states of '{db_name}' in '{db_container}'", 0)
+    if rows:
+        left = ", ".join(f"{row[0]} ({row[-1]})" for row in rows)
+        extra = f"; uninstall failed for: {', '.join(failed)}" if failed else ""
+        return _step_error(command, command, f"Modules still not uninstalled in '{db_name}': {left}{extra}", 0)
+    if failed:
+        return _step_error(command, command, f"Uninstall reported failures: {', '.join(failed)}", 0)
+
+    if not installed:
+        return _step_ok(
+            command,
+            command,
+            f"Nothing to uninstall in '{db_name}': none of the requested modules is installed{notes}",
+            0,
+            database=db_name,
+            uninstalled=[],
+        )
+
+    message = f"Uninstalled from '{db_name}': {', '.join(uninstalled)}{notes}"
+    dependents = [m for m in uninstalled if m not in modules]
+    if dependents:
+        message += f" (dependents: {', '.join(dependents)})"
+    if _as_bool(args.get("restart"), default=True):
+        stop_ok, stop_msg = docker_stop(odoo_container)
+        start_ok, start_msg = docker_start(odoo_container)
+        if not (stop_ok and start_ok):
+            return _step_error(command, command, f"{message}, but restart failed: {stop_msg} / {start_msg}", 0)
+        message += ", container restarted"
+    return _step_ok(command, command, message, 0, database=db_name, uninstalled=uninstalled)
+
+
+# =============================================================================
 # server.verify — is the instance really up on this database?
 # =============================================================================
 
@@ -997,6 +1114,30 @@ def _http_status(url: str, timeout: int = 20) -> tuple[int, str]:
         return 0, str(exc)
 
 
+def _wait_container_healthy(odoo_container: str, timeout: int, report: Callable[[str], None]) -> tuple[str, str]:
+    """Wait until the container reports healthy (or runs without a healthcheck).
+
+    Returns ``(health, problem)``; ``problem`` is empty when the container is usable.
+    """
+    from odoodev.core.docker_exec import docker_health_status
+
+    report(f"waiting for '{odoo_container}' to report healthy")
+    deadline = time.monotonic() + timeout
+    health = docker_health_status(odoo_container)
+    while health == "starting" and time.monotonic() < deadline:
+        time.sleep(VERIFY_POLL_SECONDS)
+        health = docker_health_status(odoo_container)
+    if health in ("healthy", "none"):
+        return health, ""
+    reason = {
+        "missing": "does not exist",
+        "stopped": "is not running",
+        "starting": f"did not become healthy within {timeout}s",
+        "unhealthy": "reports unhealthy",
+    }.get(health, f"is in state '{health}'")
+    return health, f"Odoo container '{odoo_container}' {reason}"
+
+
 @_timed
 def handle_server_verify(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Check that the target's Odoo container really serves the database.
@@ -1011,7 +1152,7 @@ def handle_server_verify(version_cfg: VersionConfig, args: dict[str, Any]) -> St
     from urllib.parse import quote
 
     from odoodev.core.database import _run_psql_tuples, pg_exec_container
-    from odoodev.core.docker_exec import docker_health_status, docker_published_port
+    from odoodev.core.docker_exec import docker_published_port
     from odoodev.core.server_preflight import build_is_older, read_container_release
 
     command = "server.verify"
@@ -1026,19 +1167,9 @@ def handle_server_verify(version_cfg: VersionConfig, args: dict[str, Any]) -> St
     report = _reporter(args)
 
     # 1. Container up and healthy.
-    report(f"waiting for '{odoo_container}' to report healthy")
-    health = docker_health_status(odoo_container)
-    while health == "starting" and time.monotonic() < deadline:
-        time.sleep(VERIFY_POLL_SECONDS)
-        health = docker_health_status(odoo_container)
-    if health not in ("healthy", "none"):
-        reason = {
-            "missing": "does not exist",
-            "stopped": "is not running",
-            "starting": f"did not become healthy within {timeout}s",
-            "unhealthy": "reports unhealthy",
-        }.get(health, f"is in state '{health}'")
-        return _step_error(command, command, f"Odoo container '{odoo_container}' {reason}", 0)
+    health, problem = _wait_container_healthy(odoo_container, timeout, report)
+    if problem:
+        return _step_error(command, command, problem, 0)
     passed.append("container healthy" if health == "healthy" else "container running (image has no healthcheck)")
 
     # 2. No module left between two states.
@@ -1285,6 +1416,7 @@ SERVER_COMMAND_HANDLERS: dict[str, Any] = {
     "server.restore": handle_server_restore,
     "server.neutralize": handle_server_neutralize,
     "server.update-all": handle_server_update_all,
+    "server.uninstall": handle_server_uninstall,
     "server.verify": handle_server_verify,
     "sql.execute": handle_sql_execute,
     "rpc.execute": handle_rpc_execute,

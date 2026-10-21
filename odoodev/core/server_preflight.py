@@ -373,7 +373,7 @@ def preflight_server_steps(version: str, steps: list[tuple[str, dict[str, Any]]]
                 findings.extend(_check_rebuild(version, args))
         except Exception as exc:  # a preflight must never be the reason a run dies
             logger.warning("Preflight check for %s failed: %s", command, exc)
-        if command in ("server.restore", "server.rebuild", "server.update-all", "server.verify"):
+        if command in ("server.restore", "server.rebuild", "server.update-all", "server.uninstall", "server.verify"):
             container = str(args.get("container", "") or "") or str(args.get("odoo_container", "") or "")
             if container and container not in containers:
                 containers.append(container)

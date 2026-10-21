@@ -118,6 +118,22 @@ steps:
   #   command: server.update-all
   #   args: { target: test, restart: true }
 
+  # Modules that must not exist on the test copy (here: bank connection modules).
+  # Uninstall them HERE, with the step, after the rebuild. Marking them
+  # state = 'to remove' by SQL does not work: the rebuild's "-u all" gives every
+  # loaded module the update flag and Odoo writes state = 'installed' back; and
+  # SQL + server.update-all ("-u" next to the serving Odoo process) ends in a
+  # deadlock on ir_module_module. The step waits until the container is healthy,
+  # uninstalls like the Apps menu (dependents included), checks the database and
+  # restarts the container. Modules that are already gone are not an error.
+  # - name: "Uninstall bank connection modules"
+  #   command: server.uninstall
+  #   args:
+  #     target: test
+  #     modules: [account_ebics, account_ebics_batch, account_ebics_oe]
+  #     # restart: true
+  #     # timeout: 1800
+
   # odoo-bin steps need the RUNNING container (docker exec) — always after the start.
   - name: "Neutralize (odoo-bin neutralize in the container)"
     command: server.neutralize

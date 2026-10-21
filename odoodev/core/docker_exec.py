@@ -99,13 +99,18 @@ def docker_exec(
     cmd: list[str],
     stdin_data: bytes | str | None = None,
     cli: str = "docker",
+    user: str | None = None,
+    timeout: float | None = None,
 ) -> tuple[bool, str, str]:
     """Run a command inside a running container.
+
+    ``user`` becomes ``exec -u <user>``; ``timeout`` (seconds) kills the local
+    ``docker exec`` client — the process inside the container may keep running.
 
     Returns:
         Tuple of (success, stdout, stderr).
     """
-    full_cmd = [cli, "exec", "-i", name, *cmd]
+    full_cmd = [cli, "exec", "-i", *(["-u", user] if user else []), name, *cmd]
     input_bytes: bytes | None
     if isinstance(stdin_data, str):
         input_bytes = stdin_data.encode("utf-8")
@@ -117,9 +122,12 @@ def docker_exec(
             input=input_bytes,
             stdin=subprocess.DEVNULL if input_bytes is None else None,
             capture_output=True,
+            timeout=timeout,
         )
     except FileNotFoundError as exc:
         return False, "", str(exc)
+    except subprocess.TimeoutExpired:
+        return False, "", f"timed out after {timeout:g}s"
     stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
     stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
     return result.returncode == 0, stdout, stderr
