@@ -31,7 +31,7 @@
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
 - Odoo-Konfigurationsgenerierung mit Template-System
-- TUI-Modus mit Log-Viewer, Level-Filter, aufklappendem Schnellmenü (`m`) für schmale Monitore, Live-Erkennung der Datenbank aus den Logs und CSV-Modulexport im Releasemanager-Format
+- TUI-Modus mit Log-Viewer, Level-Filter, aufklappendem Schnellmenü (`m`) für schmale Monitore, Live-Erkennung der Datenbank aus den Logs und CSV-Modulexport im Releasemanager-Format (auch ohne Odoo-Login über `odoo-bin shell`)
 - Port-Konflikterkennung mit automatischer Prozessbereinigung
 - Interaktiver Addon-Selektor für repos/pull (`--select`)
 - Sprachladen und Übersetzungs-Overwrite (`--load-language`, `--i18n-overwrite`)
@@ -89,7 +89,7 @@ odoodev start 18 --dev
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Schneller `git pull` aller Repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
-| `odoodev export modules [VERSION]` | Modulliste als Releasemanager-CSV per XML-RPC exportieren (`--json` für GUIs) | [export.md](usage/export.md) |
+| `odoodev export modules [VERSION]` | Modulliste als Releasemanager-CSV per XML-RPC exportieren (`--json` für GUIs, `--via-shell` ohne Login) | [export.md](usage/export.md) |
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Lokale Container-Services steuern (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -202,6 +202,16 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.76.0:**
+- **Neu:** Modul-CSV-Export ohne Odoo-Login — für Demo-Datenbanken, die absichtlich keinen
+  Admin haben. Im TUI-Exportdialog (`x`) die Checkbox „Über odoo-bin shell (ohne Odoo-Login)“,
+  in der CLI `odoodev export modules … --via-shell`. Die Module werden über `odoo-bin shell`
+  als Superuser gelesen; der Server darf weiterlaufen.
+- **Neu:** Die TUI-Tasten `a` (Apps-Liste aktualisieren) und `k` (nicht-installierte Module
+  entfernen) weichen auf `odoo-bin shell` aus, wenn der XML-RPC-Login scheitert.
+- **Geändert:** „Datenbank sichern“ steht im Schnellmenü (`m`) jetzt in der Gruppe „Export &
+  Sicherung“ direkt unter dem CSV-Export, statt ganz unten.
 
 **Version 0.75.4:**
 - **Behoben:** `odoodev requirements prune` löscht nicht mehr die Kommentare über Einträgen, die
@@ -615,7 +625,7 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
 - Odoo configuration generation with template system
-- TUI mode with log viewer, level filtering, an upward quick menu (`m`) for narrow terminals, live database detection from the logs, and module CSV export in Releasemanager format
+- TUI mode with log viewer, level filtering, an upward quick menu (`m`) for narrow terminals, live database detection from the logs, and module CSV export in Releasemanager format (also without an Odoo login via `odoo-bin shell`)
 - Port conflict detection with automatic process cleanup
 - Interactive addon selector for repos/pull (`--select`)
 - Language loading and translation overwrite (`--load-language`, `--i18n-overwrite`)
@@ -672,7 +682,7 @@ odoodev start 18 --dev
 | `odoodev repos [VERSION]` | Clone/update repositories | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Quick `git pull` across all repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
-| `odoodev export modules [VERSION]` | Export the module list as Releasemanager CSV via XML-RPC (`--json` for GUIs) | [export.md](usage/export.md) |
+| `odoodev export modules [VERSION]` | Export the module list as Releasemanager CSV via XML-RPC (`--json` for GUIs, `--via-shell` without a login) | [export.md](usage/export.md) |
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Local container service control (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -785,6 +795,16 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.76.0:**
+- **Added:** Module CSV export without an Odoo login — for demo databases that deliberately have
+  no admin. In the TUI export dialog (`x`) the checkbox "Via odoo-bin shell (no Odoo login
+  needed)", on the CLI `odoodev export modules … --via-shell`. The modules are read through
+  `odoo-bin shell` as superuser; the server may keep running.
+- **Added:** The TUI keys `a` (update apps list) and `k` (remove non-installed modules) fall back
+  to `odoo-bin shell` when the XML-RPC login fails.
+- **Changed:** "Back up database" now sits in the quick menu (`m`) group "Export & backup",
+  right below the CSV export, instead of at the very end.
 
 **Version 0.75.4:**
 - **Fixed:** `odoodev requirements prune` no longer deletes the comments above entries it keeps.

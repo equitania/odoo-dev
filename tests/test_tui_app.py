@@ -1084,6 +1084,59 @@ class TestExportModulesScreen:
         assert isinstance(results[0], ExportModulesChoice)
         assert results[0].db_name == "v18_exam"
 
+    async def test_export_via_shell_writes_csv_without_login(self, mock_cmd, tmp_path, monkeypatch):
+        """The shell variant needs no credentials and never touches XML-RPC."""
+        import pathlib
+        from unittest.mock import patch
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+        calls = {}
+
+        def fake_run(db_name, **kwargs):
+            calls.update(kwargs, db=db_name)
+            return {
+                "records": [{"id": 1, "name": "base", "installed_version": "19.0", "display_name": "Base"}],
+                "cleaned": None,
+                "updated": None,
+            }
+
+        monkeypatch.setattr("odoodev.core.database.run_module_export_shell", fake_run)
+        app = make_app(mock_cmd, tmp_path)
+        app._odoo_invocation = {"venv_python": "py", "odoo_bin": "ob", "config_path": "c", "env": {}, "cwd": "."}
+        with patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy") as mock_proxy_cls:
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause(0.3)
+                app._handle_export_modules(_export_choice(username="", password="", via_shell=True))
+                await app.workers.wait_for_complete()
+                await pilot.pause(0.1)
+            mock_proxy_cls.assert_not_called()
+
+        assert calls["db"] == "v18_exam"
+        assert calls["odoo_bin"] == "ob"
+        files = list((home / "Downloads").glob("modules_v18_exam_all_*.csv"))
+        assert len(files) == 1
+        assert "base" in files[0].read_text(encoding="utf-8")
+
+    async def test_export_dialog_shell_needs_no_username(self, mock_cmd, tmp_path):
+        from odoodev.tui.screens import ExportModulesScreen
+
+        app = make_app(mock_cmd, tmp_path)
+        results = []
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause(0.3)
+            app.push_screen(ExportModulesScreen("v18_exam"), results.append)
+            await pilot.pause(0.1)
+            screen = app.screen_stack[-1]
+            screen.query_one("#export-username").value = ""
+            screen.query_one("#export-chk-shell").value = True
+            screen.query_one("#btn-export").press()
+            await pilot.pause(0.1)
+        assert len(results) == 1
+        assert results[0].via_shell is True
+        assert results[0].remember_credentials is False
+
     async def test_export_escape_dismisses(self, mock_cmd, tmp_path):
         from odoodev.tui.screens import ExportModulesScreen
 
@@ -1482,3 +1535,62 @@ class TestModuleMaintenanceActions:
             await app.workers.wait_for_complete()
             await pilot.pause(0.1)
         instance.cleanup_uninstalled_modules.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("action", "count_key", "expected_flags"),
+        [
+            ("action_update_apps_list", "updated", {"do_cleanup": False, "do_update": True}),
+            ("action_cleanup_modules", "cleaned", {"do_cleanup": True, "do_update": False}),
+        ],
+    )
+    async def test_login_failure_falls_back_to_shell(
+        self, mock_cmd, tmp_path, monkeypatch, action, count_key, expected_flags
+    ):
+        """Demo DBs have no admin: a failed XML-RPC login runs the step via odoo-bin shell."""
+        from unittest.mock import MagicMock
+
+        import odoodev.core.xmlrpc_client as xmlrpc_mod
+
+        mock_cls = MagicMock()
+        mock_cls.from_stored_credentials.side_effect = ValueError("Authentication failed")
+        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", mock_cls)
+        calls = {}
+
+        def fake_run(db_name, **kwargs):
+            calls.update(kwargs, db=db_name)
+            return {"records": [], "cleaned": None, "updated": None, count_key: 3}
+
+        monkeypatch.setattr("odoodev.core.database.run_module_export_shell", fake_run)
+        notes = []
+        app = make_app(mock_cmd, tmp_path)
+        app._odoo_invocation = {"venv_python": "py", "odoo_bin": "ob", "config_path": "c", "env": {}, "cwd": "."}
+        monkeypatch.setattr(app, "notify", lambda msg, **kw: notes.append((msg, kw.get("severity"))))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            getattr(app, action)()
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.1)
+
+        assert calls["db"] == app._db_name
+        assert calls["with_records"] is False
+        assert {k: calls[k] for k in expected_flags} == expected_flags
+        assert not [n for n in notes if n[1] == "error"]
+        assert any("3" in str(msg) for msg, _sev in notes)
+
+    async def test_no_invocation_reports_rpc_error(self, mock_cmd, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import odoodev.core.xmlrpc_client as xmlrpc_mod
+
+        mock_cls = MagicMock()
+        mock_cls.from_stored_credentials.side_effect = ValueError("Authentication failed")
+        monkeypatch.setattr(xmlrpc_mod, "OdooXmlRpcClient", mock_cls)
+        notes = []
+        app = make_app(mock_cmd, tmp_path)
+        monkeypatch.setattr(app, "notify", lambda msg, **kw: notes.append((msg, kw.get("severity"))))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.3)
+            app.action_cleanup_modules()
+            await app.workers.wait_for_complete()
+            await pilot.pause(0.1)
+        assert any(sev == "error" and "Authentication failed" in str(msg) for msg, sev in notes)

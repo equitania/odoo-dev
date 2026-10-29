@@ -74,9 +74,13 @@ class OdooTuiApp(App):
         odoo_port: int = 0,
         db_name: str = "",
         db_port: int = 0,
+        odoo_invocation: dict | None = None,
     ) -> None:
         super().__init__()
         self._odoo = OdooProcess(cmd=cmd, env=env, cwd=cwd)
+        # One-shot odoo-bin kwargs (venv_python, odoo_bin, config_path, env, cwd)
+        # for login-free ``odoo-bin shell`` actions such as the module export.
+        self._odoo_invocation = odoo_invocation
         self._version_info = version_info
         self._odoo_port = odoo_port
         self._db_name = db_name
@@ -443,9 +447,7 @@ class OdooTuiApp(App):
         refreshed (cleanup first, then update — so the catalog reflects the
         current system) before the modules are listed.
         """
-        import datetime
-
-        from odoodev.core.module_export import EXPORT_SCOPES, build_export_path, write_modules_csv
+        from odoodev.core.module_export import EXPORT_SCOPES
         from odoodev.core.xmlrpc_client import OdooXmlRpcClient
         from odoodev.i18n import t
         from odoodev.tui.screens import ExportProgressScreen
@@ -454,6 +456,9 @@ class OdooTuiApp(App):
         self.call_from_thread(self.push_screen, progress)
 
         installed_only, exclude_enterprise = EXPORT_SCOPES.get(choice.scope, (False, False))
+        if choice.via_shell:
+            self._do_export_modules_shell(choice, progress, installed_only, exclude_enterprise)
+            return
         try:
             # Credentials come from the dialog (per-export override), never
             # logged — they only flow into the client and the optional save.
@@ -485,6 +490,49 @@ class OdooTuiApp(App):
             from odoodev.core.global_config import save_odoo_login_credentials
 
             save_odoo_login_credentials(choice.username, choice.password)
+
+        self._write_export_csv(choice, records)
+
+    def _do_export_modules_shell(self, choice, progress, installed_only: bool, exclude_enterprise: bool) -> None:
+        """Export variant via ``odoo-bin shell`` as superuser — no Odoo login needed (worker thread)."""
+        from odoodev.core.database import run_module_export_shell
+        from odoodev.i18n import t
+
+        try:
+            if self._odoo_invocation is None:
+                raise RuntimeError(t("tui.export_shell_unavailable"))
+            self.call_from_thread(progress.set_status, t("tui.export_progress_shell"))
+            result = run_module_export_shell(
+                choice.db_name,
+                installed_only=installed_only,
+                exclude_enterprise=exclude_enterprise,
+                do_cleanup=choice.do_cleanup,
+                do_update=choice.do_update,
+                **self._odoo_invocation,
+            )
+        except Exception as e:  # surface any shell failure to the user
+            self.call_from_thread(self.notify, t("tui.export_error", error=str(e)), severity="error")
+            return
+        finally:
+            self.call_from_thread(progress.dismiss)
+
+        if result["cleaned"] is not None:
+            self.call_from_thread(
+                self.notify, t("tui.modules_cleaned", count=result["cleaned"]), severity="information"
+            )
+        if result["updated"] is not None:
+            self.call_from_thread(
+                self.notify, t("tui.modules_updated", count=result["updated"]), severity="information"
+            )
+        records = result["records"]
+        self._write_export_csv(choice, records if isinstance(records, list) else [])
+
+    def _write_export_csv(self, choice, records: list[dict[str, object]]) -> None:
+        """Write the exported records to ~/Downloads/ and notify (worker thread)."""
+        import datetime
+
+        from odoodev.core.module_export import build_export_path, write_modules_csv
+        from odoodev.i18n import t
 
         if not records:
             self.call_from_thread(self.notify, t("tui.export_empty"), severity="warning")
@@ -602,14 +650,12 @@ class OdooTuiApp(App):
         self.run_worker(self._do_update_apps_list, thread=True, exclusive=False)
 
     def _do_update_apps_list(self) -> None:
-        """Call ir.module.module.update_list via XML-RPC (worker thread)."""
-        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
+        """Call ir.module.module.update_list via XML-RPC, else odoo-bin shell (worker thread)."""
         from odoodev.i18n import t
 
         self.call_from_thread(self.notify, t("tui.modules_updating"))
         try:
-            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
-            added = client.update_module_list()
+            added = self._run_module_maintenance(do_cleanup=False, do_update=True)
         except Exception as e:
             self.call_from_thread(self.notify, t("tui.modules_update_error", error=str(e)), severity="error")
             return
@@ -621,17 +667,51 @@ class OdooTuiApp(App):
 
     def _do_cleanup_modules(self) -> None:
         """Delete ir.module.module rows where state != installed (worker thread)."""
-        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
         from odoodev.i18n import t
 
         self.call_from_thread(self.notify, t("tui.modules_cleaning"))
         try:
-            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
-            removed = client.cleanup_uninstalled_modules()
+            removed = self._run_module_maintenance(do_cleanup=True, do_update=False)
         except Exception as e:
             self.call_from_thread(self.notify, t("tui.modules_clean_error", error=str(e)), severity="error")
             return
         self.call_from_thread(self.notify, t("tui.modules_cleaned", count=removed), severity="information")
+
+    def _run_module_maintenance(self, do_cleanup: bool, do_update: bool) -> int:
+        """Run one catalog step via XML-RPC; fall back to ``odoo-bin shell`` (worker thread).
+
+        XML-RPC needs the stored Odoo login, which demo databases deliberately
+        lack. When the login (or the connection) fails, the same step runs as
+        superuser through ``odoo-bin shell``. Returns the removed or added count.
+
+        Raises:
+            Exception: The shell error when the fallback fails too (or the RPC
+                error when no shell invocation is available).
+        """
+        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
+        from odoodev.i18n import t
+
+        try:
+            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
+            return client.cleanup_uninstalled_modules() if do_cleanup else client.update_module_list()
+        except Exception:
+            if self._odoo_invocation is None:
+                raise
+
+        from odoodev.core.database import run_module_export_shell
+
+        self.call_from_thread(self.notify, t("tui.modules_via_shell"))
+        result = run_module_export_shell(
+            self._db_name,
+            installed_only=False,
+            exclude_enterprise=False,
+            do_cleanup=do_cleanup,
+            do_update=do_update,
+            with_records=False,
+            **self._odoo_invocation,
+        )
+        count = result["cleaned"] if do_cleanup else result["updated"]
+        return count if isinstance(count, int) else 0
 
     def action_show_help(self) -> None:
         """Show the keybinding help overlay."""

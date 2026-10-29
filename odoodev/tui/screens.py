@@ -211,7 +211,9 @@ class ExportModulesChoice:
     ``scope`` is one of the ``EXPORT_SCOPES`` keys ('all', 'all_no_enterprise',
     'installed'); ``username``/``password`` are the Odoo res.users login for
     the XML-RPC calls; ``remember_credentials`` persists them in the global
-    config after a successful export.
+    config after a successful export. ``via_shell`` bypasses XML-RPC and reads
+    the modules through ``odoo-bin shell`` as superuser — for databases
+    without a usable admin login; the credentials are ignored then.
     """
 
     scope: str
@@ -221,6 +223,7 @@ class ExportModulesChoice:
     username: str
     password: str
     remember_credentials: bool
+    via_shell: bool = False
 
 
 class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
@@ -293,7 +296,8 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
 
         Kept deliberately compact (login + password side by side, no filler
         margins) so the button row stays visible on ~30-line terminals — a
-        taller layout clipped the Export button below the screen edge.
+        taller layout clipped the Export button below the screen edge. The
+        checkboxes are compact (one line each) for the same reason.
         """
         with Vertical(id="export-dialog"):
             yield Label(t("tui.export_title"))
@@ -309,9 +313,10 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
             with Horizontal(id="export-credentials"):
                 yield Input(value=self._username, placeholder="admin", id="export-username")
                 yield Input(value=self._password, password=True, id="export-password")
-            yield Checkbox(t("tui.export_chk_update"), id="export-chk-update")
-            yield Checkbox(t("tui.export_chk_cleanup"), id="export-chk-cleanup")
-            yield Checkbox(t("tui.export_chk_remember"), id="export-chk-remember")
+            yield Checkbox(t("tui.export_chk_shell"), id="export-chk-shell", compact=True)
+            yield Checkbox(t("tui.export_chk_update"), id="export-chk-update", compact=True)
+            yield Checkbox(t("tui.export_chk_cleanup"), id="export-chk-cleanup", compact=True)
+            yield Checkbox(t("tui.export_chk_remember"), id="export-chk-remember", compact=True)
             with Vertical(classes="button-row"):
                 yield Button(t("tui.export_btn"), variant="primary", id="btn-export")
                 yield Button(t("tui.export_cancel"), variant="error", id="btn-cancel")
@@ -339,9 +344,10 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
         if not db_name:
             db_input.placeholder = t("tui.export_db_required")
             return
+        via_shell = self.query_one("#export-chk-shell", Checkbox).value
         username_input = self.query_one("#export-username", Input)
         username = username_input.value.strip()
-        if not username:
+        if not username and not via_shell:
             username_input.placeholder = t("tui.export_username_required")
             return
         password = self.query_one("#export-password", Input).value
@@ -351,7 +357,7 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
         scope = self._SCOPE_BY_ID.get(button_id or "opt-all", "all")
         do_update = self.query_one("#export-chk-update", Checkbox).value
         do_cleanup = self.query_one("#export-chk-cleanup", Checkbox).value
-        remember = self.query_one("#export-chk-remember", Checkbox).value
+        remember = self.query_one("#export-chk-remember", Checkbox).value and not via_shell
         self.dismiss(
             ExportModulesChoice(
                 scope=scope,
@@ -361,6 +367,7 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
                 username=username,
                 password=password,
                 remember_credentials=remember,
+                via_shell=via_shell,
             )
         )
 
@@ -635,7 +642,10 @@ class QuickMenuScreen(ModalScreen["str | None"]):
         ),
         (
             "tui.menu_export",
-            (("x", "tui.menu_export_csv", "export_modules"),),
+            (
+                ("x", "tui.menu_export_csv", "export_modules"),
+                ("b", "tui.menu_backup", "backup_db"),
+            ),
         ),
         (
             "tui.menu_modules",
@@ -650,7 +660,6 @@ class QuickMenuScreen(ModalScreen["str | None"]):
                 ("r", "tui.menu_restart", "restart"),
                 ("u", "tui.menu_update", "update"),
                 ("l", "tui.menu_load_language", "load_language"),
-                ("b", "tui.menu_backup", "backup_db"),
                 ("d", "tui.menu_switch_db", "switch_db"),
             ),
         ),
@@ -694,7 +703,6 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("r", "Restart Odoo server"),
             ("u", "Update module (-u restart or XML-RPC hot update)"),
             ("l", "Load language / reload translations"),
-            ("b", "Back up database to ~/Downloads/"),
             ("d", "Switch database (restarts the server)"),
             ("q / Ctrl+Q", "Quit (stops the server)"),
         ),
@@ -718,14 +726,15 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         ),
     ),
     (
-        "Clipboard & Export",
+        "Clipboard, Export & Backup",
         (
             ("y", "Mark mode: press y, drag the mouse to select (highlighted), y copies & exits, Esc cancels"),
             ("c", "Copy visible (filtered) lines to clipboard"),
             ("e", "Copy ERROR/CRITICAL lines to clipboard"),
             ("w", "Copy WARN + ERROR + CRIT lines to clipboard"),
             ("s", "Save visible log to ~/odoodev-logs/"),
-            ("x", "Export module list as CSV to ~/Downloads/"),
+            ("x", "Export module list as CSV to ~/Downloads/ (optionally via odoo-bin shell, no login)"),
+            ("b", "Back up database (SQL or ZIP with filestore) to ~/Downloads/"),
         ),
     ),
     (

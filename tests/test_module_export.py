@@ -127,3 +127,76 @@ class TestBuildExportPath:
         target = tmp_path / "does-not-exist-yet"
         build_export_path("db", "all", datetime(2026, 1, 1), base_dir=target)
         assert not target.exists()
+
+
+class TestShellExportScript:
+    """Test the login-free ``odoo-bin shell`` export script and its output parser."""
+
+    def _run(self, script, records, update_result=(0, 4)):
+        """Execute the script against a fake ``env`` and capture its stdout."""
+        import contextlib
+        import io
+        from unittest.mock import MagicMock
+
+        model = MagicMock()
+        stale = MagicMock()
+        stale.__len__.return_value = 2
+        model.search.return_value = stale
+        model.update_list.return_value = list(update_result)
+        model.search_read.return_value = records
+        env = MagicMock()
+        env.__getitem__.return_value = model
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exec(script, {"env": env})  # noqa: S102 — test executes the generated script
+        return out.getvalue(), model, stale, env
+
+    def test_installed_scope_domain_and_no_maintenance(self):
+        from odoodev.core.module_export import build_shell_export_script, parse_shell_export_output
+
+        script = build_shell_export_script(True, False, False, False)
+        stdout, model, stale, env = self._run(script, [{"id": 1, "name": "base"}])
+        args, kwargs = model.search_read.call_args
+        assert args[0] == [("state", "=", "installed")]
+        assert args[1] == list(EXPORT_FIELDS)
+        assert kwargs == {"order": "name asc"}
+        stale.unlink.assert_not_called()
+        model.update_list.assert_not_called()
+        env.cr.commit.assert_not_called()
+        result = parse_shell_export_output("INFO noise\n" + stdout)
+        assert result == {"records": [{"id": 1, "name": "base"}], "cleaned": None, "updated": None}
+
+    def test_cleanup_and_update_commit(self):
+        from odoodev.core.module_export import build_shell_export_script, parse_shell_export_output
+
+        script = build_shell_export_script(False, True, True, True)
+        stdout, model, stale, env = self._run(script, [])
+        assert model.search_read.call_args[0][0] == [("state", "!=", "uninstallable"), ("license", "!=", "OEEL-1")]
+        stale.unlink.assert_called_once()
+        assert env.cr.commit.call_count == 2
+        result = parse_shell_export_output(stdout)
+        assert result["cleaned"] == 2
+        assert result["updated"] == 4
+
+    def test_parser_filters_test_and_hw_modules(self):
+        from odoodev.core.module_export import SHELL_EXPORT_MARKER, parse_shell_export_output
+
+        line = SHELL_EXPORT_MARKER + '{"records": [{"name": "test_x"}, {"name": "hw_drv"}, {"name": "sale"}]}'
+        assert parse_shell_export_output(line)["records"] == [{"name": "sale"}]
+
+    def test_parser_without_marker_raises(self):
+        import pytest
+
+        from odoodev.core.module_export import parse_shell_export_output
+
+        with pytest.raises(ValueError):
+            parse_shell_export_output("Traceback ...\n")
+
+    def test_without_records_skips_listing(self):
+        from odoodev.core.module_export import build_shell_export_script, parse_shell_export_output
+
+        script = build_shell_export_script(False, False, True, False, with_records=False)
+        stdout, model, stale, _env = self._run(script, [{"id": 1, "name": "base"}])
+        model.search_read.assert_not_called()
+        stale.unlink.assert_called_once()
+        assert parse_shell_export_output(stdout) == {"records": [], "cleaned": 2, "updated": None}

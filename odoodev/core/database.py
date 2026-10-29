@@ -1412,6 +1412,50 @@ def run_recompute(
         return False, e.stderr
 
 
+def run_module_export_shell(
+    db_name: str,
+    *,
+    installed_only: bool,
+    exclude_enterprise: bool,
+    do_cleanup: bool,
+    do_update: bool,
+    with_records: bool = True,
+    venv_python: str,
+    odoo_bin: str,
+    config_path: str,
+    env: dict[str, str],
+    cwd: str,
+) -> dict[str, object]:
+    """List modules for the CSV export via ``odoo-bin shell`` — no Odoo login needed.
+
+    The login-free counterpart of ``OdooXmlRpcClient.list_modules`` for
+    databases without a usable admin account. Same invocation kwargs as
+    :func:`run_recompute` (from ``resolve_odoo_invocation``). Works while the
+    server is running: the shell is a separate process with ``--no-http``.
+    ``with_records=False`` only runs cleanup/update (TUI ``a``/``k`` fallback).
+
+    Returns:
+        ``{"records": [...], "cleaned": int | None, "updated": int | None}``.
+
+    Raises:
+        RuntimeError: When the shell fails or returns no result.
+    """
+    from odoodev.core.module_export import build_shell_export_script, parse_shell_export_output
+
+    cmd = [venv_python, odoo_bin, "shell", "-c", config_path, "-d", db_name, "--no-http"]
+    script = build_shell_export_script(installed_only, exclude_enterprise, do_cleanup, do_update, with_records)
+    try:
+        result = subprocess.run(cmd, env=env, cwd=cwd, input=script, check=True, capture_output=True, text=True)  # noqa: S603 — fixed argv, script built from booleans only
+    except subprocess.CalledProcessError as e:
+        tail = "\n".join((e.stderr or e.stdout or "").strip().splitlines()[-5:])
+        raise RuntimeError(f"odoo-bin shell failed: {tail}") from e
+    try:
+        return parse_shell_export_output(result.stdout)
+    except ValueError as e:
+        tail = "\n".join((result.stderr or "").strip().splitlines()[-5:])
+        raise RuntimeError(f"{e}: {tail}" if tail else str(e)) from e
+
+
 def parse_module_names(raw: str | list[str] | None) -> list[str]:
     """Normalize a module-list argument into a deduped, order-preserving list.
 

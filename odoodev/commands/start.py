@@ -897,6 +897,13 @@ def _launch_tui(
         odoo_port=odoo_port,
         db_name=tui_db_name,
         db_port=db_port,
+        odoo_invocation={
+            "venv_python": python,
+            "odoo_bin": odoo_bin,
+            "config_path": config_path,
+            "env": env,
+            "cwd": odoo_dir,
+        },
     )
     app.run()
     # Safety net: ensure Odoo is stopped regardless of how TUI exited

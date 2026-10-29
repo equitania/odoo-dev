@@ -31,6 +31,9 @@ odoodev export modules 18 -d v18_exam --output /tmp/module_liste.csv
 
 # Maschinenlesbar fuer GUIs/Agenten (impliziert --yes)
 odoodev export modules 18 -d v18_exam --json
+
+# Ohne Odoo-Login (Demo-Datenbank ohne Admin): ueber odoo-bin shell
+odoodev export modules 19 -d v19_demo --via-shell
 ```
 
 ### Scopes
@@ -52,6 +55,16 @@ Praezedenz der Quellen:
 2. Umgebungsvariablen `ODOODEV_ODOO_USER` / `ODOODEV_ODOO_PASSWORD`
 3. Gespeicherte globale Konfiguration: `odoodev config set odoo_login.username` / `odoo_login.password`
 4. Fallback `admin`/`admin` (Dev-Konvention)
+
+### Ohne Login: `--via-shell`
+
+Hat die Datenbank keinen nutzbaren Admin-Login (z. B. Demo-Datenbanken, absichtlich),
+liest `--via-shell` die Module ueber `odoo-bin shell` als Superuser — kein XML-RPC,
+keine Zugangsdaten. Der Server muss dafuer nicht laufen, darf es aber (die Shell
+startet mit `--no-http`). Voraussetzung: venv, `odoo-bin` und eine generierte
+`odoo_*.conf` der Version. `--cleanup`/`--update-list` und `--json` verhalten sich
+gleich. Im TUI-Exportdialog (`x`) entspricht das der Checkbox
+„Über odoo-bin shell (ohne Odoo-Login)“.
 
 ### Vorbereitende Schritte
 
@@ -108,6 +121,9 @@ odoodev export modules 18 -d v18_exam --output /tmp/module_list.csv
 
 # Machine-readable for GUIs/agents (implies --yes)
 odoodev export modules 18 -d v18_exam --json
+
+# Without an Odoo login (demo database without admin): via odoo-bin shell
+odoodev export modules 19 -d v19_demo --via-shell
 ```
 
 ### Scopes
@@ -129,6 +145,15 @@ Source precedence:
 2. Environment variables `ODOODEV_ODOO_USER` / `ODOODEV_ODOO_PASSWORD`
 3. Stored global configuration: `odoodev config set odoo_login.username` / `odoo_login.password`
 4. Fallback `admin`/`admin` (dev convention)
+
+### Without a login: `--via-shell`
+
+If the database has no usable admin login (e.g. demo databases, on purpose),
+`--via-shell` reads the modules through `odoo-bin shell` as superuser — no XML-RPC,
+no credentials. The server need not run, but may (the shell starts with
+`--no-http`). Requires the version's venv, `odoo-bin` and a generated `odoo_*.conf`.
+`--cleanup`/`--update-list` and `--json` behave the same. In the TUI export dialog
+(`x`) this is the checkbox "Via odoo-bin shell (no Odoo login needed)".
 
 ### Pre-export steps
 

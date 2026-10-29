@@ -102,6 +102,11 @@ def export() -> None:
     default=None,
     help="CSV output path (default: ~/Downloads/modules_<db>_<scope>_<timestamp>.csv)",
 )
+@click.option(
+    "--via-shell",
+    is_flag=True,
+    help="Read the modules via 'odoo-bin shell' as superuser — no Odoo login needed (e.g. demo DBs without admin)",
+)
 @click.option("--host", default="localhost", show_default=True, help="Odoo XML-RPC host")
 @click.option("--port", type=int, default=None, help="Odoo HTTP port (default: the version's effective ODOO_PORT)")
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON result on stdout (implies --yes)")
@@ -117,6 +122,7 @@ def export_modules(
     update_list: bool,
     cleanup: bool,
     output_path: str | None,
+    via_shell: bool,
     host: str,
     port: int | None,
     as_json: bool,
@@ -136,6 +142,7 @@ def export_modules(
         odoodev export modules 18 -d v18_exam --cleanup --update-list
         odoodev export modules 18 -d v18_exam --output /tmp/modules.csv
         odoodev export modules 18 -d v18_exam --json    # for GUIs/agents
+        odoodev export modules 19 -d v19_demo --via-shell  # no Odoo login
 
     \b
     Credential precedence:
@@ -143,6 +150,10 @@ def export_modules(
         2. $ODOODEV_ODOO_USER / $ODOODEV_ODOO_PASSWORD
         3. odoodev config set odoo_login.username / odoo_login.password
         4. admin/admin (dev default)
+
+    \b
+    --via-shell skips XML-RPC and the login entirely: the module list is read
+    through 'odoo-bin shell' as superuser. The server need not be running.
 
     With --json a single-line result object is printed:
     {"version", "database", "scope", "path", "count", "updated", "cleaned"} —
@@ -155,7 +166,6 @@ def export_modules(
     from odoodev.core.module_export import EXPORT_SCOPES, build_export_path, write_modules_csv
     from odoodev.core.odoo_config import effective_ports
     from odoodev.core.version_registry import get_version
-    from odoodev.core.xmlrpc_client import OdooXmlRpcClient
 
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
@@ -164,37 +174,27 @@ def export_modules(
     odoo_port = port or ports["odoo"]
     non_interactive = yes or as_json
     database = _resolve_database(database, ports["db"], non_interactive)
-    user, password = _resolve_login(user, password)
-
     scope_key = _SCOPE_MAP[scope]
     installed_only, exclude_enterprise = EXPORT_SCOPES[scope_key]
 
-    updated: int | None = None
-    cleaned: int | None = None
-    try:
-        client = OdooXmlRpcClient(host=host, port=odoo_port, database=database, username=user, password=password)
-        if not as_json:
-            print_info(f"Connecting to Odoo at {host}:{odoo_port} (db: {database})...")
-        # Cleanup first, then update — so the catalog reflects the current system.
-        if cleanup:
-            if not as_json:
-                print_info("Removing non-installed module records...")
-            cleaned = client.cleanup_uninstalled_modules()
-            if not as_json:
-                print_success(f"{cleaned} module records removed")
-        if update_list:
-            if not as_json:
-                print_info("Updating apps list...")
-            updated = client.update_module_list()
-            if not as_json:
-                print_success(f"{updated} modules added to the catalog")
-        if not as_json:
-            print_info("Fetching module list...")
-        records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
-    except (ConnectionError, ValueError, OSError) as e:
-        print_error(f"Module export failed: {e}")
-        print_info(f"Is Odoo v{version} running? Start it with: odoodev start {version}")
-        raise SystemExit(1) from e
+    if via_shell:
+        records, cleaned, updated = _list_modules_via_shell(
+            version_cfg, version, database, installed_only, exclude_enterprise, cleanup, update_list, as_json
+        )
+    else:
+        records, cleaned, updated = _list_modules_via_xmlrpc(
+            version,
+            host,
+            odoo_port,
+            database,
+            user,
+            password,
+            installed_only,
+            exclude_enterprise,
+            cleanup,
+            update_list,
+            as_json,
+        )
 
     result: dict = {
         "version": version,
@@ -228,3 +228,100 @@ def export_modules(
         sys.stdout.write(json.dumps(result) + "\n")
     else:
         print_success(f"{len(records)} modules exported: {path}")
+
+
+def _list_modules_via_xmlrpc(
+    version: str,
+    host: str,
+    odoo_port: int,
+    database: str,
+    user: str | None,
+    password: str | None,
+    installed_only: bool,
+    exclude_enterprise: bool,
+    cleanup: bool,
+    update_list: bool,
+    as_json: bool,
+) -> tuple[list[dict[str, object]], int | None, int | None]:
+    """Fetch the module list from a running instance; returns (records, cleaned, updated)."""
+    from odoodev.core.xmlrpc_client import OdooXmlRpcClient
+
+    user, password = _resolve_login(user, password)
+    updated: int | None = None
+    cleaned: int | None = None
+    try:
+        client = OdooXmlRpcClient(host=host, port=odoo_port, database=database, username=user, password=password)
+        if not as_json:
+            print_info(f"Connecting to Odoo at {host}:{odoo_port} (db: {database})...")
+        # Cleanup first, then update — so the catalog reflects the current system.
+        if cleanup:
+            if not as_json:
+                print_info("Removing non-installed module records...")
+            cleaned = client.cleanup_uninstalled_modules()
+            if not as_json:
+                print_success(f"{cleaned} module records removed")
+        if update_list:
+            if not as_json:
+                print_info("Updating apps list...")
+            updated = client.update_module_list()
+            if not as_json:
+                print_success(f"{updated} modules added to the catalog")
+        if not as_json:
+            print_info("Fetching module list...")
+        records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
+    except (ConnectionError, ValueError, OSError) as e:
+        print_error(f"Module export failed: {e}")
+        print_info(f"Is Odoo v{version} running? Start it with: odoodev start {version}")
+        print_info("No usable Odoo login (e.g. a demo DB without admin)? Retry with --via-shell")
+        raise SystemExit(1) from e
+
+    return records, cleaned, updated
+
+
+def _list_modules_via_shell(
+    version_cfg,
+    version: str,
+    database: str,
+    installed_only: bool,
+    exclude_enterprise: bool,
+    cleanup: bool,
+    update_list: bool,
+    as_json: bool,
+) -> tuple[list[dict[str, object]], int | None, int | None]:
+    """Fetch the module list via ``odoo-bin shell`` (superuser, no login); returns (records, cleaned, updated)."""
+    from odoodev.commands.db import _load_env_vars
+    from odoodev.commands.start import resolve_odoo_invocation
+    from odoodev.core.database import run_module_export_shell
+
+    inv = resolve_odoo_invocation(version_cfg, _load_env_vars(version_cfg))
+    if inv is None:
+        print_error(f"odoo-bin shell not available for v{version} (venv, odoo-bin or generated config missing)")
+        print_info(f"Set up the environment first: odoodev init {version}")
+        raise SystemExit(1)
+    if not as_json:
+        print_info(f"Reading modules via odoo-bin shell (db: {database})...")
+    try:
+        result = run_module_export_shell(
+            database,
+            installed_only=installed_only,
+            exclude_enterprise=exclude_enterprise,
+            do_cleanup=cleanup,
+            do_update=update_list,
+            **inv,
+        )
+    except RuntimeError as e:
+        print_error(f"Module export failed: {e}")
+        raise SystemExit(1) from e
+    cleaned = result["cleaned"]
+    updated = result["updated"]
+    if not as_json:
+        if cleaned is not None:
+            print_success(f"{cleaned} module records removed")
+        if updated is not None:
+            print_success(f"{updated} modules added to the catalog")
+    records = result["records"]
+    return (
+        records if isinstance(records, list) else [],
+        cleaned if isinstance(cleaned, int) else None,
+        updated if isinstance(updated, int) else None,
+    )

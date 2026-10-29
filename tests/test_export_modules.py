@@ -234,3 +234,56 @@ class TestPortResolution:
         )
         assert result.exit_code == 0, result.output
         assert cls.call_args.kwargs["port"] == 9999
+
+
+class TestViaShell:
+    """--via-shell reads the modules through odoo-bin shell — no XML-RPC, no login."""
+
+    @pytest.fixture()
+    def shell(self, monkeypatch):
+        calls = {}
+
+        def fake_run(db_name, **kwargs):
+            calls["db"] = db_name
+            calls.update(kwargs)
+            return {
+                "records": [{"id": 7, "name": "account", "installed_version": "19.0.1", "display_name": "Invoicing"}],
+                "cleaned": None,
+                "updated": None,
+            }
+
+        monkeypatch.setattr("odoodev.core.database.run_module_export_shell", fake_run)
+        monkeypatch.setattr(
+            "odoodev.commands.start.resolve_odoo_invocation",
+            lambda cfg, env_vars: {"venv_python": "py", "odoo_bin": "ob", "config_path": "c", "env": {}, "cwd": "."},
+        )
+        return calls
+
+    def test_via_shell_skips_xmlrpc(self, shell, mock_client, tmp_path):
+        cls, _instance = mock_client
+        out_file = tmp_path / "m.csv"
+        result = CliRunner().invoke(
+            cli,
+            ["export", "modules", "18", "-d", "demo", "--via-shell", "--scope", "installed", "--output", str(out_file)],
+        )
+        assert result.exit_code == 0, result.output
+        cls.assert_not_called()
+        assert shell["db"] == "demo"
+        assert shell["installed_only"] is True
+        assert shell["do_cleanup"] is False
+        assert "7,account,19.0.1,Invoicing" in out_file.read_text(encoding="utf-8")
+
+    def test_via_shell_missing_env_exits_1(self, monkeypatch, mock_client):
+        monkeypatch.setattr("odoodev.commands.start.resolve_odoo_invocation", lambda cfg, env_vars: None)
+        result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--via-shell"])
+        assert result.exit_code == 1
+        assert "not available" in result.output
+
+    def test_via_shell_failure_exits_1(self, shell, monkeypatch, mock_client):
+        def boom(db_name, **kwargs):
+            raise RuntimeError("odoo-bin shell failed: KeyError")
+
+        monkeypatch.setattr("odoodev.core.database.run_module_export_shell", boom)
+        result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--via-shell"])
+        assert result.exit_code == 1
+        assert "KeyError" in result.output

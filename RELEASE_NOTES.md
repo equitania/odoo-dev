@@ -1,5 +1,27 @@
 # Release Notes
 
+## Version 0.76.0 (29.10.2026)
+
+### Added
+- **Module CSV export without an Odoo login.** Demo databases deliberately have no admin
+  account, so the Releasemanager export (`x` in the TUI, `odoodev export modules`) could not
+  authenticate. The new option reads the module list through `odoo-bin shell --no-http` as
+  superuser instead of XML-RPC: in the TUI export dialog the checkbox "Via odoo-bin shell (no
+  Odoo login needed)", on the CLI `--via-shell`. Same scopes, same filters, same CSV; cleanup and
+  apps-list update work too and are committed explicitly (the shell rolls back on exit). The
+  server may keep running. The CLI error message of the XML-RPC path now points to `--via-shell`.
+- **TUI `a` (update apps list) and `k` (remove non-installed modules) work without a login
+  too.** They still try XML-RPC with the stored login first; if the login or the connection fails,
+  the same step runs as superuser through `odoo-bin shell` (a notice says so). Only when that
+  fails as well is an error shown.
+
+### Changed
+- **TUI quick menu: "Back up database" moved up** into the group "Export & backup", right below
+  the CSV export. It sat at the very end of the "Server" group and fell below the visible area on
+  smaller terminals. The `b` key is unchanged.
+- The export dialog's checkboxes are compact (one line each), so the Export button stays visible
+  on a 28-line terminal despite the additional option.
+
 ## Version 0.75.7 (21.10.2026)
 
 ### Added
