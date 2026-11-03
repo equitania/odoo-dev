@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.76.1 (03.11.2026)
+
+### Fixed
+- **Apple Container: the dev PostgreSQL container gets 4 GB of memory.** The shipped
+  `postgresql.conf` sets `shared_buffers = 1GB` (25 % of a 4 GB system), but `container run`
+  without `--memory` gives every container 1 GB. PostgreSQL then ran out of memory under load and
+  could not even finish crash recovery, so it stopped starting at all, although the data on the
+  volume was intact. `odoodev docker up` and `odoodev start` now create the container with
+  `--memory 4g`. A container that is already running keeps its old limit until it is created
+  again (`odoodev docker up`); the data volume is not touched. `odoodev bench` still runs on the
+  runtime default, so its results stay comparable. Docker is unchanged.
+
 ## Version 0.76.0 (29.10.2026)
 
 ### Added

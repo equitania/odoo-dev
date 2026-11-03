@@ -203,6 +203,12 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.76.1:**
+- **Behoben:** Apple Container: Der PostgreSQL-Container bekommt 4 GB Speicher statt der
+  Vorgabe von 1 GB. Mit `shared_buffers = 1GB` aus der mitgelieferten `postgresql.conf` lief
+  PostgreSQL sonst aus dem Speicher und startete nach einem Absturz gar nicht mehr. Ein laufender
+  Container behält seine Grenze bis zum nächsten `odoodev docker up`.
+
 **Version 0.76.0:**
 - **Neu:** Modul-CSV-Export ohne Odoo-Login — für Demo-Datenbanken, die absichtlich keinen
   Admin haben. Im TUI-Exportdialog (`x`) die Checkbox „Über odoo-bin shell (ohne Odoo-Login)“,
@@ -795,6 +801,12 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.76.1:**
+- **Fixed:** Apple Container: the PostgreSQL container gets 4 GB of memory instead of the 1 GB
+  default. With `shared_buffers = 1GB` from the shipped `postgresql.conf`, PostgreSQL otherwise
+  ran out of memory and, after a crash, did not start at all. A running container keeps its limit
+  until the next `odoodev docker up`.
 
 **Version 0.76.0:**
 - **Added:** Module CSV export without an Odoo login — for demo databases that deliberately have

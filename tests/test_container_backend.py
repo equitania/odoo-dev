@@ -106,6 +106,16 @@ class TestBuildDevSpec:
         assert f"{spec.conf_path}:/etc/postgresql/postgresql.conf" in args
         assert args[-3:] == ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
 
+    def test_dev_container_gets_the_memory_postgresql_conf_assumes(self, tmp_path, monkeypatch):
+        # postgresql.conf ships shared_buffers = 1GB for a 4 GB system; Apple
+        # Container's default of 1 GB gets that postgres OOM-killed.
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="u", password="p")),
+        )
+        args = _postgres_run_args(build_dev_spec(_vcfg(str(tmp_path)), {"DEV_USER": "t"}))
+        assert args[args.index("--memory") + 1] == "4g"
+
 
 class TestServiceDispatch:
     def test_docker_service_up_delegates_to_compose(self, monkeypatch):
@@ -289,6 +299,10 @@ class TestPostgresRunArgs:
         assert "--shm-size" in args and "1g" in args
         # Image is the final positional argument.
         assert args[-1] == "postgres:16.11-alpine"
+
+    def test_no_memory_flag_without_a_limit(self):
+        # The benchmark runs on the runtime's default and must stay comparable.
+        assert "--memory" not in _postgres_run_args(_spec())
 
     def test_run_args_identical_shape_for_both_runtimes(self):
         # The builder is runtime-agnostic; both backends prepend their own CLI.

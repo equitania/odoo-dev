@@ -107,6 +107,9 @@ class PostgresSpec:
     password: str
     db_name: str = "postgres"
     shm_size: str = "1g"
+    # Container memory limit. None → runtime default (used by the isolated
+    # benchmark); Apple Container's default is 1 GB.
+    memory: str | None = None
     # Host postgresql.conf to bind-mount (dev service mirrors the compose tuning).
     # None → run with the image's stock config (used by the isolated benchmark).
     conf_path: str | None = None
@@ -143,6 +146,8 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
         "-e",
         f"PGDATA={_PGDATA}",
     ]
+    if spec.memory:
+        args += ["--memory", spec.memory]
     if spec.conf_path:
         args += ["-v", f"{spec.conf_path}:{conf_target}"]
     args.append(spec.image)
@@ -689,6 +694,9 @@ def build_dev_spec(version_cfg: VersionConfigProtocol, env: dict[str, str]) -> P
         user=env.get("PGUSER") or cfg.database.user,
         password=env.get("PGPASSWORD") or cfg.database.password,
         db_name="postgres",
+        # Matches the shipped postgresql.conf (shared_buffers = 1GB, "25 % of 4GB").
+        # service_up recreates the container on every start, so this must be set here.
+        memory="4g",
         conf_path=conf_path,
         pg_version=pg_version,
     )

@@ -87,6 +87,11 @@ odoodev docker down 18 --runtime apple
   aktualisiert einen veralteten Editable-Install.
 - **`config show` zeigt keine „Container Runtime“-Zeile:** Installierte Version ist älter als
   der Code — `uv pip install -e .` neu ziehen.
+- **PostgreSQL startet nicht mehr, Recovery bricht ab (vor v0.76.1):** Der Container lief mit
+  der Vorgabe von 1 GB Speicher, die `postgresql.conf` setzt aber `shared_buffers = 1GB`. Seit
+  v0.76.1 legt odoodev den Container mit `--memory 4g` an. Ein alter Container behält seine
+  Grenze, bis `odoodev docker up` ihn neu anlegt; das Datenvolume bleibt erhalten. Prüfen mit
+  `container ls -a` (Spalte `MEMORY`, erwartet `4096 MB`).
 
 ---
 
@@ -171,3 +176,8 @@ odoodev docker down 18 --runtime apple
   editable install.
 - **`config show` has no "Container Runtime" row:** The installed build is older than the
   code — re-run `uv pip install -e .`.
+- **PostgreSQL no longer starts, crash recovery aborts (before v0.76.1):** The container ran
+  on the 1 GB default, while `postgresql.conf` sets `shared_buffers = 1GB`. Since v0.76.1
+  odoodev creates the container with `--memory 4g`. An old container keeps its limit until
+  `odoodev docker up` creates it again; the data volume is kept. Check with
+  `container ls -a` (column `MEMORY`, expected `4096 MB`).
