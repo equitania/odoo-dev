@@ -290,6 +290,11 @@ def test_published_port_loopback(monkeypatch):
     assert calls[0] == ["docker", "port", "live-odoo", "8069"]
 
 
+def test_published_port_loopback_bind_with_container_port_mapping(monkeypatch):
+    _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(0, "127.0.0.1:18432\n"))
+    assert dx.docker_published_port("dev-db", 5432) == ("127.0.0.1", 18432)
+
+
 def test_published_port_wildcard_is_reached_via_loopback(monkeypatch):
     _patch_run(monkeypatch, lambda cmd, kw: FakeCompleted(0, "0.0.0.0:8080\n[::]:8080\n"))
     assert dx.docker_published_port("odoo", 8069) == ("127.0.0.1", 8080)

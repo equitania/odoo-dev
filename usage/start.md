@@ -59,12 +59,13 @@ Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tats�
 | `q` / `Ctrl+Q` | Beenden (stoppt den Server) |
 | `m` | Schnellmenü öffnen (klappt von unten nach oben auf) |
 | `r` | Odoo-Server neu starten |
-| `u` | Modul aktualisieren (`-u`-Neustart oder XML-RPC Hot-Update) |
+| `u` | Modul aktualisieren (`-u`-Neustart oder XML-RPC Hot-Update; scheitert XML-RPC, erscheint eine Warnung vor dem Rueckfall auf den Neustart) |
 | `l` | Sprache laden / Uebersetzungen neu laden |
 | `b` | Datenbank sichern nach `~/Downloads/` (ZIP mit Filestore oder nur SQL) |
 | `d` | Datenbank wechseln (Server startet mit der gewaehlten DB neu) |
-| `a` | Apps-Liste aktualisieren (`update_list` via XML-RPC; ohne nutzbaren Login über `odoo-bin shell`) |
-| `k` | Nicht-installierte Module aus dem Katalog entfernen (ohne nutzbaren Login über `odoo-bin shell`) |
+| `a` | Apps-Liste aktualisieren (`update_list`, immer über `odoo-bin shell`, kein Odoo-Login) |
+| `k` | Nicht-installierte Module aus dem Katalog entfernen (immer über `odoo-bin shell`, kein Odoo-Login) |
+| `p` | Benutzer & Passwörter: Benutzerliste wie `odoodev db users` für die aktuell bediente Datenbank (`p` Passwort setzen, `t` 2FA deaktivieren, `/` Suche, `a` Portal-Benutzer umschalten, `r` aktualisieren, `d` andere Datenbank; Esc schließt zuerst die Suche, dann die Liste). Schreibt direkt nach PostgreSQL, kein Odoo-Login. Die übrigen Tasten sind inaktiv, solange die Liste offen ist. Auch im Schnellmenü (`m`, Gruppe „Server“) |
 | `?` | Tastenbelegung anzeigen |
 | `0` | Alle Log-Level anzeigen |
 | `1`–`5` | DEBUG / INFO / WARNING / ERROR / CRITICAL einzeln umschalten |
@@ -78,7 +79,7 @@ Der angezeigte Datenbankname wird live aus den Odoo-Logzeilen erkannt (die tats�
 | `e` | Nur ERROR/CRITICAL kopieren |
 | `w` | WARN + ERROR + CRIT kopieren |
 | `s` | Sichtbares Log speichern nach `~/odoodev-logs/` |
-| `x` | Modulliste als CSV nach `~/Downloads/` exportieren (Releasemanager-Format; optional über `odoo-bin shell` ohne Odoo-Login) |
+| `x` | Modulliste als CSV nach `~/Downloads/` exportieren (Releasemanager-Format; Dialog: Datenbank, Umfang, Apps-Liste aktualisieren, Nicht-installierte entfernen; immer über `odoo-bin shell`, kein Odoo-Login) |
 
 ### Bind-Host (`--host`)
 
@@ -221,12 +222,13 @@ The displayed database name is detected live from the Odoo log lines (the databa
 | `q` / `Ctrl+Q` | Quit (stops the server) |
 | `m` | Open the quick menu (folds up from the bottom) |
 | `r` | Restart Odoo server |
-| `u` | Update module (`-u` restart or XML-RPC hot update) |
+| `u` | Update module (`-u` restart or XML-RPC hot update; if XML-RPC fails, a warning is shown before the fallback to the restart) |
 | `l` | Load language / reload translations |
 | `b` | Back up database to `~/Downloads/` (ZIP with filestore or SQL only) |
 | `d` | Switch database (restarts the server with the chosen DB) |
-| `a` | Update apps list (`update_list` via XML-RPC; via `odoo-bin shell` without a usable login) |
-| `k` | Remove non-installed modules from the catalog (via `odoo-bin shell` without a usable login) |
+| `a` | Update apps list (`update_list`, always via `odoo-bin shell`, no Odoo login) |
+| `k` | Remove non-installed modules from the catalog (always via `odoo-bin shell`, no Odoo login) |
+| `p` | Users & passwords: the `odoodev db users` list for the database Odoo is currently serving (`p` set password, `t` disable 2FA, `/` search, `a` toggle portal users, `r` refresh, `d` pick another database; Esc closes the search field first, then the list). Writes straight to PostgreSQL, no Odoo login. The other keys are inactive while the list is open. Also in the quick menu (`m`, group "Server") |
 | `?` | Show keybinding overlay |
 | `0` | Show all log levels |
 | `1`–`5` | Toggle DEBUG / INFO / WARNING / ERROR / CRITICAL individually |
@@ -240,7 +242,7 @@ The displayed database name is detected live from the Odoo log lines (the databa
 | `e` | Copy ERROR/CRITICAL lines only |
 | `w` | Copy WARN + ERROR + CRIT lines |
 | `s` | Save visible log to `~/odoodev-logs/` |
-| `x` | Export module list as CSV to `~/Downloads/` (Releasemanager format; optionally via `odoo-bin shell` without an Odoo login) |
+| `x` | Export module list as CSV to `~/Downloads/` (Releasemanager format; dialog: database, scope, update apps list, remove non-installed; always via `odoo-bin shell`, no Odoo login) |
 
 ### Bind Host (`--host`)
 

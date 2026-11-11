@@ -128,7 +128,7 @@ Sucht nach `*.yaml`/`*.yml` in `./playbooks/` und
 | `server.uninstall` | Deinstalliert Module wie das Apps-Menü (`button_immediate_uninstall` per `odoo-bin shell` im laufenden Container, Abhängige inklusive); `modules:` (Liste), `restart` (Standard `true`), `timeout`. Wartet vorher auf „healthy“, prüft danach die Datenbank; schon deinstallierte oder unbekannte Module sind kein Fehler |
 | `server.verify` | Prüft, ob Odoo die Datenbank wirklich ausliefert: Container healthy, keine hängenden Modulzustände, Login-Seite lädt |
 | `sql.execute` | SQL-Statements/-Datei gegen Target- oder Dev-Datenbank |
-| `rpc.execute` | Deklarativer Odoo-RPC-Aufruf via odoorpc-toolbox (`odoodev-equitania[rpc]`) |
+| `rpc.execute` | Deklarativer Odoo-RPC-Aufruf via odoorpc-toolbox (`odoodev-equitania[rpc]`). Seit v0.77.0 verweigert der Schritt Klartext-HTTP/JSON-RPC zu einem nicht lokalen Host: `https://`-URL (bzw. Protokoll `jsonrpc+ssl`) verwenden oder `allow_insecure_remote: true` in der `rpc:`-Sektion setzen (vertrauenswürdiges LAN) |
 
 ### Server-Modus (Live→Test-Spiegelung auf Kundenservern)
 
@@ -159,6 +159,9 @@ Connector-Resets) → `server.rebuild` → `server.neutralize` → `server.verif
   wird getauscht. Das Backup wird in ein beschreibbares Verzeichnis entpackt: das des
   Backups, sonst das übergeordnete des Datenverzeichnisses, sonst das System-Temp
   (`temp_dir:` legt es fest). Die Vorprüfung (`--dry-run`) meldet, wenn keines beschreibbar ist.
+  Seit v0.77.0 wird der SQL-Dump vor dem Einspielen auf psql-Backslash-Befehle geprüft und bei
+  einem Fund mit Zeilennummer abgelehnt; für ein vertrauenswürdiges Backup `allow_psql_meta: true`
+  im Schritt (gilt ebenso für `db.restore`).
 - `server.rebuild` gehört **hinter** den Restore: Der Schritt aktualisiert die Module
   der eingespielten Datenbank und startet den Container selbst. Ein `container.start`
   davor ist überflüssig.
@@ -340,7 +343,7 @@ Discovers `*.yaml`/`*.yml` files in `./playbooks/` and
 | `server.uninstall` | Uninstalls modules the way the Apps menu does (`button_immediate_uninstall` via `odoo-bin shell` in the running container, dependents included); `modules:` (list), `restart` (default `true`), `timeout`. Waits for "healthy" first and checks the database afterwards; modules that are already uninstalled or unknown are not an error |
 | `server.verify` | Checks that Odoo really serves the database: container healthy, no module stuck between states, login page loads |
 | `sql.execute` | SQL statements/file against a target or dev database |
-| `rpc.execute` | Declarative Odoo RPC call via odoorpc-toolbox (`odoodev-equitania[rpc]`) |
+| `rpc.execute` | Declarative Odoo RPC call via odoorpc-toolbox (`odoodev-equitania[rpc]`). Since v0.77.0 the step refuses plaintext HTTP/JSON-RPC to a non-local host: use an `https://` URL (or protocol `jsonrpc+ssl`), or set `allow_insecure_remote: true` in the `rpc:` section (trusted LAN) |
 
 ### Server Mode (live→test mirroring on customer servers)
 
@@ -370,7 +373,9 @@ domain, connector resets) → `server.rebuild` → `server.neutralize` → `serv
   untouched until the dump has restored completely; only then is it swapped. The backup is
   extracted into a writable directory: the backup's own, else the parent of the data directory,
   else the system temp dir (`temp_dir:` sets it). The preflight (`--dry-run`) reports when none
-  is writable.
+  is writable. Since v0.77.0 the SQL dump is scanned for psql backslash commands before it is
+  restored and refused with the line number if any is found; for a trusted backup set
+  `allow_psql_meta: true` on the step (same for `db.restore`).
 - `server.rebuild` belongs **after** the restore: it updates the modules of the restored
   database and starts the container itself. A `container.start` before it is redundant.
 - `server.neutralize`, `server.update-all`, `server.uninstall` and `server.verify` need the

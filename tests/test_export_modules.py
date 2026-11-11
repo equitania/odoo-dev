@@ -26,6 +26,10 @@ def _isolate(monkeypatch, tmp_path):
     monkeypatch.setattr("odoodev.core.global_config.get_odoo_login_credentials", lambda: ("stored_user", "stored_pw"))
     monkeypatch.delenv(export_cmd.ENV_USER, raising=False)
     monkeypatch.delenv(export_cmd.ENV_PASSWORD, raising=False)
+    # No local odoo-bin environment by default, so the command falls back to
+    # XML-RPC; the shell tests install one through their ``shell`` fixture.
+    monkeypatch.setattr("odoodev.commands.db._load_env_vars", lambda cfg: {})
+    monkeypatch.setattr("odoodev.commands.start.resolve_odoo_invocation", lambda cfg, env_vars: None)
 
 
 @pytest.fixture()
@@ -237,7 +241,7 @@ class TestPortResolution:
 
 
 class TestViaShell:
-    """--via-shell reads the modules through odoo-bin shell — no XML-RPC, no login."""
+    """odoo-bin shell is the default path — no XML-RPC, no login; XML-RPC only on request."""
 
     @pytest.fixture()
     def shell(self, monkeypatch):
@@ -287,3 +291,37 @@ class TestViaShell:
         result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--via-shell"])
         assert result.exit_code == 1
         assert "KeyError" in result.output
+
+    def test_shell_is_the_default_when_env_exists(self, shell, mock_client, tmp_path):
+        cls, _instance = mock_client
+        out_file = tmp_path / "m.csv"
+        result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--output", str(out_file)])
+        assert result.exit_code == 0, result.output
+        cls.assert_not_called()
+        assert shell["db"] == "demo"
+        assert "7,account,19.0.1,Invoicing" in out_file.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize(
+        "extra",
+        [["--via-rpc"], ["--user", "bob"], ["--password", "pw"], ["--host", "localhost"], ["--port", "9999"]],
+    )
+    def test_login_or_host_flags_select_xmlrpc(self, shell, mock_client, tmp_path, extra):
+        cls, _instance = mock_client
+        out_file = tmp_path / "m.csv"
+        result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--output", str(out_file), *extra])
+        assert result.exit_code == 0, result.output
+        cls.assert_called_once()
+        assert "db" not in shell
+
+    def test_missing_env_falls_back_to_xmlrpc_with_notice(self, mock_client, tmp_path):
+        cls, _instance = mock_client
+        out_file = tmp_path / "m.csv"
+        result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--output", str(out_file)])
+        assert result.exit_code == 0, result.output
+        cls.assert_called_once()
+        assert "XML-RPC" in result.output
+
+    def test_via_shell_and_via_rpc_exclude_each_other(self, shell, mock_client):
+        result = CliRunner().invoke(cli, ["export", "modules", "18", "-d", "demo", "--via-shell", "--via-rpc"])
+        assert result.exit_code != 0
+        assert "exclude each other" in result.output

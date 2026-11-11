@@ -28,7 +28,7 @@ services:
     command: postgres -c 'config_file=/etc/postgresql/postgresql.conf'
     shm_size: 1gb
     ports:
-      - "${DB_PORT:-{{ db_port }}}:5432"
+      - "${DB_BIND:-127.0.0.1}:${DB_PORT:-{{ db_port }}}:5432"
     networks:
       - native-services-network
     restart: unless-stopped

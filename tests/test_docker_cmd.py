@@ -27,7 +27,7 @@ class TestDockerUpReadiness:
     def _stub(self, monkeypatch):
         monkeypatch.setattr("odoodev.commands.docker.resolve_runtime", lambda override=None: "docker")
         monkeypatch.setattr("odoodev.commands.docker._has_compose_file", lambda cfg: True)
-        monkeypatch.setattr("odoodev.commands.docker.read_env_file", lambda native_dir: {})
+        monkeypatch.setattr("odoodev.commands.docker.read_env_file", lambda native_dir: {"PGPASSWORD": "s3cret"})
         monkeypatch.setattr("odoodev.commands.docker.get_backend", lambda rt: _Backend())
         monkeypatch.setattr("odoodev.core.migration_config.get_active_group", lambda: None)
 
@@ -42,6 +42,37 @@ class TestDockerUpReadiness:
         result = CliRunner().invoke(docker, ["up", "18"])
         assert result.exit_code == 1
         assert "did not become ready" in result.output
+
+
+class TestDockerUpPlaceholderGuard:
+    @pytest.fixture(autouse=True)
+    def _stub(self, monkeypatch):
+        created = []
+
+        class Backend(_Backend):
+            def service_up(self, cfg, env):
+                created.append(env)
+                return 0
+
+        self.created = created
+        monkeypatch.setattr("odoodev.commands.docker.resolve_runtime", lambda override=None: "docker")
+        monkeypatch.setattr("odoodev.commands.docker._has_compose_file", lambda cfg: True)
+        monkeypatch.setattr(
+            "odoodev.commands.docker.read_env_file", lambda native_dir: {"PGPASSWORD": "CHANGE_AT_FIRST"}
+        )
+        monkeypatch.setattr("odoodev.commands.docker.get_backend", lambda rt: Backend())
+        monkeypatch.setattr("odoodev.core.migration_config.get_active_group", lambda: None)
+        monkeypatch.setattr("odoodev.core.prerequisites.wait_for_postgres_ready", lambda *a, **k: True)
+
+    def test_placeholder_password_blocks_before_a_container_is_created(self):
+        result = CliRunner().invoke(docker, ["up", "18"])
+        assert result.exit_code == 1
+        assert self.created == []
+
+    def test_allow_default_credentials_lets_it_through(self):
+        result = CliRunner().invoke(docker, ["up", "18", "--allow-default-credentials"])
+        assert result.exit_code == 0
+        assert len(self.created) == 1
 
 
 class TestDockerStatusRuntimeDiagnosis:

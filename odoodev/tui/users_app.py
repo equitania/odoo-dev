@@ -1,14 +1,19 @@
 """Textual TUI for Odoo user management (password reset + 2FA disable).
 
-Launched via ``odoodev db users``. Separate from the server-runtime TUI
-(:mod:`odoodev.tui.app`): this app talks straight to PostgreSQL through the
-core database helpers, no Odoo process involved.
+Two front ends share one implementation (:class:`_UsersView`):
+:class:`UsersTuiApp` is the standalone app behind ``odoodev db users``,
+:class:`UsersScreen` is the same view as a full-size screen inside the
+server-runtime TUI (:mod:`odoodev.tui.app`, key ``p``). Both talk straight to
+PostgreSQL through the core database helpers — no Odoo login involved.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Input, Static
 
 from odoodev.core.database import (
@@ -22,23 +27,30 @@ from odoodev.i18n import t
 from odoodev.tui.screens import DbSwitchScreen
 from odoodev.tui.users_screens import ConfirmDisable2faScreen, SetPasswordScreen
 
+# Bindings shared by both front ends. Textual only merges BINDINGS from DOM
+# classes, so the mixin cannot carry them — each front end lists them itself.
+_USER_BINDINGS = [
+    Binding("p", "set_password", "Set password"),
+    Binding("t", "disable_2fa", "Disable 2FA"),
+    Binding("d", "switch_db", "Switch DB"),
+    Binding("slash", "search", "Search"),
+    Binding("a", "toggle_portal", "Portal users", show=False),
+    Binding("r", "refresh", "Refresh", show=False),
+]
 
-class UsersTuiApp(App):
-    """Pick a database, browse its users, reset passwords and disable 2FA."""
 
-    CSS_PATH = "users_app.tcss"
+class _UsersView:
+    """Pick a database, browse its users, reset passwords and disable 2FA.
 
-    BINDINGS = [
-        Binding("q", "quit_app", "Quit", priority=True),
-        Binding("ctrl+q", "quit_app", "Quit", priority=True, show=False),
-        Binding("p", "set_password", "Set password"),
-        Binding("t", "disable_2fa", "Disable 2FA"),
-        Binding("d", "switch_db", "Switch DB"),
-        Binding("slash", "search", "Search"),
-        Binding("a", "toggle_portal", "Portal users", show=False),
-        Binding("r", "refresh", "Refresh", show=False),
-        Binding("escape", "clear_search", "Clear search", show=False),
-    ]
+    Mixin for a Textual ``App`` or ``Screen``; the host class provides
+    ``_close`` (leave the view) and the bindings.
+    """
+
+    if TYPE_CHECKING:
+        # Supplied by the Textual host class (App or Screen).
+        query_one: Any
+        notify: Any
+        app: Any
 
     def __init__(
         self,
@@ -91,15 +103,27 @@ class UsersTuiApp(App):
         query = self._filter_query.lower()
         return [u for u in self._users if query in u.login.lower() or query in u.name.lower()]
 
+    def _close(self) -> None:
+        """Leave the view — implemented by the host class."""
+        raise NotImplementedError
+
     def _reload_users(self) -> None:
-        """Fetch users from the database and rebuild the table."""
-        self._users = list_users(
-            self._db_name,
-            host=self._host,
-            port=self._port,
-            user=self._user,
-            include_portal=self._include_portal,
-        )
+        """Fetch users from the database and rebuild the table.
+
+        A failing query must not take the host down — inside the runtime TUI
+        that would kill the running Odoo server along with it.
+        """
+        try:
+            self._users = list_users(
+                self._db_name,
+                host=self._host,
+                port=self._port,
+                user=self._user,
+                include_portal=self._include_portal,
+            )
+        except Exception as e:  # surface any database failure instead of crashing
+            self._users = []
+            self.notify(t("users_tui.load_error", db=self._db_name, error=str(e)), severity="error")
         self._refresh_table()
         self._update_title()
 
@@ -142,7 +166,7 @@ class UsersTuiApp(App):
     # ------------------------------------------------------------- actions --
 
     def action_quit_app(self) -> None:
-        self.exit()
+        self._close()
 
     def action_set_password(self) -> None:
         user = self._selected_user()
@@ -161,7 +185,7 @@ class UsersTuiApp(App):
             else:
                 self.notify(t("users_tui.password_error", error=msg.strip()), severity="error")
 
-        self.push_screen(SetPasswordScreen(user.login, DEFAULT_DEV_PASSWORD), _on_password)
+        self.app.push_screen(SetPasswordScreen(user.login, DEFAULT_DEV_PASSWORD), _on_password)
 
     def action_disable_2fa(self) -> None:
         user = self._selected_user()
@@ -182,7 +206,7 @@ class UsersTuiApp(App):
             else:
                 self.notify(t("users_tui.disable_2fa_error", error=msg.strip()), severity="error")
 
-        self.push_screen(ConfirmDisable2faScreen(user.login), _on_confirm)
+        self.app.push_screen(ConfirmDisable2faScreen(user.login), _on_confirm)
 
     def action_switch_db(self) -> None:
         self._open_db_picker(initial=False)
@@ -196,23 +220,26 @@ class UsersTuiApp(App):
                 self._reload_users()
             elif initial and not self._db_name:
                 # Cancelled the initial picker without ever choosing a DB.
-                self.exit()
+                self._close()
 
-        self.push_screen(DbSwitchScreen(db_port=self._port, current_db=self._db_name), _on_db_picked)
+        self.app.push_screen(DbSwitchScreen(db_port=self._port, current_db=self._db_name), _on_db_picked)
 
     def action_search(self) -> None:
         search = self.query_one("#users-search", Input)
         search.display = True
         search.focus()
 
-    def action_clear_search(self) -> None:
+    def action_clear_search(self) -> bool:
+        """Close an open search field; returns False when none was open."""
         search = self.query_one("#users-search", Input)
-        if search.display:
-            search.value = ""
-            search.display = False
-            self._filter_query = ""
-            self._refresh_table()
-            self.query_one("#users-table", DataTable).focus()
+        if not search.display:
+            return False
+        search.value = ""
+        search.display = False
+        self._filter_query = ""
+        self._refresh_table()
+        self.query_one("#users-table", DataTable).focus()
+        return True
 
     def action_toggle_portal(self) -> None:
         self._include_portal = not self._include_portal
@@ -231,3 +258,49 @@ class UsersTuiApp(App):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "users-search":
             self.query_one("#users-table", DataTable).focus()
+
+
+class UsersTuiApp(_UsersView, App):
+    """Standalone user-management app (``odoodev db users``)."""
+
+    CSS_PATH = "users_app.tcss"
+
+    BINDINGS = [
+        Binding("q", "quit_app", "Quit", priority=True),
+        Binding("ctrl+q", "quit_app", "Quit", priority=True, show=False),
+        *_USER_BINDINGS,
+        Binding("escape", "clear_search", "Clear search", show=False),
+    ]
+
+    def _close(self) -> None:
+        self.exit()
+
+
+class UsersScreen(_UsersView, ModalScreen[None]):
+    """The user-management view as a full-size screen of the runtime TUI.
+
+    Modal so the runtime TUI's own keys (restart, update, …) stay inactive
+    while it is open; Escape closes the search field first, then the screen.
+    """
+
+    CSS_PATH = "users_app.tcss"
+
+    DEFAULT_CSS = """
+    UsersScreen {
+        align: left top;
+        background: $background;
+    }
+    """
+
+    BINDINGS = [
+        *_USER_BINDINGS,
+        Binding("escape", "back", "Back"),
+    ]
+
+    def _close(self) -> None:
+        self.dismiss(None)
+
+    def action_back(self) -> None:
+        """Escape: leave the search field if it is open, otherwise the screen."""
+        if not self.action_clear_search():
+            self._close()

@@ -1,5 +1,68 @@
 # Release Notes
 
+## Version 0.77.0 (11.11.2026)
+
+### Changed
+- **The module CSV export no longer asks for an Odoo login.** The TUI export dialog (`x`) had
+  two ways to read the module list — XML-RPC with a login, and `odoo-bin shell` as superuser —
+  although the shell is always available in the TUI and yields the same CSV. The dialog now asks
+  only for the database, the scope and the two catalog options; the export always runs through
+  `odoo-bin shell`. The login fields and the checkboxes "Via odoo-bin shell" and "Save
+  credentials for future exports" are gone.
+- **TUI `a` (update apps list) and `k` (remove non-installed modules) run through
+  `odoo-bin shell` directly.** They no longer try the stored XML-RPC login first.
+- **`odoodev export modules` uses `odoo-bin shell` by default.** No Odoo login is needed and
+  the server need not be running. XML-RPC against a running Odoo is used only on request: the
+  new flag `--via-rpc`, or any of `--user`, `--password`, `--host`, `--port`; and automatically,
+  with a notice, when this machine has no odoo-bin environment for the version. `--via-shell`
+  still exists and forces the shell without a fallback. The `--json` result is unchanged.
+- **The dev PostgreSQL container is published on `127.0.0.1` only.** It used to listen on all
+  network interfaces, so the database was reachable from the local network with the dev
+  password. This applies to Apple Container and to the generated `docker-compose.yml`. Set
+  `DB_BIND=0.0.0.0` in the version's `.env` to get the old behaviour. A container that already
+  exists keeps its binding until it is created again; the data volume is not touched.
+- **`odoodev docker up` refuses the placeholder database password**, as `odoodev start` already
+  did. `--allow-default-credentials` overrides it.
+- **`rpc.execute` in server playbooks refuses plaintext logins to remote hosts.** A playbook
+  with `http://<remote host>` or a bare remote host name now fails with a message. Use an
+  `https://` URL, or set `allow_insecure_remote: true` in the `rpc:` section for a trusted LAN.
+- Dependency floors raised to the versions developed against (ruff, pytest, pytest-cov, mypy);
+  the obsolete `types-click` stub is removed; the lock file is refreshed, which updates dev-only
+  packages with known vulnerabilities (aiohttp, idna, msgpack, multidict). mypy now checks the
+  TUI package as well, and the coverage threshold is 75 % instead of 55 %.
+
+### Added
+- **User management inside the running TUI.** Key `p`, or "Users & passwords…" in the quick
+  menu (`m`), opens the user list of the database Odoo is serving — the same view as
+  `odoodev db users`: `p` sets a password, `t` disables 2FA. It writes straight to PostgreSQL,
+  so no Odoo login is needed. Escape returns to the log.
+- **A restore checks the dump before it reaches psql.** psql executes backslash commands it
+  reads from a dump (`\! command`, `\o |command`, `\copy … program`), so a manipulated or
+  swapped backup could run commands on the restoring machine. `odoodev db restore` and the
+  playbook steps `server.restore` and `db.restore` now scan the dump first and refuse it,
+  naming the line, if it contains anything pg_dump does not write itself. Dumps made by
+  pg_dump or odoodev pass unchanged. For a backup you trust: `--allow-psql-meta`, in a
+  playbook `allow_psql_meta: true`.
+
+### Fixed
+- **"Save credentials for future exports" never saved anything when "Via odoo-bin shell" was
+  ticked** — the option was dropped without a message. The export dialog no longer has either
+  option (see above).
+- **A failed XML-RPC module update in the TUI (`u`) said nothing.** It fell back to a restart
+  silently, so a wrong stored login went unnoticed. The TUI now shows a warning with the cause.
+- **`config.yaml` and `.env` kept loose permissions if they already existed.** Mode 0600 was
+  only applied to newly created files; both hold the database password. Every write now sets
+  0600.
+- **A database password containing a backslash was written wrongly into `odoo.conf`** — it was
+  read as a regex replacement escape.
+- The PostgreSQL password is no longer passed on the container runtime's command line, where
+  `ps` showed it; it is handed over through the environment.
+- repos.yaml: a repository path that leaves the base directory is skipped with an error, and a
+  branch name starting with `-` is refused instead of being read by git as an option.
+- 7z backups: extraction fails when an extracted symlink points outside the extraction
+  directory.
+- The TUI no longer raises at shutdown when a timer fires while the widgets are being removed.
+
 ## Version 0.76.1 (03.11.2026)
 
 ### Fixed

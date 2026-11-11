@@ -164,7 +164,7 @@ def handle_docker_status(version_cfg: VersionConfig, args: dict[str, Any]) -> St
 def handle_pull(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Pull (update) all existing repositories."""
     from odoodev.commands.repos import _collect_all_repos, _find_repos_config, _load_repos_config
-    from odoodev.core.git_ops import set_ssh_key, update_repo
+    from odoodev.core.git_ops import resolve_repo_dir, set_ssh_key, update_repo
 
     config_path_arg = args.get("config")
     verbose = args.get("verbose", False)
@@ -205,8 +205,8 @@ def handle_pull(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     all_repos = _collect_all_repos(config)
     for repo in all_repos:
         repo_path = repo.get("path", "")
-        full_path = os.path.join(base_path, repo_path)
-        if os.path.isdir(full_path):
+        full_path = resolve_repo_dir(base_path, repo_path)
+        if full_path and os.path.isdir(full_path):
             success, _error = update_repo(full_path, branch)
             if success:
                 updated += 1
@@ -614,7 +614,12 @@ def handle_db_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepR
         if not create_database(name, **params):
             return _step_error("db.restore", "db.restore", f"Failed to create database '{name}'", 0)
 
-        if not restore_database(name, sql_file, **params):
+        if not restore_database(
+            name,
+            sql_file,
+            allow_psql_meta=bool(args.get("allow-psql-meta", args.get("allow_psql_meta", False))),
+            **params,
+        ):
             return _step_error("db.restore", "db.restore", "Database restore failed", 0)
 
         # Filestore — move (no double storage); dest computed above

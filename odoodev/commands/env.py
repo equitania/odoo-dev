@@ -102,6 +102,7 @@ def env_setup(ctx: click.Context, version: str | None, non_interactive: bool) ->
     os.makedirs(env_dir, exist_ok=True)
     # 0o600: the .env contains the PostgreSQL password in plaintext
     fd = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)  # the mode above only applies to a newly created file
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
     print_success(f".env created at {env_file}")

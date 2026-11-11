@@ -286,11 +286,13 @@ class TestPostgresRunArgs:
         assert "-d" in args
         assert "--name" in args and "odoodev-bench-pg-docker" in args
         # Port publish and volume mount.
-        assert "55432:5432" in args
+        assert "127.0.0.1:55432:5432" in args
         assert "odoodev-bench-vol-docker:/var/lib/postgresql/data" in args
         # Env values.
         assert "POSTGRES_USER=ownerp" in args
-        assert "POSTGRES_PASSWORD=secret" in args
+        # The password is passed by name only; the value must not appear in argv.
+        assert "POSTGRES_PASSWORD" in args
+        assert not any("secret" in a for a in args)
         assert "POSTGRES_DB=odoodev_bench" in args
         # PGDATA points at a SUBDIRECTORY of the mount so Apple Container's
         # EXT4-backed volume (with its lost+found root) doesn't break initdb.
@@ -299,6 +301,26 @@ class TestPostgresRunArgs:
         assert "--shm-size" in args and "1g" in args
         # Image is the final positional argument.
         assert args[-1] == "postgres:16.11-alpine"
+
+    def test_bind_host_can_be_widened(self):
+        spec = PostgresSpec(**{**_spec().__dict__, "bind_host": "0.0.0.0"})  # noqa: S104
+        assert "0.0.0.0:55432:5432" in _postgres_run_args(spec)  # noqa: S104
+
+    def test_build_dev_spec_reads_db_bind(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "odoodev.core.global_config.load_global_config",
+            lambda: SimpleNamespace(database=SimpleNamespace(user="u", password="p")),
+        )
+        assert build_dev_spec(_vcfg(str(tmp_path)), {"DEV_USER": "t"}).bind_host == "127.0.0.1"
+        assert build_dev_spec(_vcfg(str(tmp_path)), {"DEV_USER": "t", "DB_BIND": "0.0.0.0"}).bind_host == "0.0.0.0"  # noqa: S104
+
+    @patch("odoodev.core.container_backend.subprocess.run")
+    def test_run_postgres_passes_password_via_environment(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        DockerBackend().run_postgres(_spec())
+        argv = mock_run.call_args.args[0]
+        assert "secret" not in " ".join(argv)
+        assert mock_run.call_args.kwargs["env"]["POSTGRES_PASSWORD"] == "secret"
 
     def test_no_memory_flag_without_a_limit(self):
         # The benchmark runs on the runtime's default and must stay comparable.
@@ -410,6 +432,14 @@ class TestFindContainerByPort:
             ),
         )
         assert DockerBackend().find_container_by_port(16432) == "picard-dev-db-16-native"
+
+    @patch("odoodev.core.container_backend.subprocess.run")
+    def test_docker_matches_loopback_published_port(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="picard-dev-db-18-native\t127.0.0.1:18432->5432/tcp\nother\t127.0.0.1:8080->80/tcp\n",
+        )
+        assert DockerBackend().find_container_by_port(18432) == "picard-dev-db-18-native"
 
     @patch("odoodev.core.container_backend.subprocess.run")
     def test_docker_no_match_returns_none(self, mock_run):

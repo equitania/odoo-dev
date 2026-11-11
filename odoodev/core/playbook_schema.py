@@ -726,6 +726,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("temp_dir", "text"),
                 _a("allow_missing_filestore", "confirm", default=False),
                 _a("without_pgvector", "confirm", default=False),
+                _a("allow_psql_meta", "confirm", default=False),
                 _a("check_restored", "confirm", default=True),
                 _a("sanitize", "confirm", default=False),
                 _a("deactivate_cron", "confirm"),

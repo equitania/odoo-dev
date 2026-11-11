@@ -62,10 +62,17 @@ def docker() -> None:
 @docker.command("up")
 @click.argument("version", required=False)
 @click.option("-d", "--detach", is_flag=True, default=True, help="Run in background (default)")
+@click.option(
+    "--allow-default-credentials",
+    is_flag=True,
+    help="Allow the placeholder password 'CHANGE_AT_FIRST' (development/CI only).",
+)
 @_runtime_option
 @click.pass_context
-def docker_up(ctx: click.Context, version: str | None, detach: bool, runtime: str | None) -> None:
-    """Start the local PostgreSQL service."""
+def docker_up(
+    ctx: click.Context, version: str | None, detach: bool, allow_default_credentials: bool, runtime: str | None
+) -> None:
+    """Start the local PostgreSQL service (published on 127.0.0.1 only; set DB_BIND in .env to change)."""
     version = resolve_version(ctx, version)
     version_cfg = get_version(version)
     rt = resolve_runtime(runtime)
@@ -86,6 +93,10 @@ def docker_up(ctx: click.Context, version: str | None, detach: bool, runtime: st
 
     print_info(f"Starting PostgreSQL for v{version} via {backend.name}...")
     env = read_env_file(version_cfg.paths.native_dir)
+    from odoodev.commands.start import _check_placeholder_password
+
+    # Before a container with that password is created, not only at `odoodev start`.
+    _check_placeholder_password(env, version, version_cfg.paths.native_dir, allow_default_credentials)
     if backend.service_up(version_cfg, env) != 0:
         print_error(f"Failed to start PostgreSQL via {backend.name}")
         raise SystemExit(1)

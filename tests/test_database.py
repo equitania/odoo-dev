@@ -176,6 +176,39 @@ class TestExtract7z:
         assert extract_backup(archive, extract_path) is False
 
 
+class TestExtract7zContainment:
+    def test_symlink_pointing_outside_fails_the_extraction(self, tmp_dir, monkeypatch):
+        archive = os.path.join(tmp_dir, "backup.7z")
+        with open(archive, "w") as f:
+            f.write("x")
+        extract_path = os.path.join(tmp_dir, "extracted")
+        outside = os.path.join(tmp_dir, "secret")
+        os.makedirs(outside)
+
+        def fake_run(cmd, *args, **kwargs):
+            os.makedirs(extract_path, exist_ok=True)
+            os.symlink(outside, os.path.join(extract_path, "evil"))
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("odoodev.core.database.shutil.which", lambda name: "/usr/bin/7z" if name == "7z" else None)
+        monkeypatch.setattr("odoodev.core.database.subprocess.run", fake_run)
+        assert extract_backup(archive, extract_path) is False
+
+    def test_find_escaping_symlink_allows_internal_links(self, tmp_dir):
+        from odoodev.core.database import find_escaping_symlink
+
+        root = os.path.join(tmp_dir, "x")
+        os.makedirs(os.path.join(root, "a"))
+        with open(os.path.join(root, "a", "f"), "w") as f:
+            f.write("1")
+        os.symlink(os.path.join(root, "a", "f"), os.path.join(root, "inner"))
+        assert find_escaping_symlink(root) is None
+        os.symlink("/etc", os.path.join(root, "a", "out"))
+        assert find_escaping_symlink(root) == os.path.join(root, "a", "out")
+        os.symlink("../../..", os.path.join(root, "a", "rel"))
+        assert find_escaping_symlink(root) is not None
+
+
 class TestExtractTarZst:
     """Tests for the .tar.zst stream-backup format (container2backup v4.7.0+)."""
 

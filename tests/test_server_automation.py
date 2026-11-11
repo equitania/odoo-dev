@@ -571,8 +571,9 @@ class TestServerRestore:
             events.append(f"create:{db_name}")
             return True
 
-        def fake_restore(db_name, sql_file, host, port, user):
+        def fake_restore(db_name, sql_file, host, port, user, allow_psql_meta=False):
             events.append(f"restore:{db_name}@{_current_container()}")
+            created["allow_psql_meta"] = allow_psql_meta
             return restore_ok, list(sql_errors)
 
         def fake_rename(old, new, host, port, user):
@@ -640,6 +641,13 @@ class TestServerRestore:
         assert result.status == "ok", result.message
         assert used == [backups, str(data_dir.parent)]
         assert not [p for p in data_dir.parent.iterdir() if p.name.startswith("odoodev_server_restore_")]
+
+    def test_allow_psql_meta_is_passed_on_only_when_set(self, version_cfg, tmp_path, monkeypatch):
+        args, _events, created, _data_dir = self._setup(tmp_path, monkeypatch)
+        assert sa.handle_server_restore(version_cfg, dict(args)).status == "ok"
+        assert created["allow_psql_meta"] is False
+        assert sa.handle_server_restore(version_cfg, {**args, "allow_psql_meta": True}).status == "ok"
+        assert created["allow_psql_meta"] is True
 
     def test_space_is_checked_in_the_directory_chosen(self, version_cfg, tmp_path, monkeypatch):
         args, _events, _created, data_dir = self._setup(tmp_path, monkeypatch)
@@ -1225,6 +1233,33 @@ def fake_rpc(monkeypatch):
 _RPC_CONFIG = {"host": "https://test.example.com", "db": "production", "user": "admin", "password": "pw"}
 
 
+class TestRpcPlaintextGuard:
+    def _call(self, version_cfg, **rpc):
+        config = {"db": "production", "user": "admin", "password": "pw", **rpc}
+        args = {"model": "res.users", "method": "search_count", "_rpc_config": config}
+        return sa.handle_rpc_execute(version_cfg, args)
+
+    @pytest.mark.parametrize("host", ["http://erp.example.com", "erp.example.com"])
+    def test_plaintext_to_remote_host_is_refused(self, version_cfg, fake_rpc, host):
+        result = self._call(version_cfg, host=host)
+        assert result.status == "error"
+        assert "plaintext" in result.message
+        assert "allow_insecure_remote" in result.message
+        assert fake_rpc.instances == []
+
+    def test_opt_out_allows_plaintext(self, version_cfg, fake_rpc):
+        result = self._call(version_cfg, host="http://erp.example.com", allow_insecure_remote=True)
+        assert result.status == "ok", result.message
+        assert fake_rpc.instances[0].protocol == "jsonrpc"
+
+    @pytest.mark.parametrize("host", ["localhost", "http://127.0.0.1", "::1"])
+    def test_loopback_may_use_plaintext(self, version_cfg, fake_rpc, host):
+        assert self._call(version_cfg, host=host).status == "ok"
+
+    def test_explicit_ssl_protocol_is_fine(self, version_cfg, fake_rpc):
+        assert self._call(version_cfg, host="erp.example.com", protocol="jsonrpc+ssl").status == "ok"
+
+
 class TestRpcExecute:
     def test_direct_method_call(self, version_cfg, fake_rpc):
         args = {
@@ -1296,7 +1331,7 @@ class TestRpcExecute:
         args = {
             "model": "res.users",
             "method": "search_count",
-            "_rpc_config": {**_RPC_CONFIG, "host": "http://10.0.0.5", "port": "8069"},
+            "_rpc_config": {**_RPC_CONFIG, "host": "http://10.0.0.5", "port": "8069", "allow_insecure_remote": True},
         }
         result = sa.handle_rpc_execute(version_cfg, args)
         assert result.status == "ok"

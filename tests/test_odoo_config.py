@@ -219,3 +219,20 @@ class TestAddonsPathReplacement:
         first = _generate(template, out_dir)
         second = _generate(Path(first), out_dir)
         assert _addons_paths(second) == _addons_paths(first)
+
+
+@pytest.mark.parametrize("secret", [r"pa\1ss", r"x\g<0>y", r"back\\slash\n", r"\g<bad"])
+def test_backslashes_in_passwords_are_written_literally(template: Path, out_dir: Path, secret: str) -> None:
+    out = create_odoo_config(
+        template_path=str(template),
+        config_dir=str(out_dir),
+        all_paths={},
+        repo_metadata={},
+        db_user="us\\1er",
+        db_password=secret,
+        admin_passwd=secret,
+    )
+    assert out is not None
+    assert _read_field(out, "db_password") == secret
+    assert _read_field(out, "admin_passwd") == secret
+    assert _read_field(out, "db_user") == "us\\1er"

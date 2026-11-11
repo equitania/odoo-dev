@@ -200,7 +200,7 @@ def create_odoo_config(
     # above debug level.
     content = re.sub(
         r"^addons_path[ \t]*=[^\n]*\n(?:[ \t]+[^\n]*\n)*",
-        f"addons_path =\n{addons_path}\n",
+        lambda _m: f"addons_path =\n{addons_path}\n",
         content,
         count=1,
         flags=re.MULTILINE,
@@ -213,23 +213,23 @@ def create_odoo_config(
     # Native mode: replace database config
     if config_mode == "native":
         content = content.replace("$HOME", home)
-        content = re.sub(r"db_host\s*=\s*dev-db-\d+", f"db_host = {native_db_host}", content)
-        content = re.sub(r"db_host\s*=\s*dev-db", f"db_host = {native_db_host}", content)
-        content = re.sub(r"db_port\s*=\s*\S+", f"db_port = {native_db_port}", content)
+        content = re.sub(r"db_host\s*=\s*dev-db-\d+", lambda _m: f"db_host = {native_db_host}", content)
+        content = re.sub(r"db_host\s*=\s*dev-db", lambda _m: f"db_host = {native_db_host}", content)
+        content = re.sub(r"db_port\s*=\s*\S+", lambda _m: f"db_port = {native_db_port}", content)
 
     # Replace database credentials if provided
     if db_user:
-        content = re.sub(r"db_user\s*=\s*\S+", f"db_user = {db_user}", content)
+        content = re.sub(r"db_user\s*=\s*\S+", lambda _m: f"db_user = {db_user}", content)
     if db_password:
-        content = re.sub(r"db_password\s*=\s*\S+", f"db_password = {db_password}", content)
+        content = re.sub(r"db_password\s*=\s*\S+", lambda _m: f"db_password = {db_password}", content)
     if admin_passwd:
-        content = re.sub(r"admin_passwd\s*=\s*\S+", f"admin_passwd = {admin_passwd}", content)
+        content = re.sub(r"admin_passwd\s*=\s*\S+", lambda _m: f"admin_passwd = {admin_passwd}", content)
 
     # Replace Odoo runtime ports if provided (overrides template defaults from .env)
     if http_port is not None:
-        content = re.sub(r"http_port\s*=\s*\S+", f"http_port = {http_port}", content)
+        content = re.sub(r"http_port\s*=\s*\S+", lambda _m: f"http_port = {http_port}", content)
     if gevent_port is not None:
-        content = re.sub(r"gevent_port\s*=\s*\S+", f"gevent_port = {gevent_port}", content)
+        content = re.sub(r"gevent_port\s*=\s*\S+", lambda _m: f"gevent_port = {gevent_port}", content)
 
     # Save generated config
     os.makedirs(config_dir, exist_ok=True)

@@ -16,6 +16,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import IO, TYPE_CHECKING, Any
 
+from odoodev.core.dump_check import find_psql_meta_command
+
 if TYPE_CHECKING:
     from faker import Faker
 
@@ -430,19 +432,42 @@ def create_database(
         return False
 
 
+def find_escaping_symlink(extract_path: str) -> str | None:
+    """First symlink below ``extract_path`` whose target lies outside it, else None.
+
+    The zip/tar branches validate members up front; the 7z tool extracts on its
+    own, so its result is checked afterwards. Links are never followed.
+    """
+    root = os.path.realpath(extract_path)
+    for current, dirs, files in os.walk(extract_path, followlinks=False):
+        for name in dirs + files:
+            entry = os.path.join(current, name)
+            if not os.path.islink(entry):
+                continue
+            target = os.path.realpath(entry)
+            if target != root and not target.startswith(root + os.sep):
+                return entry
+    return None
+
+
 def restore_database(
     db_name: str,
     sql_file: str,
     host: str = DEFAULT_DB_HOST,
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
+    allow_psql_meta: bool = False,
 ) -> bool:
     """Restore a database from SQL file.
 
     The dump is piped via stdin (not ``-f``) so the file path never has to
     exist inside the container when the exec fallback is active.
+    ``allow_psql_meta`` disables the psql meta-command check, see
+    :func:`restore_database_report`.
     """
-    ok, _errors = restore_database_report(db_name, sql_file, host=host, port=port, user=user)
+    ok, _errors = restore_database_report(
+        db_name, sql_file, host=host, port=port, user=user, allow_psql_meta=allow_psql_meta
+    )
     return ok
 
 
@@ -462,8 +487,15 @@ def restore_database_report(
     host: str = DEFAULT_DB_HOST,
     port: int = 18432,
     user: str = DEFAULT_DB_USER,
+    allow_psql_meta: bool = False,
 ) -> tuple[bool, list[str]]:
     """Restore a dump and say what psql complained about.
+
+    Before psql starts, the dump is scanned for psql backslash meta-commands
+    (``\\!``, ``\\o |cmd``, ``\\copy ... program`` ...) that a hostile backup could use
+    to run commands as the restoring user; only what pg_dump itself writes
+    (``\\connect``, ``\\restrict``, ``\\unrestrict``) passes. A dump that fails the
+    check is not restored. ``allow_psql_meta=True`` skips the check.
 
     Returns ``(ok, error_lines)``. ``ok`` is False when psql itself failed or
     when one of the errors means the data cannot be complete (disk full, lost
@@ -471,9 +503,24 @@ def restore_database_report(
     are returned for the caller to report — psql exits 0 on them, so without
     this they are never seen.
     """
+    if not allow_psql_meta:
+        try:
+            offending = find_psql_meta_command(sql_file)
+        except OSError as e:
+            logger.error("Failed to read %s: %s", sql_file, e)
+            return False, [str(e)]
+        if offending:
+            line_no, word = offending
+            message = (
+                f"Refusing to restore: the dump contains the psql command '\\{word}' at line {line_no}. "
+                f"A backup must only hold SQL; pass --allow-psql-meta (playbook: allow_psql_meta: true) "
+                f"only for a backup you trust"
+            )
+            logger.error(message)
+            return False, [message]
     try:
         mode = resolve_pg_exec_mode(port)
-        cmd = _pg_base_cmd("psql", mode, user, host, port) + ["-d", db_name]
+        cmd = _pg_base_cmd("psql", mode, user, host, port) + ["--no-psqlrc", "-d", db_name]
         with open(sql_file, "rb") as infile:
             result = subprocess.run(
                 cmd, check=True, stdin=infile, capture_output=True, text=True, env=_pg_exec_env(mode, host, port)
@@ -780,6 +827,10 @@ def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
                         text=True,
                     )
                     if result.returncode == 0:
+                        escaped = find_escaping_symlink(extract_path)
+                        if escaped:
+                            logger.error("7z archive rejected: %s points outside the extraction directory", escaped)
+                            return False
                         return True
             logger.error(
                 "7z not found. Install one of: brew install 7zip (macOS), "

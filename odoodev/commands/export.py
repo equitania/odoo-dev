@@ -1,9 +1,11 @@
-"""odoodev export - Export data from a running Odoo instance via XML-RPC.
+"""odoodev export - Export data from an Odoo database.
 
 The ``export modules`` subcommand produces the Releasemanager-compatible
-module CSV. It shares its core (``core/xmlrpc_client.py`` +
-``core/module_export.py``) with the TUI's ``x`` export dialog, so the GUI
-can shell out to this command instead of reimplementing the RPC logic.
+module CSV. By default it reads the modules through ``odoo-bin shell`` as
+superuser (no Odoo login, server need not run) — the same path as the TUI's
+``x`` export dialog. The XML-RPC path (``core/xmlrpc_client.py``) remains for
+an Odoo that is not this machine's checkout: it is used when a login or host
+is given explicitly, or when no local ``odoo-bin`` environment exists.
 """
 
 from __future__ import annotations
@@ -64,10 +66,12 @@ def _resolve_database(database: str | None, db_port: int, non_interactive: bool)
 
 @click.group()
 def export() -> None:
-    """Export data from a running Odoo instance (XML-RPC).
+    """Export data from an Odoo database.
 
-    The instance must be up — start it first with 'odoodev start VERSION'.
-    Credentials are resolved from --user/--password, the environment
+    Reads through 'odoo-bin shell' as superuser by default — no Odoo login,
+    and the server need not be running. Pass --via-rpc (or --user, --password,
+    --host, --port) to talk XML-RPC to a running instance instead; its
+    credentials come from --user/--password, the environment
     (ODOODEV_ODOO_USER / ODOODEV_ODOO_PASSWORD), or the stored config
     ('odoodev config set odoo_login.username / odoo_login.password').
 
@@ -76,6 +80,7 @@ def export() -> None:
         odoodev export modules 18                      # interactive DB picker
         odoodev export modules 18 -d v18_exam --scope installed
         odoodev export modules 18 -d v18_exam --json   # machine-readable (GUI)
+        odoodev export modules 18 -d v18_exam --host erp.example.com --port 443  # remote, XML-RPC
 
     Full documentation: usage/export.md or 'odoodev capability-card'.
     """
@@ -84,8 +89,10 @@ def export() -> None:
 @export.command("modules")
 @click.argument("version", required=False)
 @click.option("-d", "--database", default=None, help="Target Odoo database (interactive picker when omitted)")
-@click.option("--user", default=None, help=f"Odoo login (fallback: ${ENV_USER}, stored config, admin)")
-@click.option("--password", default=None, help=f"Odoo password (fallback: ${ENV_PASSWORD}, stored config, admin)")
+@click.option("--user", default=None, help=f"Odoo login for XML-RPC (fallback: ${ENV_USER}, stored config, admin)")
+@click.option(
+    "--password", default=None, help=f"Odoo password for XML-RPC (fallback: ${ENV_PASSWORD}, stored config, admin)"
+)
 @click.option(
     "--scope",
     type=click.Choice(sorted(_SCOPE_MAP)),
@@ -105,10 +112,20 @@ def export() -> None:
 @click.option(
     "--via-shell",
     is_flag=True,
-    help="Read the modules via 'odoo-bin shell' as superuser — no Odoo login needed (e.g. demo DBs without admin)",
+    help="Force 'odoo-bin shell' (the default path; fails instead of falling back to XML-RPC)",
 )
-@click.option("--host", default="localhost", show_default=True, help="Odoo XML-RPC host")
-@click.option("--port", type=int, default=None, help="Odoo HTTP port (default: the version's effective ODOO_PORT)")
+@click.option(
+    "--via-rpc",
+    is_flag=True,
+    help="Use XML-RPC against a RUNNING Odoo with an Odoo login (implied by --user, --password, --host, --port)",
+)
+@click.option("--host", default=None, help="Odoo XML-RPC host (default: localhost) — selects the XML-RPC path")
+@click.option(
+    "--port",
+    type=int,
+    default=None,
+    help="Odoo HTTP port (default: the version's effective ODOO_PORT) — selects the XML-RPC path",
+)
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable JSON result on stdout (implies --yes)")
 @click.option("--yes", "-y", is_flag=True, help="Non-interactive — never prompt")
 @click.pass_context
@@ -123,15 +140,17 @@ def export_modules(
     cleanup: bool,
     output_path: str | None,
     via_shell: bool,
-    host: str,
+    via_rpc: bool,
+    host: str | None,
     port: int | None,
     as_json: bool,
     yes: bool,
 ) -> None:
     """Export the module list as Releasemanager-compatible CSV.
 
-    Talks XML-RPC to a RUNNING Odoo instance (start it first). Shares its
-    logic with the TUI export ('x' key), so results are identical.
+    Reads the modules through 'odoo-bin shell' as superuser: no Odoo login is
+    needed and the server need not be running. Same path as the TUI export
+    ('x' key), so results are identical.
     Default output: ~/Downloads/modules_<db>_<scope>_<timestamp>.csv
     (header: .id,name,installed_version,display_name).
 
@@ -142,18 +161,20 @@ def export_modules(
         odoodev export modules 18 -d v18_exam --cleanup --update-list
         odoodev export modules 18 -d v18_exam --output /tmp/modules.csv
         odoodev export modules 18 -d v18_exam --json    # for GUIs/agents
-        odoodev export modules 19 -d v19_demo --via-shell  # no Odoo login
+        odoodev export modules 18 -d v18_exam --via-rpc --user admin  # XML-RPC
 
     \b
-    Credential precedence:
+    XML-RPC instead of the shell (needs a RUNNING Odoo and an Odoo login):
+    selected by --via-rpc or by any of --user, --password, --host, --port, and
+    used automatically when this machine has no odoo-bin environment for the
+    version. --via-shell forces the shell and never falls back.
+
+    \b
+    Credential precedence (XML-RPC only):
         1. --user / --password
         2. $ODOODEV_ODOO_USER / $ODOODEV_ODOO_PASSWORD
         3. odoodev config set odoo_login.username / odoo_login.password
         4. admin/admin (dev default)
-
-    \b
-    --via-shell skips XML-RPC and the login entirely: the module list is read
-    through 'odoo-bin shell' as superuser. The server need not be running.
 
     With --json a single-line result object is printed:
     {"version", "database", "scope", "path", "count", "updated", "cleaned"} —
@@ -177,14 +198,31 @@ def export_modules(
     scope_key = _SCOPE_MAP[scope]
     installed_only, exclude_enterprise = EXPORT_SCOPES[scope_key]
 
-    if via_shell:
+    rpc_requested = via_rpc or any(value is not None for value in (user, password, host, port))
+    if via_shell and via_rpc:
+        raise click.UsageError("--via-shell and --via-rpc exclude each other")
+
+    inv = None
+    if via_shell or not rpc_requested:
+        from odoodev.commands.db import _load_env_vars
+        from odoodev.commands.start import resolve_odoo_invocation
+
+        inv = resolve_odoo_invocation(version_cfg, _load_env_vars(version_cfg))
+        if inv is None and via_shell:
+            print_error(f"odoo-bin shell not available for v{version} (venv, odoo-bin or generated config missing)")
+            print_info(f"Set up the environment first: odoodev init {version}")
+            raise SystemExit(1)
+        if inv is None and not as_json:
+            print_info(f"No odoo-bin environment for v{version} on this machine — using XML-RPC with the Odoo login")
+
+    if inv is not None:
         records, cleaned, updated = _list_modules_via_shell(
-            version_cfg, version, database, installed_only, exclude_enterprise, cleanup, update_list, as_json
+            inv, database, installed_only, exclude_enterprise, cleanup, update_list, as_json
         )
     else:
         records, cleaned, updated = _list_modules_via_xmlrpc(
             version,
-            host,
+            host or "localhost",
             odoo_port,
             database,
             user,
@@ -272,15 +310,14 @@ def _list_modules_via_xmlrpc(
     except (ConnectionError, ValueError, OSError) as e:
         print_error(f"Module export failed: {e}")
         print_info(f"Is Odoo v{version} running? Start it with: odoodev start {version}")
-        print_info("No usable Odoo login (e.g. a demo DB without admin)? Retry with --via-shell")
+        print_info("No usable Odoo login? Without --via-rpc/--user/--host the export needs none (odoo-bin shell)")
         raise SystemExit(1) from e
 
     return records, cleaned, updated
 
 
 def _list_modules_via_shell(
-    version_cfg,
-    version: str,
+    inv: dict,
     database: str,
     installed_only: bool,
     exclude_enterprise: bool,
@@ -289,15 +326,8 @@ def _list_modules_via_shell(
     as_json: bool,
 ) -> tuple[list[dict[str, object]], int | None, int | None]:
     """Fetch the module list via ``odoo-bin shell`` (superuser, no login); returns (records, cleaned, updated)."""
-    from odoodev.commands.db import _load_env_vars
-    from odoodev.commands.start import resolve_odoo_invocation
     from odoodev.core.database import run_module_export_shell
 
-    inv = resolve_odoo_invocation(version_cfg, _load_env_vars(version_cfg))
-    if inv is None:
-        print_error(f"odoo-bin shell not available for v{version} (venv, odoo-bin or generated config missing)")
-        print_info(f"Set up the environment first: odoodev init {version}")
-        raise SystemExit(1)
     if not as_json:
         print_info(f"Reading modules via odoo-bin shell (db: {database})...")
     try:

@@ -128,7 +128,13 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
    eingespielt fehlen die KI-Tabellen, und `ai` muss in der Kopie deinstalliert werden. Interaktiv
    fragt odoodev nach (Standard Nein); `-y` überspringt diese Frage **nicht** — dafür gibt es
    `--without-pgvector`.
-3. SQL-Dump wird in neue Datenbank eingespielt
+3. SQL-Dump wird in neue Datenbank eingespielt. **Dump-Pruefung (seit v0.77.0):** Vorher wird der
+   Dump auf psql-Backslash-Befehle (`\!`, `\o |cmd`, `\copy`, `\i` …) durchsucht, die psql auf
+   deinem Rechner ausfuehren wuerde. Akzeptiert wird nur, was pg_dump selbst schreibt (`\connect`,
+   `\restrict`, `\unrestrict` und COPY-Bloecke in der einzeiligen Form `COPY … FROM stdin;`).
+   Alles andere wird mit Zeilennummer abgelehnt, bevor psql startet. Fuer ein vertrauenswuerdiges
+   Backup: `--allow-psql-meta`. Dumps von pg_dump/odoodev sind nicht betroffen. psql laeuft mit
+   `--no-psqlrc`.
 4. Filestore wird nach `~/odoo-share/filestore/{db_name}/` **verschoben** (`shutil.move` —
    Rename auf demselben Dateisystem = instant, keine doppelte Datenhaltung). Mit `--keep-temp`
    wird stattdessen kopiert, damit das entpackte Temp-Verzeichnis zum Debuggen erhalten bleibt.
@@ -579,7 +585,12 @@ During `odoodev db restore`, the filestore is managed automatically:
    names the way out: `PGVECTOR=true` in the `.env`, then `odoodev docker up`. Restored without
    pgvector, the AI tables are missing and `ai` has to be uninstalled in the copy. Interactively
    odoodev asks (default no); `-y` does **not** skip this question — use `--without-pgvector`.
-3. SQL dump is imported into new database
+3. SQL dump is imported into new database. **Dump check (since v0.77.0):** beforehand the dump is
+   scanned for psql backslash commands (`\!`, `\o |cmd`, `\copy`, `\i` …), which psql would
+   execute on your machine. Only what pg_dump itself writes is accepted (`\connect`, `\restrict`,
+   `\unrestrict` and COPY blocks in the one-line `COPY … FROM stdin;` form). Anything else is
+   refused with the line number before psql starts. For a backup you trust: `--allow-psql-meta`.
+   Dumps created by pg_dump/odoodev are not affected. psql runs with `--no-psqlrc`.
 4. Filestore is **moved** to `~/odoo-share/filestore/{db_name}/` (`shutil.move` — a rename on the
    same filesystem is instant and avoids double storage). With `--keep-temp` it is copied instead,
    so the extracted temp directory stays intact for debugging.

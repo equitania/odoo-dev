@@ -15,4 +15,3 @@ repos:
         files: ^odoodev/.*\.py$
         additional_dependencies:
           - types-PyYAML>=6.0.0
-          - types-click>=7.1.0

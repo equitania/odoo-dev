@@ -8,11 +8,12 @@
 
 ### Ueberblick
 
-`odoodev export modules` exportiert die Modulliste einer **laufenden**
+`odoodev export modules` exportiert die Modulliste einer
 Odoo-Instanz als Releasemanager-kompatible CSV (`.id,name,installed_version,display_name`).
-Der Befehl teilt sich seinen Kern (`core/xmlrpc_client.py` + `core/module_export.py`)
+Standardweg ist seit 0.77.0 `odoo-bin shell` als Superuser: kein Odoo-Login noetig, der
+Server muss nicht laufen. Der Befehl teilt sich seinen Kern (`core/module_export.py`)
 mit dem TUI-Export (`x`-Taste) — Ergebnisse sind identisch, und GUIs koennen den
-Befehl direkt aufrufen statt die RPC-Logik nachzubauen.
+Befehl direkt aufrufen statt die Logik nachzubauen.
 
 ### Verwendung
 
@@ -32,8 +33,11 @@ odoodev export modules 18 -d v18_exam --output /tmp/module_liste.csv
 # Maschinenlesbar fuer GUIs/Agenten (impliziert --yes)
 odoodev export modules 18 -d v18_exam --json
 
-# Ohne Odoo-Login (Demo-Datenbank ohne Admin): ueber odoo-bin shell
+# Shell erzwingen (kein Fallback auf XML-RPC)
 odoodev export modules 19 -d v19_demo --via-shell
+
+# XML-RPC gegen einen LAUFENDEN Odoo (Odoo-Login noetig)
+odoodev export modules 18 -d v18_exam --via-rpc --user admin
 ```
 
 ### Scopes
@@ -46,9 +50,22 @@ odoodev export modules 19 -d v19_demo --via-shell
 
 `test_*`- und `*hw_*`-Module werden immer herausgefiltert; `theme_*` bleibt erhalten.
 
-### Zugangsdaten
+### Weg des Exports: Shell (Standard) oder XML-RPC
 
-Der Export authentifiziert sich per XML-RPC als Odoo-Benutzer (res.users).
+**Standard: `odoo-bin shell`.** Der Export liest die Module als Superuser ueber
+`odoo-bin shell` — kein Odoo-Login, keine Zugangsdaten, der Server muss nicht laufen
+(darf aber; die Shell startet mit `--no-http`). Voraussetzung: venv, `odoo-bin` und
+eine generierte `odoo_*.conf` der Version. `--cleanup`/`--update-list` und `--json`
+verhalten sich auf beiden Wegen gleich.
+
+**XML-RPC** gegen einen laufenden Odoo wird nur genutzt, wenn du es verlangst:
+mit `--via-rpc` oder implizit durch eines von `--user`, `--password`, `--host`,
+`--port` — sowie automatisch (mit Hinweis), wenn der Rechner fuer die Version keine
+odoo-bin-Umgebung hat. `--via-shell` erzwingt die Shell und faellt nie zurueck;
+`--via-shell` zusammen mit `--via-rpc` ist ein Aufruffehler. `--host` hat keinen
+angezeigten Default (bei XML-RPC gilt `localhost`).
+
+Zugangsdaten gelten **nur fuer den XML-RPC-Weg** (Odoo-Benutzer, res.users).
 Praezedenz der Quellen:
 
 1. CLI-Flags `--user` / `--password`
@@ -56,15 +73,10 @@ Praezedenz der Quellen:
 3. Gespeicherte globale Konfiguration: `odoodev config set odoo_login.username` / `odoo_login.password`
 4. Fallback `admin`/`admin` (Dev-Konvention)
 
-### Ohne Login: `--via-shell`
-
-Hat die Datenbank keinen nutzbaren Admin-Login (z. B. Demo-Datenbanken, absichtlich),
-liest `--via-shell` die Module ueber `odoo-bin shell` als Superuser — kein XML-RPC,
-keine Zugangsdaten. Der Server muss dafuer nicht laufen, darf es aber (die Shell
-startet mit `--no-http`). Voraussetzung: venv, `odoo-bin` und eine generierte
-`odoo_*.conf` der Version. `--cleanup`/`--update-list` und `--json` verhalten sich
-gleich. Im TUI-Exportdialog (`x`) entspricht das der Checkbox
-„Über odoo-bin shell (ohne Odoo-Login)“.
+Im TUI-Exportdialog (`x`) gibt es keinen Login: er fragt nur Datenbank, Umfang
+(alle / alle ohne Enterprise / nur installierte) und die beiden Optionen „Apps-Liste
+vor dem Export aktualisieren“ und „Nicht installierte Module vor dem Export entfernen“
+ab und laeuft immer ueber `odoo-bin shell`.
 
 ### Vorbereitende Schritte
 
@@ -84,13 +96,14 @@ Einzeiliges JSON-Objekt auf stdout:
 
 - `updated`/`cleaned` sind `null`, wenn `--update-list`/`--cleanup` nicht gesetzt waren, sonst Zaehler
 - Leere Modulliste ist KEIN Fehler: `count: 0`, `path: null`, Exit-Code 0
-- Verbindungs-/Auth-Fehler: Meldung auf stderr, Exit-Code 1
+- Fehler (Verbindung/Auth bei XML-RPC, Shell-Fehler): Meldung auf stderr, Exit-Code 1
 
 ### Voraussetzungen
 
-Die Odoo-Instanz muss laufen (`odoodev start <version>`). Der Port wird aus den
-effektiven Ports der Version aufgeloest (`.env`-`ODOO_PORT` gewinnt ueber den
-Registry-Default); `--port` uebersteuert.
+Shell-Weg (Standard): venv, `odoo-bin` und eine generierte `odoo_*.conf` der Version;
+der Server muss nicht laufen. XML-RPC-Weg: die Odoo-Instanz muss laufen
+(`odoodev start <version>`); der Port wird aus den effektiven Ports der Version
+aufgeloest (`.env`-`ODOO_PORT` gewinnt ueber den Registry-Default); `--port` uebersteuert.
 
 ---
 
@@ -98,11 +111,12 @@ Registry-Default); `--port` uebersteuert.
 
 ### Overview
 
-`odoodev export modules` exports the module list of a **running** Odoo instance
+`odoodev export modules` exports the module list of an Odoo instance
 as a Releasemanager-compatible CSV (`.id,name,installed_version,display_name`).
-The command shares its core (`core/xmlrpc_client.py` + `core/module_export.py`)
+Since 0.77.0 the default path is `odoo-bin shell` as superuser: no Odoo login needed,
+the server need not be running. The command shares its core (`core/module_export.py`)
 with the TUI export (`x` key) — results are identical, and GUIs can shell out to
-this command instead of reimplementing the RPC logic.
+this command instead of reimplementing the logic.
 
 ### Usage
 
@@ -122,8 +136,11 @@ odoodev export modules 18 -d v18_exam --output /tmp/module_list.csv
 # Machine-readable for GUIs/agents (implies --yes)
 odoodev export modules 18 -d v18_exam --json
 
-# Without an Odoo login (demo database without admin): via odoo-bin shell
+# Force the shell (never falls back to XML-RPC)
 odoodev export modules 19 -d v19_demo --via-shell
+
+# XML-RPC against a RUNNING Odoo (needs an Odoo login)
+odoodev export modules 18 -d v18_exam --via-rpc --user admin
 ```
 
 ### Scopes
@@ -136,24 +153,32 @@ odoodev export modules 19 -d v19_demo --via-shell
 
 `test_*` and `*hw_*` modules are always filtered out; `theme_*` is kept.
 
-### Credentials
+### Export path: shell (default) or XML-RPC
 
-The export authenticates via XML-RPC as an Odoo user (res.users).
-Source precedence:
+**Default: `odoo-bin shell`.** The export reads the modules as superuser through
+`odoo-bin shell` — no Odoo login, no credentials, the server need not run (but may;
+the shell starts with `--no-http`). Requires the version's venv, `odoo-bin` and a
+generated `odoo_*.conf`. `--cleanup`/`--update-list` and `--json` behave the same on
+both paths.
+
+**XML-RPC** against a running Odoo is used only when you ask for it: with `--via-rpc`,
+or implied by any of `--user`, `--password`, `--host`, `--port` — and automatically
+(with a notice) when the machine has no odoo-bin environment for the version.
+`--via-shell` forces the shell and never falls back; `--via-shell` together with
+`--via-rpc` is a usage error. `--host` has no shown default (`localhost` when
+XML-RPC is used).
+
+Credentials apply to the **XML-RPC path only** (Odoo user, res.users). Source precedence:
 
 1. CLI flags `--user` / `--password`
 2. Environment variables `ODOODEV_ODOO_USER` / `ODOODEV_ODOO_PASSWORD`
 3. Stored global configuration: `odoodev config set odoo_login.username` / `odoo_login.password`
 4. Fallback `admin`/`admin` (dev convention)
 
-### Without a login: `--via-shell`
-
-If the database has no usable admin login (e.g. demo databases, on purpose),
-`--via-shell` reads the modules through `odoo-bin shell` as superuser — no XML-RPC,
-no credentials. The server need not run, but may (the shell starts with
-`--no-http`). Requires the version's venv, `odoo-bin` and a generated `odoo_*.conf`.
-`--cleanup`/`--update-list` and `--json` behave the same. In the TUI export dialog
-(`x`) this is the checkbox "Via odoo-bin shell (no Odoo login needed)".
+The TUI export dialog (`x`) has no login: it asks only for the database, the scope
+(all / all without Enterprise / installed only) and the two options "Update apps list
+before export" and "Remove non-installed modules before export", and always runs
+through `odoo-bin shell`.
 
 ### Pre-export steps
 
@@ -173,10 +198,11 @@ Single-line JSON object on stdout:
 
 - `updated`/`cleaned` are `null` unless `--update-list`/`--cleanup` were passed, counters otherwise
 - An empty module list is NOT an error: `count: 0`, `path: null`, exit code 0
-- Connection/auth errors: message on stderr, exit code 1
+- Errors (connection/auth on XML-RPC, shell failures): message on stderr, exit code 1
 
 ### Prerequisites
 
-The Odoo instance must be running (`odoodev start <version>`). The port is
-resolved from the version's effective ports (`.env` `ODOO_PORT` wins over the
-registry default); `--port` overrides.
+Shell path (default): the version's venv, `odoo-bin` and a generated `odoo_*.conf`;
+the server need not run. XML-RPC path: the Odoo instance must be running
+(`odoodev start <version>`); the port is resolved from the version's effective ports
+(`.env` `ODOO_PORT` wins over the registry default); `--port` overrides.

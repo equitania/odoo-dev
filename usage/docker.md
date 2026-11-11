@@ -78,6 +78,19 @@ Die Ports sind versionsspezifisch und vermeiden Konflikte bei paralleler Entwick
 | v19 | 19432 | 19025 | 1925 |
 | v20 | 20432 | 20025 | 2025 |
 
+### Netzwerk-Bindung und Passwort (seit v0.77.0)
+
+Der PostgreSQL-Port wird nur auf `127.0.0.1` veroeffentlicht (vorher: alle Netzwerkschnittstellen) —
+bei Apple Container ebenso wie in der generierten `docker-compose.yml`. Zurueck zum alten Verhalten:
+`DB_BIND=0.0.0.0` in der `.env` der Version. Bestehende Container behalten ihre Bindung, bis sie neu
+angelegt werden (Container entfernen, dann `odoodev docker up`; das Datenvolumen bleibt unberuehrt);
+eine vorhandene `docker-compose.yml` behaelt die alte Zeile bis zur Neuerzeugung.
+
+Das PostgreSQL-Passwort steht nicht mehr in der Kommandozeile der Container-Runtime (in `ps`
+sichtbar), sondern wird ueber die Umgebung uebergeben. `odoodev docker up` verweigert das
+Platzhalter-Passwort `CHANGE_AT_FIRST` (wie `odoodev start`); in einer nicht interaktiven Shell endet
+es dann mit Exit-Code 1. Nur fuer Entwicklung/CI: `--allow-default-credentials`.
+
 ### docker-compose.yml
 
 Die `docker-compose.yml` wird von `odoodev init` aus einem Jinja2-Template generiert. Sie liegt unter `vXX-dev/devXX_native/docker-compose.yml`.
@@ -159,6 +172,19 @@ Ports are version-specific to avoid conflicts during parallel development:
 | v18 | 18432 | 18025 | 1025 |
 | v19 | 19432 | 19025 | 1925 |
 | v20 | 20432 | 20025 | 2025 |
+
+### Network binding and password (since v0.77.0)
+
+The PostgreSQL port is published on `127.0.0.1` only (was: all network interfaces) — for Apple
+Container as well as in the generated `docker-compose.yml`. To get the old behaviour back, set
+`DB_BIND=0.0.0.0` in the version's `.env`. Existing containers keep their old binding until they are
+created again (remove the container, then `odoodev docker up`; the data volume is not touched); an
+existing `docker-compose.yml` keeps the old line until regenerated.
+
+The PostgreSQL password is no longer passed on the container runtime's command line (visible in
+`ps`); it is handed over through the environment. `odoodev docker up` refuses the placeholder password
+`CHANGE_AT_FIRST` (like `odoodev start`); in a non-interactive shell it then exits 1. For development/CI
+only: `--allow-default-credentials`.
 
 ### docker-compose.yml
 

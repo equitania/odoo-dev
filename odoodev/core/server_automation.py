@@ -30,6 +30,7 @@ from typing import Any
 from odoodev.core.automation import _step_error, _step_ok, _timed
 from odoodev.core.playbook import StepResult
 from odoodev.core.version_registry import VersionConfig
+from odoodev.core.xmlrpc_client import _LOCAL_HOSTS
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +765,9 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
             if not create_database(staging_db, template=template, **conn):
                 return _step_error(command, command, f"Creating '{staging_db}' (TEMPLATE {template}) failed", 0)
             untouched = f"'{db_name}' is unchanged" if target_exists else "nothing was created"
-            restored, sql_errors = restore_database_report(staging_db, sql_file, **conn)
+            restored, sql_errors = restore_database_report(
+                staging_db, sql_file, allow_psql_meta=_as_bool(args.get("allow_psql_meta"), default=False), **conn
+            )
             if not restored:
                 drop_database(staging_db, **conn)
                 detail = f": {sql_errors[0][:300]}" if sql_errors else ""
@@ -1333,6 +1336,16 @@ def _connect_rpc(rpc_config: dict[str, Any]) -> Any:
         host = host[len("http://") :]
     host = host.rstrip("/")
     protocol = protocol or "jsonrpc"
+
+    # Same rule as OdooXmlRpcClient: never log in over plaintext to a remote host.
+    if host not in _LOCAL_HOSTS and not protocol.endswith("+ssl"):
+        if not _as_bool(rpc_config.get("allow_insecure_remote"), default=False):
+            raise ValueError(
+                f"rpc.execute: refusing plaintext {protocol} to remote host {host!r} — the login would travel "
+                f"unencrypted. Use an https:// URL (or protocol 'jsonrpc+ssl'), or set "
+                f"'allow_insecure_remote: true' in the playbook's rpc: section (trusted LAN only)."
+            )
+        logger.warning("rpc.execute: plaintext %s to %s - credentials are not encrypted", protocol, host)
 
     default_port = 443 if protocol == "jsonrpc+ssl" else 8069
     port = int(rpc_config.get("port") or default_port)

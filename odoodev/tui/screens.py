@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, LoadingIndicator, OptionList, RadioButton, RadioSet, Static
 from textual.widgets.option_list import Option
@@ -110,11 +110,12 @@ class ModuleUpdateScreen(ModalScreen[str | None]):
             else:
                 # Fallback to restart
                 self._restart_with_update(modules)
-        except Exception:
-            # XML-RPC failed — fallback to restart
+        except Exception as e:
+            # XML-RPC failed (wrong stored login, server not ready) — say so, then restart instead
             import logging
 
             logging.getLogger(__name__).debug("XML-RPC update failed, falling back to restart", exc_info=True)
+            self.app.notify(t("tui.update_rpc_fallback", error=str(e)), severity="warning")
             self._restart_with_update(modules)
 
 
@@ -209,29 +210,21 @@ class ExportModulesChoice:
     """User selection from the export dialog.
 
     ``scope`` is one of the ``EXPORT_SCOPES`` keys ('all', 'all_no_enterprise',
-    'installed'); ``username``/``password`` are the Odoo res.users login for
-    the XML-RPC calls; ``remember_credentials`` persists them in the global
-    config after a successful export. ``via_shell`` bypasses XML-RPC and reads
-    the modules through ``odoo-bin shell`` as superuser — for databases
-    without a usable admin login; the credentials are ignored then.
+    'installed'). The export itself always runs through ``odoo-bin shell`` as
+    superuser, so the dialog asks for no Odoo login.
     """
 
     scope: str
     db_name: str
     do_update: bool
     do_cleanup: bool
-    username: str
-    password: str
-    remember_credentials: bool
-    via_shell: bool = False
 
 
 class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
     """Modal dialog to configure the Releasemanager CSV export.
 
-    Collects target database, scope, Odoo login credentials (pre-filled from
-    the global config's ``odoo_login`` section) and pre-export maintenance
-    options. Returns an :class:`ExportModulesChoice` via ``dismiss`` or
+    Collects target database, scope and pre-export maintenance options.
+    Returns an :class:`ExportModulesChoice` via ``dismiss`` or
     ``None`` on cancel.
     """
 
@@ -257,13 +250,6 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
     #export-options {
         width: 100%;
     }
-    #export-credentials {
-        height: 3;
-        width: 100%;
-    }
-    #export-username, #export-password {
-        width: 1fr;
-    }
     .button-row {
         height: 3;
         align: center middle;
@@ -287,17 +273,13 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
     def __init__(self, db_name: str = "") -> None:
         super().__init__()
         self._db_name = db_name
-        from odoodev.core.global_config import get_odoo_login_credentials
-
-        self._username, self._password = get_odoo_login_credentials()
 
     def compose(self) -> ComposeResult:
         """Build the export dialog.
 
-        Kept deliberately compact (login + password side by side, no filler
-        margins) so the button row stays visible on ~30-line terminals — a
-        taller layout clipped the Export button below the screen edge. The
-        checkboxes are compact (one line each) for the same reason.
+        Kept deliberately compact (no filler margins, one-line checkboxes) so
+        the button row stays visible on ~30-line terminals — a taller layout
+        clipped the Export button below the screen edge.
         """
         with Vertical(id="export-dialog"):
             yield Label(t("tui.export_title"))
@@ -309,14 +291,8 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
                 RadioButton(t("tui.export_opt_installed"), id="opt-installed"),
                 id="export-options",
             )
-            yield Static(f"[dim]{t('tui.export_username_label')} / {t('tui.export_password_label')}[/]")
-            with Horizontal(id="export-credentials"):
-                yield Input(value=self._username, placeholder="admin", id="export-username")
-                yield Input(value=self._password, password=True, id="export-password")
-            yield Checkbox(t("tui.export_chk_shell"), id="export-chk-shell", compact=True)
             yield Checkbox(t("tui.export_chk_update"), id="export-chk-update", compact=True)
             yield Checkbox(t("tui.export_chk_cleanup"), id="export-chk-cleanup", compact=True)
-            yield Checkbox(t("tui.export_chk_remember"), id="export-chk-remember", compact=True)
             with Vertical(classes="button-row"):
                 yield Button(t("tui.export_btn"), variant="primary", id="btn-export")
                 yield Button(t("tui.export_cancel"), variant="error", id="btn-cancel")
@@ -344,32 +320,13 @@ class ExportModulesScreen(ModalScreen["ExportModulesChoice | None"]):
         if not db_name:
             db_input.placeholder = t("tui.export_db_required")
             return
-        via_shell = self.query_one("#export-chk-shell", Checkbox).value
-        username_input = self.query_one("#export-username", Input)
-        username = username_input.value.strip()
-        if not username and not via_shell:
-            username_input.placeholder = t("tui.export_username_required")
-            return
-        password = self.query_one("#export-password", Input).value
         radio_set = self.query_one("#export-options", RadioSet)
         pressed = radio_set.pressed_button
         button_id = pressed.id if pressed is not None else "opt-all"
         scope = self._SCOPE_BY_ID.get(button_id or "opt-all", "all")
         do_update = self.query_one("#export-chk-update", Checkbox).value
         do_cleanup = self.query_one("#export-chk-cleanup", Checkbox).value
-        remember = self.query_one("#export-chk-remember", Checkbox).value and not via_shell
-        self.dismiss(
-            ExportModulesChoice(
-                scope=scope,
-                db_name=db_name,
-                do_update=do_update,
-                do_cleanup=do_cleanup,
-                username=username,
-                password=password,
-                remember_credentials=remember,
-                via_shell=via_shell,
-            )
-        )
+        self.dismiss(ExportModulesChoice(scope=scope, db_name=db_name, do_update=do_update, do_cleanup=do_cleanup))
 
 
 class ExportProgressScreen(ModalScreen[None]):
@@ -661,6 +618,7 @@ class QuickMenuScreen(ModalScreen["str | None"]):
                 ("u", "tui.menu_update", "update"),
                 ("l", "tui.menu_load_language", "load_language"),
                 ("d", "tui.menu_switch_db", "switch_db"),
+                ("p", "tui.menu_users", "manage_users"),
             ),
         ),
     )
@@ -704,14 +662,15 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("u", "Update module (-u restart or XML-RPC hot update)"),
             ("l", "Load language / reload translations"),
             ("d", "Switch database (restarts the server)"),
+            ("p", "Users & passwords: set a password, disable 2FA (Escape returns)"),
             ("q / Ctrl+Q", "Quit (stops the server)"),
         ),
     ),
     (
         "Module Maintenance",
         (
-            ("a", "Update apps list (re-scan addons path)"),
-            ("k", "Remove non-installed modules from the catalog"),
+            ("a", "Update apps list (re-scan addons path, via odoo-bin shell)"),
+            ("k", "Remove non-installed modules from the catalog (via odoo-bin shell)"),
         ),
     ),
     (
@@ -733,7 +692,7 @@ HELP_SECTIONS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             ("e", "Copy ERROR/CRITICAL lines to clipboard"),
             ("w", "Copy WARN + ERROR + CRIT lines to clipboard"),
             ("s", "Save visible log to ~/odoodev-logs/"),
-            ("x", "Export module list as CSV to ~/Downloads/ (optionally via odoo-bin shell, no login)"),
+            ("x", "Export module list as CSV to ~/Downloads/ (via odoo-bin shell, no Odoo login)"),
             ("b", "Back up database (SQL or ZIP with filestore) to ~/Downloads/"),
         ),
     ),

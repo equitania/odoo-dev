@@ -186,3 +186,40 @@ class TestSwitchBranchAndUpdate:
         paths, error = switch_branch_and_update(repo_dir, "git@x:y.git", "develop", str(tmp_path))
         assert error == ""
         assert paths == [repo_dir]
+
+
+class TestUnsafeBranchAndPath:
+    @patch("odoodev.core.git_ops.subprocess.run")
+    def test_update_repo_rejects_option_like_branch(self, mock_run):
+        ok, error = update_repo("/tmp/repo", "--orphan=x")
+        assert ok is False
+        assert "unsafe branch" in error
+        mock_run.assert_not_called()
+
+    @patch("odoodev.core.git_ops.subprocess.run")
+    def test_clone_repo_rejects_option_like_branch(self, mock_run, tmp_path):
+        ok, error = clone_repo("git@gitlab.ownerp.io:g/r.git", str(tmp_path / "r"), "-x")
+        assert ok is False
+        assert "unsafe branch" in error
+        mock_run.assert_not_called()
+
+    @patch("odoodev.core.git_ops.subprocess.run")
+    def test_switch_branch_and_update_returns_the_error(self, mock_run, tmp_path):
+        repo = tmp_path / "r"
+        repo.mkdir()
+        _paths, error = switch_branch_and_update(str(repo), "git@gitlab.ownerp.io:g/r.git", "-b", str(tmp_path))
+        assert "unsafe branch" in error
+        mock_run.assert_not_called()
+
+    def test_resolve_repo_dir(self, tmp_path):
+        from odoodev.core.git_ops import resolve_repo_dir
+
+        base = str(tmp_path / "base")
+        assert resolve_repo_dir(base, "OCA/web") == os.path.join(base, "OCA", "web")
+        assert resolve_repo_dir(base, "a/../b") == os.path.join(base, "b")
+        assert resolve_repo_dir(base, os.path.join(base, "inside")) == os.path.join(base, "inside")
+        assert resolve_repo_dir(base, "../outside") is None
+        assert resolve_repo_dir(base, "a/../../x") is None
+        assert resolve_repo_dir(base, "/etc") is None
+        assert resolve_repo_dir(base, "") is None
+        assert resolve_repo_dir(base, ".") is None

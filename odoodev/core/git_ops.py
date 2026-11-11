@@ -190,6 +190,25 @@ def verify_all_repo_access(repos: list[dict]) -> tuple[list[dict], list[dict]]:
     return accessible, inaccessible
 
 
+def _is_safe_branch(branch: str) -> bool:
+    """Reject branch names that git would parse as an option (a leading "-")."""
+    return bool(branch) and not branch.startswith("-")
+
+
+def resolve_repo_dir(base_path: str, repo_path: str) -> str | None:
+    """Join a repos.yaml ``path`` onto ``base_path``; None if the result leaves ``base_path``.
+
+    ``../..`` or an absolute path pointing elsewhere would let a tampered
+    repos.yaml clone into, or run ``git`` in, any directory. The check is lexical
+    (``normpath``), so a symlink inside the base directory keeps working.
+    """
+    base = os.path.normpath(os.path.abspath(base_path))
+    full = os.path.normpath(os.path.join(base, repo_path))
+    if full == base or not full.startswith(base + os.sep):
+        return None
+    return full
+
+
 def clone_repo_with_progress(git_url: str, target_dir: str, branch: str) -> bool:
     """Clone a git repository with visible progress output.
 
@@ -207,6 +226,9 @@ def clone_repo_with_progress(git_url: str, target_dir: str, branch: str) -> bool
     """
     if not _is_safe_git_url(git_url):
         logger.error("Refusing to clone unsafe git_url: %r", git_url)
+        return False
+    if not _is_safe_branch(branch):
+        logger.error("Refusing to clone unsafe branch name: %r", branch)
         return False
     parent_dir = os.path.dirname(target_dir)
     repo_name = os.path.basename(target_dir)
@@ -237,6 +259,10 @@ def clone_repo(git_url: str, target_dir: str, branch: str) -> tuple[bool, str]:
     """
     if not _is_safe_git_url(git_url):
         error = f"refusing to clone unsafe git_url: {git_url!r}"
+        logger.error(error)
+        return False, error
+    if not _is_safe_branch(branch):
+        error = f"refusing unsafe branch name: {branch!r}"
         logger.error(error)
         return False, error
     parent_dir = os.path.dirname(target_dir)
@@ -276,6 +302,10 @@ def update_repo(repo_dir: str, branch: str) -> tuple[bool, str]:
     Returns:
         Tuple of (success, error_message). Error is empty on success.
     """
+    if not _is_safe_branch(branch):
+        error = f"refusing unsafe branch name: {branch!r}"
+        logger.error(error)
+        return False, error
     success, output = run_git_command(["git", "checkout", branch], cwd=repo_dir)
     if not success:
         return False, f"checkout {branch}: {output.strip()}"

@@ -169,7 +169,7 @@ class FilterBar(Widget):
         """Set the full set of active filter levels."""
         self.active_levels = levels
 
-    def set_scroll(self, enabled: bool) -> None:
+    def set_auto_scroll(self, enabled: bool) -> None:
         """Set the auto-scroll state."""
         self.auto_scroll = enabled
 

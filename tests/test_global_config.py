@@ -147,6 +147,16 @@ class TestSaveGlobalConfig:
         path = save_global_config(cfg)
         assert path.is_file()
 
+    def test_existing_loose_file_is_tightened_to_0600(self, config_dir):
+        import os
+        import stat
+
+        config_dir.parent.mkdir(parents=True, exist_ok=True)
+        config_dir.write_text("old")
+        os.chmod(config_dir, 0o644)
+        path = save_global_config(GlobalConfig())
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
     def test_save_creates_directories(self, config_dir):
         cfg = GlobalConfig()
         save_global_config(cfg)

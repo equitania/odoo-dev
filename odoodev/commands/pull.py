@@ -17,7 +17,7 @@ from odoodev.commands.repos import (
     _load_repos_config,
     _process_repos,
 )
-from odoodev.core.git_ops import set_ssh_key, update_repo
+from odoodev.core.git_ops import resolve_repo_dir, set_ssh_key, update_repo
 from odoodev.core.version_registry import get_version, load_versions
 from odoodev.output import console, print_info, print_start_hint, print_success, print_warning
 
@@ -122,9 +122,9 @@ def pull(
     for repo in all_repos:
         key = repo.get("key", repo.get("path", "unknown"))
         repo_path = repo.get("path", "")
-        full_path = os.path.join(base_path, repo_path)
+        full_path = resolve_repo_dir(base_path, repo_path)
 
-        if os.path.isdir(full_path):
+        if full_path and os.path.isdir(full_path):
             logger.debug("Updating %s at %s (branch: %s)", key, full_path, branch)
             success, error = update_repo(full_path, branch)
             if success:

@@ -64,6 +64,10 @@ These are the things that are wrong-by-default if you do not know them:
   often absent or version-mismatched. Pipe dumps via stdin — never `psql -f` — and
   pass `stdin=subprocess.DEVNULL` to anything non-interactive, or the container's
   `-i` flips the terminal into raw mode.
+- **A dump is scanned before it reaches psql** (`core/dump_check.py`): psql executes backslash
+  commands from stdin, so a swapped backup could run commands on the restoring machine. Every
+  path that pipes a dump into psql goes through `restore_database_report`; never add a second
+  one that skips the check.
 - **Post-restore processing is OFF by default.** `db restore` leaves the database
   untouched unless a flag or `--sanitize` opts in; explicit `--no-*` always wins.
 - **Playbook secrets belong in the 0600 `env_file`,** never in the YAML.

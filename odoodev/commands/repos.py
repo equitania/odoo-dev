@@ -16,6 +16,7 @@ from odoodev.core.git_ops import (
     check_repo_access,
     clone_repo_with_progress,
     get_module_paths,
+    resolve_repo_dir,
     set_ssh_key,
     switch_branch_and_update,
     update_repo,
@@ -275,7 +276,12 @@ def _process_repos(
             suffix = repo.get("suffix", "")
             is_oca = "oca" in repo_path.lower()
 
-            full_path = os.path.join(base_path, repo_path)
+            full_path = resolve_repo_dir(base_path, repo_path)
+            if full_path is None:
+                error = f"path {repo_path!r} leaves the base directory {base_path}"
+                print_error(f"{key}: {error} - skipped")
+                summary.failed.append((key, error))
+                continue
 
             repo_metadata[key] = {"section": section, "use": use, "path": repo_path}
 

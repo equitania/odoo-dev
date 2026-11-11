@@ -133,6 +133,7 @@ def collect_repo_heads(repos_config: dict[str, Any], base_path: str, version_cfg
     silently passing as current.
     """
     from odoodev.commands.repos import _collect_all_repos
+    from odoodev.core.git_ops import resolve_repo_dir
 
     heads: dict[str, str] = {}
     server_path = os.path.join(base_path, repos_config.get("server", {}).get("path", version_cfg.paths.server_subdir))
@@ -142,8 +143,8 @@ def collect_repo_heads(repos_config: dict[str, Any], base_path: str, version_cfg
         repo_path = repo.get("path", "")
         if not repo_path:
             continue
-        full_path = os.path.join(base_path, repo_path)
-        if os.path.isdir(full_path):
+        full_path = resolve_repo_dir(base_path, repo_path)
+        if full_path and os.path.isdir(full_path):
             heads[repo.get("key", repo_path)] = _git_head(full_path)
     return heads
 

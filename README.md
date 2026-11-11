@@ -26,7 +26,7 @@
 - Bewegungsdaten-Reset für Stresstests: `db purge` / `db restore --purge-transactions` löscht Lager/Verkauf/Einkauf/Buchhaltung/MRP/POS und setzt Bestände auf 0 — Produkte, Preislisten und Adressen bleiben erhalten
 - Native Odoo-Neutralisierung beim Restore (`odoo-bin neutralize`, opt-in) + ergänzende Bank-Sync-Bereinigung + eigenständiger Befehl `db neutralize`
 - Modul-Deinstallation vor den Sanitize-Schritten: `db restore --uninstall-modules mod1,mod2` (interaktive Abfrage ohne Flag) + eigenständiger Befehl `db uninstall`
-- Benutzer-Verwaltung als TUI: `db users` — Passwort-Reset und 2FA-Deaktivierung (TOTP) nach einem Restore, mit Suche und DB-Wechsel
+- Benutzer-Verwaltung als TUI: `db users` — Passwort-Reset und 2FA-Deaktivierung (TOTP) nach einem Restore, mit Suche und DB-Wechsel; auch im Laufzeit-TUI (`p`)
 - Docker-Service-Verwaltung (PostgreSQL, Mailpit)
 - Shell-Integration mit Tab-Completions (Fish, Bash, Zsh)
 - YAML-Playbook-Automation für wiederkehrende Workflows
@@ -89,7 +89,7 @@ odoodev start 18 --dev
 | `odoodev repos [VERSION]` | Repositories klonen/aktualisieren | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Schneller `git pull` aller Repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Datenbankoperationen (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
-| `odoodev export modules [VERSION]` | Modulliste als Releasemanager-CSV per XML-RPC exportieren (`--json` für GUIs, `--via-shell` ohne Login) | [export.md](usage/export.md) |
+| `odoodev export modules [VERSION]` | Modulliste als Releasemanager-CSV exportieren (Standard `odoo-bin shell`, kein Login; `--via-rpc` für XML-RPC; `--json` für GUIs) | [export.md](usage/export.md) |
 | `odoodev env [SUB] [VERSION]` | .env-Dateiverwaltung (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual Environment verwalten | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Lokale Container-Services steuern (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -202,6 +202,64 @@ uv build                                # Paket bauen
 ### Änderungsprotokoll
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.77.0:**
+- **Neu:** Benutzer-Verwaltung im Laufzeit-TUI (`odoodev start --tui`): Taste `p`, auch im Schnellmenü
+  (`m`, Gruppe „Server“: „Users & passwords…“). Öffnet dieselbe Benutzerliste wie `odoodev db users`
+  für die Datenbank, die Odoo gerade bedient: `p` setzt ein Passwort, `t` deaktiviert 2FA, `/` sucht,
+  `a` schaltet Portal-Benutzer um, `r` aktualisiert, `d` wählt eine andere Datenbank. Geschrieben wird
+  direkt nach PostgreSQL — kein Odoo-Login nötig.
+- **Neu:** `odoodev docker up --allow-default-credentials`. `docker up` verweigert jetzt das
+  Platzhalter-Passwort der Datenbank (wie `odoodev start`); in einer nicht interaktiven Shell endet es
+  ohne dieses Flag mit Exit-Code 1.
+- **Neu:** `odoodev db restore --allow-psql-meta` und Playbook-Argument `allow_psql_meta: true`
+  (Schritte `server.restore` / `db.restore`) für vertrauenswürdige Backups, siehe „Behoben (Sicherheit)“.
+- **Geändert:** Modul-CSV-Export: `odoo-bin shell` ist jetzt der Standardweg — ohne Odoo-Login, der Server
+  muss nicht laufen. XML-RPC gegen einen laufenden Odoo nur auf Wunsch: `--via-rpc` oder eines von `--user`,
+  `--password`, `--host`, `--port`; automatisch (mit Hinweis), wenn der Rechner keine odoo-bin-Umgebung für
+  die Version hat. `--via-shell` erzwingt die Shell ohne Rückfall; zusammen mit `--via-rpc` ist es ein
+  Aufruffehler. Das JSON-Ergebnis (`--json`) bleibt unverändert.
+- **Geändert:** Der TUI-Exportdialog (`x`) fragt nur noch Datenbank, Umfang (alle / alle ohne Enterprise /
+  nur installierte) und die Optionen „Apps-Liste vor dem Export aktualisieren“ und „Nicht installierte
+  Module vor dem Export entfernen“ ab. Login, Passwort, die Shell-Checkbox und „Zugangsdaten speichern“
+  entfallen: Der Export läuft immer über `odoo-bin shell`. Grund: Der Login-Weg war im TUI überflüssig,
+  und „Zugangsdaten speichern“ wurde bei gesetzter Shell-Checkbox stillschweigend ignoriert (Fehler).
+  Die Tasten `a` und `k` laufen ebenfalls immer über `odoo-bin shell`.
+- **Geändert:** Die gespeicherten Schlüssel `odoo_login.username` / `odoo_login.password` gelten nur noch
+  für den XML-RPC-Weg der CLI und das heiße Modul-Update im TUI (`u`).
+- **Geändert (Sicherheit):** Der PostgreSQL-Dev-Container wird nur noch auf `127.0.0.1` veröffentlicht
+  (bisher auf allen Netzwerkschnittstellen) — bei Apple Container und in der generierten
+  `docker-compose.yml`. Zurück zum alten Verhalten mit `DB_BIND=0.0.0.0` in der `.env` der Version.
+  Bestehende Container behalten ihre Bindung, bis sie neu angelegt werden (Container entfernen, dann
+  `odoodev docker up`; das Datenvolumen bleibt unberührt); eine vorhandene `docker-compose.yml` behält
+  die alte Zeile bis zur Neuerzeugung.
+- **Geändert (Sicherheit):** Das PostgreSQL-Passwort steht nicht mehr in der Kommandozeile der
+  Container-Runtime (in `ps` sichtbar), sondern wird über die Umgebung übergeben.
+- **Geändert (Sicherheit):** Der Playbook-Schritt `rpc.execute` meldet sich nicht mehr über unverschlüsseltes
+  HTTP/JSON-RPC an einem nicht lokalen Host an. Eine `https://`-URL (oder Protokoll `jsonrpc+ssl`) verwenden
+  oder `allow_insecure_remote: true` in der `rpc:`-Sektion setzen (vertrauenswürdiges LAN). Playbooks mit
+  `http://<fremder Host>` oder einem nackten fremden Host schlagen fehl, bis sie angepasst sind.
+- **Geändert (Sicherheit):** `~/.config/odoodev/config.yaml` und die generierte `.env` bekommen bei jedem
+  Schreiben den Modus `0600`, auch wenn die Datei schon mit weiteren Rechten existierte.
+- **Behoben (Sicherheit):** `odoodev db restore` und die Playbook-Schritte `server.restore` / `db.restore`
+  prüfen den SQL-Dump, bevor er an psql geht, auf psql-Backslash-Befehle (`\!`, `\o |cmd`, `\copy`, `\i` …),
+  die psql auf dem wiederherstellenden Rechner ausführen würde. Akzeptiert wird nur, was pg_dump selbst
+  schreibt (`\connect`, `\restrict`, `\unrestrict`, COPY-Blöcke in der einzeiligen Form
+  `COPY … FROM stdin;`). Alles andere wird mit Zeilennummer abgelehnt, bevor psql startet. Dumps von
+  pg_dump/odoodev sind nicht betroffen. Der Restore-Aufruf nutzt außerdem `--no-psqlrc`.
+- **Behoben (Sicherheit):** repos.yaml: ein Repository-`path`, der das Basisverzeichnis verlässt (`../..`
+  oder ein absoluter Pfad außerhalb), wird mit Fehlermeldung übersprungen; Branch-Namen, die mit `-`
+  beginnen, werden abgelehnt.
+- **Behoben (Sicherheit):** 7z-Backup-Archive: Das Entpacken schlägt fehl, wenn ein entpackter Symlink
+  aus dem Zielverzeichnis hinauszeigt.
+- **Behoben:** Passwörter mit Backslash werden korrekt in die generierte `odoo.conf` geschrieben (sie
+  wurden als Escape-Folgen der Regex-Ersetzung gelesen).
+- **Behoben:** Das heiße Modul-Update per XML-RPC im TUI (`u`) zeigt jetzt eine Warnung, wenn der
+  XML-RPC-Aufruf scheitert (z. B. falscher gespeicherter Login), bevor es auf den Neustart mit `-u`
+  zurückfällt — bisher geschah das stillschweigend.
+- **Intern:** Abhängigkeits-Untergrenzen angehoben (ruff, pytest, pytest-cov, mypy), das überflüssige
+  `types-click` entfernt, Lock-Datei erneuert (nur Entwicklungs-Pakete mit bekannten Schwachstellen
+  aktualisiert), mypy prüft jetzt auch das TUI-Paket, Coverage-Schwelle angehoben.
 
 **Version 0.76.1:**
 - **Behoben:** Apple Container: Der PostgreSQL-Container bekommt 4 GB Speicher statt der
@@ -626,7 +684,7 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - Transactional-data reset for stress tests: `db purge` / `db restore --purge-transactions` deletes stock/sale/purchase/accounting/MRP/POS data and zeroes stock — products, pricelists and partners are kept
 - Native Odoo neutralization on restore (`odoo-bin neutralize`, opt-in) + supplementary bank-sync cleanup + standalone `db neutralize` command
 - Module uninstall before the sanitize steps: `db restore --uninstall-modules mod1,mod2` (interactive prompt without the flag) + standalone `db uninstall` command
-- User management TUI: `db users` — password reset and 2FA (TOTP) disable after a restore, with search and DB switching
+- User management TUI: `db users` — password reset and 2FA (TOTP) disable after a restore, with search and DB switching; also inside the runtime TUI (`p`)
 - Docker service management (PostgreSQL, Mailpit)
 - Shell integration with tab completions (Fish, Bash, Zsh)
 - YAML playbook automation for recurring workflows
@@ -688,7 +746,7 @@ odoodev start 18 --dev
 | `odoodev repos [VERSION]` | Clone/update repositories | [repos.md](usage/repos.md) |
 | `odoodev pull [VERSION]` | Quick `git pull` across all repos | [repos.md](usage/repos.md) |
 | `odoodev db [SUB] [VERSION]` | Database operations (backup, restore, purge, recompute, neutralize, list, drop) | [db.md](usage/db.md) |
-| `odoodev export modules [VERSION]` | Export the module list as Releasemanager CSV via XML-RPC (`--json` for GUIs, `--via-shell` without a login) | [export.md](usage/export.md) |
+| `odoodev export modules [VERSION]` | Export the module list as Releasemanager CSV (default `odoo-bin shell`, no login; `--via-rpc` for XML-RPC; `--json` for GUIs) | [export.md](usage/export.md) |
 | `odoodev env [SUB] [VERSION]` | .env file management (setup, check, show, dir) | [setup.md](usage/setup.md) |
 | `odoodev venv [SUB] [VERSION]` | Virtual environment management | [venv.md](usage/venv.md) |
 | `odoodev docker [SUB] [VERSION]` | Local container service control (Docker / Apple Container, `--runtime`) | [docker.md](usage/docker.md) |
@@ -801,6 +859,61 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.77.0:**
+- **Added:** User management inside the runtime TUI (`odoodev start --tui`): key `p`, also in the quick
+  menu (`m`, group "Server": "Users & passwords…"). Opens the same user list as `odoodev db users` for the
+  database Odoo is currently serving: `p` sets a password, `t` disables 2FA, `/` searches, `a` toggles
+  portal users, `r` refreshes, `d` picks another database. It writes straight to PostgreSQL — no Odoo
+  login needed.
+- **Added:** `odoodev docker up --allow-default-credentials`. `docker up` now refuses the placeholder
+  database password (like `odoodev start`); in a non-interactive shell it exits 1 without this flag.
+- **Added:** `odoodev db restore --allow-psql-meta` and the playbook argument `allow_psql_meta: true`
+  (steps `server.restore` / `db.restore`) for trusted backups, see "Fixed (security)".
+- **Changed:** Module CSV export: `odoo-bin shell` is now the default path — no Odoo login, the server need
+  not be running. XML-RPC against a running Odoo only on request: `--via-rpc` or any of `--user`,
+  `--password`, `--host`, `--port`; automatically (with a notice) when the machine has no odoo-bin
+  environment for the version. `--via-shell` forces the shell and never falls back; together with
+  `--via-rpc` it is a usage error. The JSON result (`--json`) is unchanged.
+- **Changed:** The TUI export dialog (`x`) now asks only for the database, the scope (all / all without
+  Enterprise / installed only) and the options "Update apps list before export" and "Remove non-installed
+  modules before export". Login, password, the shell checkbox and "Save credentials" are gone: the export
+  always runs through `odoo-bin shell`. Reason: the login path was redundant in the TUI, and "Save
+  credentials" was silently ignored whenever the shell checkbox was ticked (bug). The keys `a` and `k`
+  also always run through `odoo-bin shell`.
+- **Changed:** The stored keys `odoo_login.username` / `odoo_login.password` are now used only by the CLI
+  XML-RPC path and by the TUI's XML-RPC hot module update (`u`).
+- **Changed (security):** The PostgreSQL dev container is now published on `127.0.0.1` only (was: all
+  network interfaces) — for Apple Container and in the generated `docker-compose.yml`. Opt back in with
+  `DB_BIND=0.0.0.0` in the version's `.env`. Existing containers keep their old binding until they are
+  created again (remove the container, then `odoodev docker up`; the data volume is not touched); an
+  existing `docker-compose.yml` keeps the old line until regenerated.
+- **Changed (security):** The PostgreSQL password is no longer passed on the container runtime's command
+  line (visible in `ps`); it is handed over through the environment.
+- **Changed (security):** The playbook step `rpc.execute` refuses to log in over plaintext HTTP/JSON-RPC to
+  a non-local host. Use an `https://` URL (or protocol `jsonrpc+ssl`), or set `allow_insecure_remote: true`
+  in the playbook's `rpc:` section for a trusted LAN. Playbooks with `http://<remote host>` or a bare remote
+  host fail until changed.
+- **Changed (security):** `~/.config/odoodev/config.yaml` and the generated `.env` are forced to mode `0600`
+  on every write, also when the file already existed with looser permissions.
+- **Fixed (security):** `odoodev db restore` and the playbook steps `server.restore` / `db.restore` scan the
+  SQL dump for psql backslash commands (`\!`, `\o |cmd`, `\copy`, `\i` …) before piping it into psql, which
+  would execute them on the restoring machine. Only what pg_dump itself writes is accepted (`\connect`,
+  `\restrict`, `\unrestrict`, and COPY blocks in the one-line `COPY … FROM stdin;` form). Anything else is
+  refused with the line number before psql starts. Dumps created by pg_dump/odoodev are not affected. The
+  restore call now also uses `--no-psqlrc`.
+- **Fixed (security):** repos.yaml: a repository `path` that leaves the base directory (`../..`, or an
+  absolute path outside it) is skipped with an error; branch names starting with `-` are refused.
+- **Fixed (security):** 7z backup archives: extraction fails if an extracted symlink points outside the
+  extraction directory.
+- **Fixed:** Passwords containing a backslash are now written correctly into the generated `odoo.conf` (they
+  were interpreted as regex replacement escapes).
+- **Fixed:** The TUI's XML-RPC hot module update (`u`) now shows a warning when the XML-RPC call fails
+  (e.g. a wrong stored login) before it falls back to a restart with `-u`; previously the fallback was
+  silent.
+- **Internal:** Dependency floors raised (ruff, pytest, pytest-cov, mypy), obsolete `types-click` removed,
+  lock file refreshed (only dev-only packages with known vulnerabilities updated), mypy now also checks the
+  TUI package, coverage threshold raised.
 
 **Version 0.76.1:**
 - **Fixed:** Apple Container: the PostgreSQL container gets 4 GB of memory instead of the 1 GB

@@ -1156,6 +1156,12 @@ def _restore_dry_run(
     help="Restore a backup that uses pgvector into a server without it (the AI tables are left out)",
 )
 @click.option(
+    "--allow-psql-meta",
+    is_flag=True,
+    help="Do not refuse a dump that contains psql backslash commands (\\!, \\o |cmd, \\copy ...). "
+    "Only for backups you trust: such a command runs as you during the restore",
+)
+@click.option(
     "--check-space/--no-check-space",
     default=True,
     help="Check free disk space before extracting the backup — on by default",
@@ -1199,6 +1205,7 @@ def db_restore(
     yes_flag: bool,
     keep_temp: bool,
     without_pgvector: bool,
+    allow_psql_meta: bool,
     check_space: bool,
     delete_backup: bool,
     keep_backup: bool,
@@ -1344,7 +1351,7 @@ def db_restore(
         raise SystemExit(1)
 
     print_info("Restoring database (this may take a while)...")
-    if not restore_database(name, sql_file, **params):
+    if not restore_database(name, sql_file, allow_psql_meta=allow_psql_meta, **params):
         print_error("Database restore failed")
         raise SystemExit(1)
 

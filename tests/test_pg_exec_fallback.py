@@ -194,7 +194,18 @@ def test_restore_database_pipes_stdin_no_dash_f(monkeypatch, tmp_path):
     assert restore_database("v16_exam", str(sql), host="localhost", port=16432, user="ownerp")
     assert "-f" not in captured["cmd"]
     assert captured["stdin"] is not None
-    expected = ["docker", "exec", "-i", "picard-dev-db-16-native", "psql", "-U", "ownerp", "-d", "v16_exam"]
+    expected = [
+        "docker",
+        "exec",
+        "-i",
+        "picard-dev-db-16-native",
+        "psql",
+        "-U",
+        "ownerp",
+        "--no-psqlrc",
+        "-d",
+        "v16_exam",
+    ]
     assert captured["cmd"] == expected
 
 
@@ -210,7 +221,18 @@ def test_restore_database_host_mode_also_pipes_stdin(monkeypatch, tmp_path):
     sql = tmp_path / "dump.sql"
     sql.write_text("SELECT 1;")
     assert restore_database("v18_exam", str(sql), host="localhost", port=18432, user="ownerp")
-    assert captured["cmd"] == ["psql", "-U", "ownerp", "-h", "localhost", "-p", "18432", "-d", "v18_exam"]
+    assert captured["cmd"] == [
+        "psql",
+        "-U",
+        "ownerp",
+        "-h",
+        "localhost",
+        "-p",
+        "18432",
+        "--no-psqlrc",
+        "-d",
+        "v18_exam",
+    ]
     assert captured["stdin"] is not None
 
 

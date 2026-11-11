@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "odoodev-equitania"
-version = "0.76.1"
+version = "0.77.0"
 description = "Unified CLI tool for native Odoo development environment management"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -44,13 +44,12 @@ rpc = [
     "odoorpc-toolbox>=0.8.2",
 ]
 dev = [
-    "ruff>=0.8.0",
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
+    "ruff>=0.15.0",
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
     "pytest-mock>=3.12.0",
-    "mypy>=1.8.0",
+    "mypy>=1.20.0",
     "types-PyYAML>=6.0.0",
-    "types-click>=7.1.0",
     "build>=1.0.0",
     "textual-dev>=1.0.0",
     "pytest-asyncio>=1.0.0",
@@ -116,10 +115,6 @@ module = "odoorpc_toolbox"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "odoodev.tui.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
 module = "odoodev.output"
 warn_return_any = false
 
@@ -150,7 +145,7 @@ warn_return_any = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --tb=short --cov=odoodev --cov-report=term-missing --cov-fail-under=55"
+addopts = "-v --tb=short --cov=odoodev --cov-report=term-missing --cov-fail-under=75"
 asyncio_mode = "auto"
 markers = [
     "real_pg_precheck: keep the real _ensure_pg_reachable preflight (see tests/conftest.py)",

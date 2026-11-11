@@ -45,6 +45,7 @@ class OdooTuiApp(App):
         Binding("d", "switch_db", "Switch DB", show=False),
         Binding("a", "update_apps_list", "Update Apps List", show=False),
         Binding("k", "cleanup_modules", "Cleanup Modules", show=False),
+        Binding("p", "manage_users", "Users & Passwords", show=False),
         # Per-level toggles (multi-toggle filter)
         Binding("0", "filter_all", "All Levels", show=False),
         Binding("1", "show_only_debug", "DEBUG", show=False),
@@ -112,12 +113,18 @@ class OdooTuiApp(App):
 
     def _poll_process(self) -> None:
         """Drain output queue and write lines to log viewer."""
+        from textual.css.query import NoMatches
+
+        try:
+            log_viewer = self.query_one("#log-viewer", LogViewer)
+            status_bar = self.query_one("#status-bar", StatusBar)
+        except NoMatches:
+            return  # the timer fired while the app is tearing its widgets down
+
         lines = self._odoo.read_lines()
         if not lines:
             return
 
-        log_viewer = self.query_one("#log-viewer", LogViewer)
-        status_bar = self.query_one("#status-bar", StatusBar)
         for line in lines:
             entry = log_viewer.write_line(line)
             # Track the database Odoo actually serves (ground truth from logs).
@@ -132,7 +139,12 @@ class OdooTuiApp(App):
 
     def _update_status(self) -> None:
         """Update status bar with uptime and running state."""
-        status_bar = self.query_one("#status-bar", StatusBar)
+        from textual.css.query import NoMatches
+
+        try:
+            status_bar = self.query_one("#status-bar", StatusBar)
+        except NoMatches:
+            return  # the timer fired while the app is tearing its widgets down
         if self._odoo.is_running:
             status_bar.uptime_seconds = self._odoo.uptime
             if status_bar.server_state == "stopped":
@@ -152,7 +164,7 @@ class OdooTuiApp(App):
         filter_bar = self.query_one("#filter-bar", FilterBar)
         log_viewer = self.query_one("#log-viewer", LogViewer)
         filter_bar.set_active_levels(log_viewer.active_levels)
-        filter_bar.set_scroll(log_viewer.auto_scroll)
+        filter_bar.set_auto_scroll(log_viewer.auto_scroll)
         filter_bar.set_search(log_viewer.search_term)
 
     def on_filter_tab_selected(self, event: FilterTab.Selected) -> None:
@@ -167,18 +179,21 @@ class OdooTuiApp(App):
 
     # --- Actions ---
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         """Override Textual's default quit to ensure Odoo process cleanup.
 
         Textual's built-in ctrl+q binding calls action_quit() which only
         calls self.exit(). We override it to stop the Odoo process first.
         """
-        self._odoo.stop()
-        self.exit()
+        self._stop_and_exit()
 
     def action_quit_app(self) -> None:
         """Stop the Odoo process and exit (q key binding)."""
-        self.action_quit()
+        self._stop_and_exit()
+
+    def _stop_and_exit(self) -> None:
+        self._odoo.stop()
+        self.exit()
 
     def action_restart(self) -> None:
         """Restart the Odoo server."""
@@ -431,9 +446,8 @@ class OdooTuiApp(App):
         """Launch the export worker after the dialog choice.
 
         ``result`` is an :class:`ExportModulesChoice` from the dialog or
-        ``None`` on cancel. The XML-RPC round-trips (cleanup, apps-list update,
-        module listing) block, so they run off the UI thread with a progress
-        overlay — previously the export ran synchronously and froze the TUI.
+        ``None`` on cancel. The ``odoo-bin shell`` run blocks for several
+        seconds, so it runs off the UI thread with a progress overlay.
         """
         if result is None:
             return  # cancelled
@@ -441,14 +455,15 @@ class OdooTuiApp(App):
         self.run_worker(lambda: self._do_export_modules(result), thread=True, exclusive=False)
 
     def _do_export_modules(self, choice) -> None:
-        """Query modules via XML-RPC and write the CSV (runs in a worker thread).
+        """Read the modules via ``odoo-bin shell`` and write the CSV (worker thread).
 
-        If requested, non-installed modules are removed and the apps list
+        The shell runs as superuser, so no Odoo login is involved. If
+        requested, non-installed modules are removed and the apps list
         refreshed (cleanup first, then update — so the catalog reflects the
         current system) before the modules are listed.
         """
+        from odoodev.core.database import run_module_export_shell
         from odoodev.core.module_export import EXPORT_SCOPES
-        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
         from odoodev.i18n import t
         from odoodev.tui.screens import ExportProgressScreen
 
@@ -456,48 +471,6 @@ class OdooTuiApp(App):
         self.call_from_thread(self.push_screen, progress)
 
         installed_only, exclude_enterprise = EXPORT_SCOPES.get(choice.scope, (False, False))
-        if choice.via_shell:
-            self._do_export_modules_shell(choice, progress, installed_only, exclude_enterprise)
-            return
-        try:
-            # Credentials come from the dialog (per-export override), never
-            # logged — they only flow into the client and the optional save.
-            client = OdooXmlRpcClient(
-                port=self._odoo_port,
-                database=choice.db_name,
-                username=choice.username,
-                password=choice.password,
-            )
-            self.call_from_thread(progress.set_status, t("tui.export_connecting"))
-            if choice.do_cleanup:
-                self.call_from_thread(progress.set_status, t("tui.export_progress_cleanup"))
-                removed = client.cleanup_uninstalled_modules()
-                self.call_from_thread(self.notify, t("tui.modules_cleaned", count=removed), severity="information")
-            if choice.do_update:
-                self.call_from_thread(progress.set_status, t("tui.export_progress_update"))
-                added = client.update_module_list()
-                self.call_from_thread(self.notify, t("tui.modules_updated", count=added), severity="information")
-            self.call_from_thread(progress.set_status, t("tui.export_progress_listing"))
-            records = client.list_modules(installed_only=installed_only, exclude_enterprise=exclude_enterprise)
-        except Exception as e:  # surface any RPC/auth failure to the user
-            self.call_from_thread(self.notify, t("tui.export_error", error=str(e)), severity="error")
-            return
-        finally:
-            # Never leave the progress overlay stuck — also on error paths.
-            self.call_from_thread(progress.dismiss)
-
-        if choice.remember_credentials:
-            from odoodev.core.global_config import save_odoo_login_credentials
-
-            save_odoo_login_credentials(choice.username, choice.password)
-
-        self._write_export_csv(choice, records)
-
-    def _do_export_modules_shell(self, choice, progress, installed_only: bool, exclude_enterprise: bool) -> None:
-        """Export variant via ``odoo-bin shell`` as superuser — no Odoo login needed (worker thread)."""
-        from odoodev.core.database import run_module_export_shell
-        from odoodev.i18n import t
-
         try:
             if self._odoo_invocation is None:
                 raise RuntimeError(t("tui.export_shell_unavailable"))
@@ -514,6 +487,7 @@ class OdooTuiApp(App):
             self.call_from_thread(self.notify, t("tui.export_error", error=str(e)), severity="error")
             return
         finally:
+            # Never leave the progress overlay stuck — also on error paths.
             self.call_from_thread(progress.dismiss)
 
         if result["cleaned"] is not None:
@@ -650,7 +624,7 @@ class OdooTuiApp(App):
         self.run_worker(self._do_update_apps_list, thread=True, exclusive=False)
 
     def _do_update_apps_list(self) -> None:
-        """Call ir.module.module.update_list via XML-RPC, else odoo-bin shell (worker thread)."""
+        """Call ir.module.module.update_list via odoo-bin shell (worker thread)."""
         from odoodev.i18n import t
 
         self.call_from_thread(self.notify, t("tui.modules_updating"))
@@ -678,29 +652,19 @@ class OdooTuiApp(App):
         self.call_from_thread(self.notify, t("tui.modules_cleaned", count=removed), severity="information")
 
     def _run_module_maintenance(self, do_cleanup: bool, do_update: bool) -> int:
-        """Run one catalog step via XML-RPC; fall back to ``odoo-bin shell`` (worker thread).
+        """Run one catalog step via ``odoo-bin shell`` as superuser (worker thread).
 
-        XML-RPC needs the stored Odoo login, which demo databases deliberately
-        lack. When the login (or the connection) fails, the same step runs as
-        superuser through ``odoo-bin shell``. Returns the removed or added count.
+        No Odoo login is involved, so the step also works on demo databases
+        without an admin account. Returns the removed or added count.
 
         Raises:
-            Exception: The shell error when the fallback fails too (or the RPC
-                error when no shell invocation is available).
+            RuntimeError: When no shell invocation is available or the shell fails.
         """
-        from odoodev.core.xmlrpc_client import OdooXmlRpcClient
+        from odoodev.core.database import run_module_export_shell
         from odoodev.i18n import t
 
-        try:
-            client = OdooXmlRpcClient.from_stored_credentials(port=self._odoo_port, database=self._db_name)
-            return client.cleanup_uninstalled_modules() if do_cleanup else client.update_module_list()
-        except Exception:
-            if self._odoo_invocation is None:
-                raise
-
-        from odoodev.core.database import run_module_export_shell
-
-        self.call_from_thread(self.notify, t("tui.modules_via_shell"))
+        if self._odoo_invocation is None:
+            raise RuntimeError(t("tui.export_shell_unavailable"))
         result = run_module_export_shell(
             self._db_name,
             installed_only=False,
@@ -712,6 +676,12 @@ class OdooTuiApp(App):
         )
         count = result["cleaned"] if do_cleanup else result["updated"]
         return count if isinstance(count, int) else 0
+
+    def action_manage_users(self) -> None:
+        """Open the user management (set password, disable 2FA) for the running database."""
+        from odoodev.tui.users_app import UsersScreen
+
+        self.push_screen(UsersScreen(db_name=self._db_name, port=self._db_port))
 
     def action_show_help(self) -> None:
         """Show the keybinding help overlay."""

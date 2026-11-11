@@ -102,7 +102,7 @@ class PostgresSpec:
     image: str  # e.g. "postgres:16.11-alpine"
     container_name: str
     volume_name: str  # named volume mounted at /var/lib/postgresql/data
-    host_port: int  # published to localhost:<host_port> -> 5432
+    host_port: int  # published to <bind_host>:<host_port> -> 5432
     user: str
     password: str
     db_name: str = "postgres"
@@ -115,6 +115,10 @@ class PostgresSpec:
     conf_path: str | None = None
     # PostgreSQL version tag the image is based on (pgvector builds need it).
     pg_version: str = ""
+    # Host interface the port is published on. Loopback by default: the dev
+    # database must not be reachable from the network. DB_BIND in the version's
+    # .env opts back into another interface (e.g. 0.0.0.0 for VMs).
+    bind_host: str = "127.0.0.1"
 
 
 def _postgres_run_args(spec: PostgresSpec) -> list[str]:
@@ -131,7 +135,7 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
         "--name",
         spec.container_name,
         "-p",
-        f"{spec.host_port}:5432",
+        f"{spec.bind_host}:{spec.host_port}:5432",
         "-v",
         f"{spec.volume_name}:{_DATA_MOUNT}",
         "--shm-size",
@@ -139,7 +143,9 @@ def _postgres_run_args(spec: PostgresSpec) -> list[str]:
         "-e",
         f"POSTGRES_USER={spec.user}",
         "-e",
-        f"POSTGRES_PASSWORD={spec.password}",
+        # Name only: the value travels in the subprocess environment (see
+        # run_postgres), so it never shows up in `ps` output.
+        "POSTGRES_PASSWORD",
         "-e",
         f"POSTGRES_DB={spec.db_name}",
         # PGDATA must be a subdirectory of the mount — see _PGDATA comment above.
@@ -232,7 +238,8 @@ class ContainerBackend:
 
     def run_postgres(self, spec: PostgresSpec) -> subprocess.CompletedProcess:
         """Start a detached PostgreSQL container from ``spec``."""
-        return self._run(_postgres_run_args(spec), capture=True)
+        env = {**os.environ, "POSTGRES_PASSWORD": spec.password}
+        return self._run(_postgres_run_args(spec), capture=True, env=env)
 
     def stop_postgres(self, container_name: str, remove: bool = True) -> None:
         """Stop (and by default remove) a container. Best-effort; errors ignored."""
@@ -274,12 +281,15 @@ class ContainerBackend:
         """
         raise NotImplementedError
 
-    def _run(self, args: list[str], capture: bool = False) -> subprocess.CompletedProcess:
-        """Invoke ``<cli> <args...>``."""
+    def _run(
+        self, args: list[str], capture: bool = False, env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess:
+        """Invoke ``<cli> <args...>`` (``env`` replaces the process environment when given)."""
         return subprocess.run(
             [self.cli, *args],
             capture_output=capture,
             text=True,
+            env=env,
         )
 
 
@@ -699,4 +709,5 @@ def build_dev_spec(version_cfg: VersionConfigProtocol, env: dict[str, str]) -> P
         memory="4g",
         conf_path=conf_path,
         pg_version=pg_version,
+        bind_host=env.get("DB_BIND") or "127.0.0.1",
     )
