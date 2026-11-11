@@ -16,7 +16,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import IO, TYPE_CHECKING, Any
 
-from odoodev.core.dump_check import find_psql_meta_command
+from odoodev.core.dump_check import describe_finding, find_psql_meta_command
 
 if TYPE_CHECKING:
     from faker import Faker
@@ -432,6 +432,33 @@ def create_database(
         return False
 
 
+def find_unsafe_7z_member(cmd_7z: str, archive: str) -> str | None:
+    """Name the first archive member that would be written outside the extraction directory.
+
+    The 7z tools extract on their own, so the member names are read from the
+    technical listing first: an absolute path, a drive letter or a ``..``
+    component is refused. A listing that cannot be read is refused as well —
+    extraction would fail on the same archive anyway. Returns None when all
+    members are safe.
+    """
+    try:
+        listing = subprocess.run(  # noqa: S603 — fixed argv, archive path passed as one argument
+            [cmd_7z, "l", "-slt", archive], capture_output=True, text=True, stdin=subprocess.DEVNULL
+        )
+    except OSError as e:
+        return f"cannot list the archive ({e})"
+    if listing.returncode != 0:
+        return "cannot list the archive"
+    members = [line[len("Path = ") :] for line in listing.stdout.splitlines() if line.startswith("Path = ")]
+    if members and os.path.abspath(members[0]) == os.path.abspath(archive):
+        members = members[1:]  # the first block describes the archive itself
+    for member in members:
+        normalized = member.replace("\\", "/")
+        if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized) or ".." in normalized.split("/"):
+            return f"member {member!r} leaves the extraction directory"
+    return None
+
+
 def find_escaping_symlink(extract_path: str) -> str | None:
     """First symlink below ``extract_path`` whose target lies outside it, else None.
 
@@ -512,8 +539,8 @@ def restore_database_report(
         if offending:
             line_no, word = offending
             message = (
-                f"Refusing to restore: the dump contains the psql command '\\{word}' at line {line_no}. "
-                f"A backup must only hold SQL; pass --allow-psql-meta (playbook: allow_psql_meta: true) "
+                f"Refusing to restore: the dump contains {describe_finding(word)} at line {line_no}. "
+                f"pg_dump does not write that; pass --allow-psql-meta (playbook: allow_psql_meta: true) "
                 f"only for a backup you trust"
             )
             logger.error(message)
@@ -821,6 +848,10 @@ def _extract_backup_inner(backup_file: str, extract_path: str) -> bool:
             # 7z (p7zip-full), 7za (p7zip / p7zip-full on older Debian/Ubuntu).
             for cmd_7z in ("7zz", "7z", "7za"):
                 if shutil.which(cmd_7z):
+                    unsafe = find_unsafe_7z_member(cmd_7z, backup_file)
+                    if unsafe:
+                        logger.error("7z archive rejected before extraction: %s", unsafe)
+                        return False
                     result = subprocess.run(
                         [cmd_7z, "x", backup_file, f"-o{extract_path}"],
                         capture_output=True,

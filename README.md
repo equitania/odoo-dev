@@ -203,6 +203,30 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.77.1:**
+- **Geändert (Sicherheit):** Die Dump-Prüfung vor dem Restore ist strenger. `\connect` wird nicht mehr
+  akzeptiert: Es steht nur in Dumps von `pg_dump -C` und `pg_dumpall` und würde den Restore in eine andere
+  Datenbank als die gewünschte lenken; normale `pg_dump <db>`-Dumps (odoodev, Odoos Datenbank-Manager,
+  Server-Backup-Skript) enthalten es nicht. Von den psql-Befehlen bleiben nur `\restrict` und `\unrestrict`.
+  Zusätzlich abgelehnt werden Konstrukte, die Code auf dem Datenbankserver ausführen und in einem
+  pg_dump einer Odoo-Datenbank nie vorkommen: `COPY … FROM PROGRAM` / `COPY … TO PROGRAM` (auch in
+  Funktionskörpern), `DO`-Blöcke auf oberster Ebene, `ALTER SYSTEM` und Funktionen in einer
+  nicht vertrauenswürdigen Sprache (C, internal, plpython, plperlu, pltclu, plsh). Dasselbe
+  Opt-out gilt für alles: `--allow-psql-meta` bzw. `allow_psql_meta: true`. Das ist ein Filter für bekannte
+  Abkürzungen, keine Sandbox: SQL, das ein Datenbank-Superuser einspielt, ist Code, und dynamisches SQL
+  in einem Funktionskörper lässt sich durch Scannen nicht erkennen. Ein Backup unbekannter Herkunft
+  zuerst auf einer Wegwerf-Maschine einspielen.
+- **Behoben (Sicherheit):** 7z-Backups: Die Namen der Archivinhalte werden jetzt vor dem Entpacken aus der
+  Archivliste gelesen; ein absoluter Pfad, ein Laufwerksbuchstabe oder eine `..`-Komponente lehnt das
+  Archiv ab (vorher wurden nur hinausführende Symlinks nach dem Entpacken erkannt). Ein Archiv, dessen
+  Liste sich nicht lesen lässt, wird abgelehnt.
+- **Behoben:** Der Playbook-Schritt `docker.up` verweigert jetzt das unveränderte Platzhalter-Passwort
+  `CHANGE_AT_FIRST` (oder ein leeres PGPASSWORD) mit einem Fehlerergebnis, statt den Container zu
+  starten — dieselbe Regel wie `odoodev start` und `odoodev docker up`. Neues Schritt-Argument
+  `allow_default_credentials: true` hebt das auf (nur Entwicklung/CI).
+- **Intern:** mypy 2.4 (vorher 1.20), `odoodev/cli.py` wird jetzt ebenfalls typgeprüft, die
+  Testabdeckung wird mit Branch-Coverage gemessen (Schwelle bleibt 75 %).
+
 **Version 0.77.0:**
 - **Neu:** Benutzer-Verwaltung im Laufzeit-TUI (`odoodev start --tui`): Taste `p`, auch im Schnellmenü
   (`m`, Gruppe „Server“: „Users & passwords…“). Öffnet dieselbe Benutzerliste wie `odoodev db users`
@@ -244,8 +268,8 @@ Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md
 - **Behoben (Sicherheit):** `odoodev db restore` und die Playbook-Schritte `server.restore` / `db.restore`
   prüfen den SQL-Dump, bevor er an psql geht, auf psql-Backslash-Befehle (`\!`, `\o |cmd`, `\copy`, `\i` …),
   die psql auf dem wiederherstellenden Rechner ausführen würde. Akzeptiert wird nur, was pg_dump selbst
-  schreibt (`\connect`, `\restrict`, `\unrestrict`, COPY-Blöcke in der einzeiligen Form
-  `COPY … FROM stdin;`). Alles andere wird mit Zeilennummer abgelehnt, bevor psql startet. Dumps von
+  schreibt (`\restrict`, `\unrestrict`, COPY-Blöcke in der einzeiligen Form
+  `COPY … FROM stdin;`; seit 0.77.1 nicht mehr `\connect`, siehe 0.77.1). Alles andere wird mit Zeilennummer abgelehnt, bevor psql startet. Dumps von
   pg_dump/odoodev sind nicht betroffen. Der Restore-Aufruf nutzt außerdem `--no-psqlrc`.
 - **Behoben (Sicherheit):** repos.yaml: ein Repository-`path`, der das Basisverzeichnis verlässt (`../..`
   oder ein absoluter Pfad außerhalb), wird mit Fehlermeldung übersprungen; Branch-Namen, die mit `-`
@@ -860,6 +884,28 @@ uv build                                # Build package
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.77.1:**
+- **Changed (security):** The dump check before a restore is stricter. `\connect` is no longer accepted:
+  only `pg_dump -C` and `pg_dumpall` write it, and it would steer the restore into a different database
+  than the one being restored; plain `pg_dump <db>` dumps (odoodev, Odoo's database manager, the server
+  backup script) do not contain it. Of the psql commands only `\restrict` and `\unrestrict` remain.
+  Also refused now are constructs that run code on the database server and never occur in a pg_dump of an
+  Odoo database: `COPY … FROM PROGRAM` / `COPY … TO PROGRAM` (also inside function bodies), top-level `DO`
+  blocks, `ALTER SYSTEM`, and functions in an untrusted language (C, internal, plpython, plperlu, pltclu,
+  plsh). The same opt-out applies to all of it: `--allow-psql-meta` / `allow_psql_meta: true`. This is a
+  filter for known shortcuts, not a sandbox: SQL restored by a database superuser is code, and dynamic SQL
+  built inside a function body cannot be recognised by scanning. Restore a backup of unknown origin on a
+  throw-away machine first.
+- **Fixed (security):** 7z backups: the member names are now read from the archive listing before
+  extraction; an absolute path, a drive letter or a `..` component refuses the archive (previously only
+  escaping symlinks were detected, after extraction). An archive whose listing cannot be read is refused.
+- **Fixed:** The playbook step `docker.up` now refuses the unchanged placeholder database password
+  `CHANGE_AT_FIRST` (or an empty PGPASSWORD) with an error result instead of starting the container — the
+  same rule as `odoodev start` and `odoodev docker up`. New step argument `allow_default_credentials: true`
+  overrides it (development/CI only).
+- **Internal:** mypy 2.4 (was 1.20), `odoodev/cli.py` is now type-checked too, test coverage is measured
+  with branch coverage (threshold stays 75 %).
+
 **Version 0.77.0:**
 - **Added:** User management inside the runtime TUI (`odoodev start --tui`): key `p`, also in the quick
   menu (`m`, group "Server": "Users & passwords…"). Opens the same user list as `odoodev db users` for the
@@ -898,8 +944,9 @@ The full version history is available in the [Release Notes](RELEASE_NOTES.md).
   on every write, also when the file already existed with looser permissions.
 - **Fixed (security):** `odoodev db restore` and the playbook steps `server.restore` / `db.restore` scan the
   SQL dump for psql backslash commands (`\!`, `\o |cmd`, `\copy`, `\i` …) before piping it into psql, which
-  would execute them on the restoring machine. Only what pg_dump itself writes is accepted (`\connect`,
-  `\restrict`, `\unrestrict`, and COPY blocks in the one-line `COPY … FROM stdin;` form). Anything else is
+  would execute them on the restoring machine. Only what pg_dump itself writes is accepted (`\restrict`,
+  `\unrestrict`, and COPY blocks in the one-line `COPY … FROM stdin;` form; since 0.77.1 no longer
+  `\connect`, see 0.77.1). Anything else is
   refused with the line number before psql starts. Dumps created by pg_dump/odoodev are not affected. The
   restore call now also uses `--no-psqlrc`.
 - **Fixed (security):** repos.yaml: a repository `path` that leaves the base directory (`../..`, or an

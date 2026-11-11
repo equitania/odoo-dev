@@ -82,11 +82,33 @@ class TestCommandHandlers:
 
 
 class TestDockerHandlers:
+    @pytest.fixture(autouse=True)
+    def _real_password(self, monkeypatch):
+        """The docker.up step reads PGPASSWORD from the version's .env."""
+        self.env = {"PGPASSWORD": "s3cret-dev"}
+        monkeypatch.setattr("odoodev.core.automation._load_env_vars", lambda cfg: dict(self.env))
+
     @patch("odoodev.core.docker_compose.compose_up", return_value=0)
     def test_docker_up_success(self, mock_compose, mock_version_cfg):
         result = handle_docker_up(mock_version_cfg, {})
         assert result.status == "ok"
         mock_compose.assert_called_once_with("/tmp/test_native", detach=True)
+
+    @pytest.mark.parametrize("password", ["", "CHANGE_AT_FIRST"])
+    @patch("odoodev.core.docker_compose.compose_up", return_value=0)
+    def test_docker_up_refuses_placeholder_password(self, mock_compose, mock_version_cfg, password):
+        self.env = {"PGPASSWORD": password} if password else {}
+        result = handle_docker_up(mock_version_cfg, {})
+        assert result.status == "error"
+        assert "placeholder" in result.message
+        mock_compose.assert_not_called()
+
+    @patch("odoodev.core.docker_compose.compose_up", return_value=0)
+    def test_docker_up_placeholder_allowed_on_request(self, mock_compose, mock_version_cfg):
+        self.env = {"PGPASSWORD": "CHANGE_AT_FIRST"}
+        result = handle_docker_up(mock_version_cfg, {"allow_default_credentials": True})
+        assert result.status == "ok"
+        mock_compose.assert_called_once()
 
     @patch("odoodev.core.docker_compose.compose_up", return_value=1)
     def test_docker_up_failure(self, mock_compose, mock_version_cfg):

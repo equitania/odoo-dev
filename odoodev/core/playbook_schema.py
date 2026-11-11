@@ -590,7 +590,7 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
     spec.command: spec
     for spec in (
         # --- dev-mode steps ---
-        StepSpec("docker.up", "dev"),
+        StepSpec("docker.up", "dev", (_a("allow_default_credentials", "confirm", default=False),)),
         StepSpec("docker.down", "dev"),
         StepSpec("docker.status", "dev"),
         StepSpec("pull", "dev", (_a("config", "path"), _a("verbose", "confirm", default=False))),

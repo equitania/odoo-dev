@@ -3059,3 +3059,40 @@ class TestDbPurgeMasterDataCommand:
         result = CliRunner().invoke(cli, ["db", "purge-master-data", "--help"])
         assert result.exit_code == 0
         assert "template-DB reset" in result.output.lower() or "master" in result.output.lower()
+
+
+class TestUnsafe7zMember:
+    """Member names are checked from the listing before a 7z tool extracts anything."""
+
+    @staticmethod
+    def _listing(monkeypatch, paths, returncode=0):
+        from types import SimpleNamespace
+
+        stdout = "\n".join(f"Path = {p}\nSize = 1\n" for p in paths)
+        monkeypatch.setattr(
+            "odoodev.core.database.subprocess.run",
+            lambda *a, **k: SimpleNamespace(returncode=returncode, stdout=stdout, stderr=""),
+        )
+
+    def test_plain_members_pass(self, monkeypatch, tmp_path):
+        from odoodev.core.database import find_unsafe_7z_member
+
+        archive = str(tmp_path / "b.7z")
+        self._listing(monkeypatch, [archive, "dump.sql", "filestore/ab/abcdef", "a..b/file"])
+        assert find_unsafe_7z_member("7zz", archive) is None
+
+    @pytest.mark.parametrize(
+        "member", ["../evil", "filestore/../../evil", "/etc/cron.d/x", "C:\\Windows\\x", "a\\..\\b"]
+    )
+    def test_escaping_members_are_named(self, monkeypatch, tmp_path, member):
+        from odoodev.core.database import find_unsafe_7z_member
+
+        archive = str(tmp_path / "b.7z")
+        self._listing(monkeypatch, [archive, "dump.sql", member])
+        assert "leaves the extraction directory" in (find_unsafe_7z_member("7zz", archive) or "")
+
+    def test_unreadable_listing_is_refused(self, monkeypatch, tmp_path):
+        from odoodev.core.database import find_unsafe_7z_member
+
+        self._listing(monkeypatch, [], returncode=2)
+        assert find_unsafe_7z_member("7zz", str(tmp_path / "b.7z")) == "cannot list the archive"

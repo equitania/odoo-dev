@@ -105,7 +105,7 @@ Sucht nach `*.yaml`/`*.yml` in `./playbooks/` und
 
 | Command | Beschreibung |
 |---------|-------------|
-| `docker.up` | Docker-Services starten |
+| `docker.up` | Docker-Services starten. Seit v0.77.1 Fehler bei unveraendertem Platzhalter-Passwort `CHANGE_AT_FIRST` oder leerem PGPASSWORD (wie `odoodev start`/`docker up`); Argument `allow_default_credentials: true` hebt das auf (nur Entwicklung/CI) |
 | `docker.down` | Docker-Services stoppen |
 | `docker.status` | Docker-Status anzeigen |
 | `pull` | Git pull fuer alle Repos |
@@ -161,7 +161,11 @@ Connector-Resets) → `server.rebuild` → `server.neutralize` → `server.verif
   (`temp_dir:` legt es fest). Die Vorprüfung (`--dry-run`) meldet, wenn keines beschreibbar ist.
   Seit v0.77.0 wird der SQL-Dump vor dem Einspielen auf psql-Backslash-Befehle geprüft und bei
   einem Fund mit Zeilennummer abgelehnt; für ein vertrauenswürdiges Backup `allow_psql_meta: true`
-  im Schritt (gilt ebenso für `db.restore`).
+  im Schritt (gilt ebenso für `db.restore`). Seit v0.77.1 ist die Prüfung strenger: `\connect` wird nicht
+  mehr akzeptiert (nur `\restrict`/`\unrestrict`), und `COPY … PROGRAM`, `DO`-Blöcke,
+  `ALTER SYSTEM` sowie Funktionen in nicht vertrauenswürdigen Sprachen werden abgelehnt; dasselbe
+  Opt-out gilt für alles. Das ist ein Filter für bekannte Abkürzungen, keine Sandbox — ein Backup
+  unbekannter Herkunft zuerst auf einer Wegwerf-Maschine einspielen.
 - `server.rebuild` gehört **hinter** den Restore: Der Schritt aktualisiert die Module
   der eingespielten Datenbank und startet den Container selbst. Ein `container.start`
   davor ist überflüssig.
@@ -320,7 +324,7 @@ Discovers `*.yaml`/`*.yml` files in `./playbooks/` and
 
 | Command | Description |
 |---------|-------------|
-| `docker.up` | Start Docker services |
+| `docker.up` | Start Docker services. Since v0.77.1 it returns an error for the unchanged placeholder password `CHANGE_AT_FIRST` or an empty PGPASSWORD (same rule as `odoodev start`/`docker up`); step argument `allow_default_credentials: true` overrides it (development/CI only) |
 | `docker.down` | Stop Docker services |
 | `docker.status` | Show Docker status |
 | `pull` | Git pull for all repos |
@@ -375,7 +379,11 @@ domain, connector resets) → `server.rebuild` → `server.neutralize` → `serv
   else the system temp dir (`temp_dir:` sets it). The preflight (`--dry-run`) reports when none
   is writable. Since v0.77.0 the SQL dump is scanned for psql backslash commands before it is
   restored and refused with the line number if any is found; for a trusted backup set
-  `allow_psql_meta: true` on the step (same for `db.restore`).
+  `allow_psql_meta: true` on the step (same for `db.restore`). Since v0.77.1 the check is stricter:
+  `\connect` is no longer accepted (only `\restrict`/`\unrestrict`), and `COPY … PROGRAM`, `DO` blocks,
+  `ALTER SYSTEM` and functions in untrusted languages are refused; the same opt-out covers all of it.
+  This is a filter for known shortcuts, not a sandbox — restore a backup of unknown origin on a
+  throw-away machine first.
 - `server.rebuild` belongs **after** the restore: it updates the modules of the restored
   database and starts the container itself. A `container.start` before it is redundant.
 - `server.neutralize`, `server.update-all`, `server.uninstall` and `server.verify` need the

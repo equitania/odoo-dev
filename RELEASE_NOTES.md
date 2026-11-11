@@ -1,5 +1,33 @@
 # Release Notes
 
+## Version 0.77.1 (11.11.2026)
+
+### Changed
+- **The dump check before a restore no longer accepts `\connect`.** Only `pg_dump -C` and
+  `pg_dumpall` write that command, and it would steer the restore into a different database
+  than the one being restored. Plain `pg_dump <db>` dumps - what odoodev, Odoo's database
+  manager and the server backup script produce - do not contain it. `\restrict` and
+  `\unrestrict` remain accepted.
+- **The dump check also refuses SQL that runs code on the database server.** psql commands
+  were only one way in: `COPY ... FROM PROGRAM` and `COPY ... TO PROGRAM` (also inside function
+  bodies), top-level `DO` blocks, `ALTER SYSTEM` and functions in an untrusted language (C,
+  internal, plpython, plperlu, pltclu, plsh) are refused with the line number. None of them
+  occurs in a pg_dump of an Odoo database. `--allow-psql-meta` / `allow_psql_meta: true` still
+  lets a trusted backup through. This is a filter for the known shortcuts, not a sandbox: SQL
+  restored by a database superuser is code, and dynamic SQL built inside a function body cannot
+  be recognised by scanning. Restore a backup of unknown origin on a throw-away machine first.
+- **The playbook step `docker.up` refuses the placeholder database password**, as
+  `odoodev start` and `odoodev docker up` already do. A playbook cannot answer a prompt, so the
+  step ends with an error; `allow_default_credentials: true` on the step overrides it.
+- mypy 2.4 instead of 1.20, and `odoodev/cli.py` is type-checked as well. Test coverage is now
+  measured with branch coverage; the threshold stays at 75 %.
+
+### Fixed
+- **7z backups are checked before they are extracted.** 0.77.0 only looked for symlinks pointing
+  outside the extraction directory, after the 7z tool had already written its files. The member
+  names are now read from the archive listing first; an absolute path, a drive letter or a `..`
+  component refuses the archive, as does a listing that cannot be read.
+
 ## Version 0.77.0 (11.11.2026)
 
 ### Changed

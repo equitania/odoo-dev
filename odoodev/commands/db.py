@@ -1158,8 +1158,9 @@ def _restore_dry_run(
 @click.option(
     "--allow-psql-meta",
     is_flag=True,
-    help="Do not refuse a dump that contains psql backslash commands (\\!, \\o |cmd, \\copy ...). "
-    "Only for backups you trust: such a command runs as you during the restore",
+    help="Do not refuse a dump that contains psql backslash commands (\\!, \\o |cmd, \\copy, \\connect ...) "
+    "or SQL that runs code on the database server (COPY ... PROGRAM, DO, ALTER SYSTEM, untrusted-language "
+    "functions). Only for backups you trust: such a command runs during the restore",
 )
 @click.option(
     "--check-space/--no-check-space",

@@ -112,24 +112,26 @@ from odoodev.commands.start import start  # noqa: E402
 from odoodev.commands.stop import stop  # noqa: E402
 from odoodev.commands.venv import venv  # noqa: E402
 
-cli.add_command(init)
-cli.add_command(start)
-cli.add_command(stop)
-cli.add_command(pull)
+# mypy cannot infer the decorated command types across the import cycle (the command
+# modules import resolve_version from this file), hence the has-type ignores below.
+cli.add_command(init)  # type: ignore[has-type]
+cli.add_command(start)  # type: ignore[has-type]
+cli.add_command(stop)  # type: ignore[has-type]
+cli.add_command(pull)  # type: ignore[has-type]
 cli.add_command(repos)
 cli.add_command(requirements)
-db.add_command(db_update)
-cli.add_command(db)
-cli.add_command(env)
+db.add_command(db_update)  # type: ignore[has-type]
+cli.add_command(db)  # type: ignore[has-type]
+cli.add_command(env)  # type: ignore[has-type]
 cli.add_command(export)
-cli.add_command(venv)
-cli.add_command(docker)
-cli.add_command(bench)
-cli.add_command(doctor)
+cli.add_command(venv)  # type: ignore[has-type]
+cli.add_command(docker)  # type: ignore[has-type]
+cli.add_command(bench)  # type: ignore[has-type]
+cli.add_command(doctor)  # type: ignore[has-type]
 cli.add_command(config)
 cli.add_command(migrate)
 cli.add_command(playbook)
-cli.add_command(run)
+cli.add_command(run)  # type: ignore[has-type]
 cli.add_command(setup)
 cli.add_command(shell_setup)
 cli.add_command(capability_card)

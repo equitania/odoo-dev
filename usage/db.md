@@ -104,7 +104,7 @@ Wenn Flags weggelassen werden, fragt odoodev interaktiv nach:
 | Format | Erkennung | Anmerkung |
 |--------|-----------|-----------|
 | ZIP | `zipfile.is_zipfile()` oder `.zip`-Endung | Standard-Odoo-Backup-Format (SQL + Filestore) |
-| 7z | `.7z`-Endung | Verwendet `7zz`-, `7z`- oder `7za`-Binary (Debians `p7zip` liefert `7za`) |
+| 7z | `.7z`-Endung | Verwendet `7zz`-, `7z`- oder `7za`-Binary (Debians `p7zip` liefert `7za`). Seit v0.77.1 werden die Namen vor dem Entpacken aus der Archivliste geprueft: absoluter Pfad, Laufwerksbuchstabe oder `..` lehnt das Archiv ab, ebenso eine nicht lesbare Liste |
 | tar.zst | `.tar.zst`-Endung | Stream-Backup (`container2backup` v4.7.0+); gestreamt per `zstd \| tarfile`, benoetigt die `zstd`-CLI |
 | tar/tgz/tar.gz | `.tar`/`.tgz`-Endung oder `.tar.gz`-Suffix | Komprimiertes Archiv; `.tar.gz` wird explizit als tar erkannt |
 | gz | `.gz`-Endung (kein tar) | Gunzip zu dump.sql |
@@ -130,11 +130,18 @@ Bei `odoodev db restore` wird der Filestore automatisch verwaltet:
    `--without-pgvector`.
 3. SQL-Dump wird in neue Datenbank eingespielt. **Dump-Pruefung (seit v0.77.0):** Vorher wird der
    Dump auf psql-Backslash-Befehle (`\!`, `\o |cmd`, `\copy`, `\i` …) durchsucht, die psql auf
-   deinem Rechner ausfuehren wuerde. Akzeptiert wird nur, was pg_dump selbst schreibt (`\connect`,
-   `\restrict`, `\unrestrict` und COPY-Bloecke in der einzeiligen Form `COPY … FROM stdin;`).
-   Alles andere wird mit Zeilennummer abgelehnt, bevor psql startet. Fuer ein vertrauenswuerdiges
+   deinem Rechner ausfuehren wuerde. Akzeptiert wird nur, was pg_dump selbst schreibt (`\restrict`,
+   `\unrestrict` und COPY-Bloecke in der einzeiligen Form `COPY … FROM stdin;`). `\connect` wird
+   seit v0.77.1 nicht mehr akzeptiert (steht nur in `pg_dump -C`/`pg_dumpall`-Dumps und wuerde den
+   Restore in eine andere Datenbank lenken). Ebenfalls abgelehnt (seit v0.77.1): `COPY … FROM/TO PROGRAM`
+   (auch in Funktionskoerpern), `DO`-Bloecke auf oberster Ebene, `ALTER SYSTEM` und Funktionen in einer
+   nicht vertrauenswuerdigen Sprache (C, internal, plpython, plperlu, pltclu, plsh) — sie fuehren Code
+   auf dem Datenbankserver aus. Alles andere wird mit Zeilennummer abgelehnt, bevor psql startet. Fuer ein vertrauenswuerdiges
    Backup: `--allow-psql-meta`. Dumps von pg_dump/odoodev sind nicht betroffen. psql laeuft mit
-   `--no-psqlrc`.
+   `--no-psqlrc`. **Grenze:** Das ist ein Filter fuer bekannte Abkuerzungen, keine Sandbox — SQL, das
+   ein Datenbank-Superuser einspielt, ist Code, und dynamisches SQL in einem Funktionskoerper laesst
+   sich durch Scannen nicht erkennen. Ein Backup unbekannter Herkunft zuerst auf einer
+   Wegwerf-Maschine einspielen.
 4. Filestore wird nach `~/odoo-share/filestore/{db_name}/` **verschoben** (`shutil.move` —
    Rename auf demselben Dateisystem = instant, keine doppelte Datenhaltung). Mit `--keep-temp`
    wird stattdessen kopiert, damit das entpackte Temp-Verzeichnis zum Debuggen erhalten bleibt.
@@ -562,7 +569,7 @@ When flags are omitted, odoodev prompts interactively:
 | Format | Detection | Note |
 |--------|-----------|------|
 | ZIP | `zipfile.is_zipfile()` or `.zip` extension | Standard Odoo backup format (SQL + filestore) |
-| 7z | `.7z` extension | Uses `7zz`, `7z`, or `7za` binary (Debian's `p7zip` ships `7za`) |
+| 7z | `.7z` extension | Uses `7zz`, `7z`, or `7za` binary (Debian's `p7zip` ships `7za`). Since v0.77.1 member names are checked from the archive listing before extraction: an absolute path, a drive letter or `..` refuses the archive, as does an unreadable listing |
 | tar.zst | `.tar.zst` extension | Stream backup (`container2backup` v4.7.0+); streamed via `zstd \| tarfile`, needs the `zstd` CLI |
 | tar/tgz/tar.gz | `.tar`/`.tgz` extension or `.tar.gz` suffix | Compressed archive; `.tar.gz` is matched explicitly as tar |
 | gz | `.gz` extension (non-tar) | Gunzip to dump.sql |
@@ -587,10 +594,17 @@ During `odoodev db restore`, the filestore is managed automatically:
    odoodev asks (default no); `-y` does **not** skip this question — use `--without-pgvector`.
 3. SQL dump is imported into new database. **Dump check (since v0.77.0):** beforehand the dump is
    scanned for psql backslash commands (`\!`, `\o |cmd`, `\copy`, `\i` …), which psql would
-   execute on your machine. Only what pg_dump itself writes is accepted (`\connect`, `\restrict`,
-   `\unrestrict` and COPY blocks in the one-line `COPY … FROM stdin;` form). Anything else is
+   execute on your machine. Only what pg_dump itself writes is accepted (`\restrict`,
+   `\unrestrict` and COPY blocks in the one-line `COPY … FROM stdin;` form). `\connect` is no longer
+   accepted since v0.77.1 (only `pg_dump -C`/`pg_dumpall` write it, and it would steer the restore into
+   another database). Also refused since v0.77.1: `COPY … FROM/TO PROGRAM` (also inside function
+   bodies), top-level `DO` blocks, `ALTER SYSTEM`, and functions in an untrusted language (C, internal,
+   plpython, plperlu, pltclu, plsh) — they run code on the database server. Anything else is
    refused with the line number before psql starts. For a backup you trust: `--allow-psql-meta`.
-   Dumps created by pg_dump/odoodev are not affected. psql runs with `--no-psqlrc`.
+   Dumps created by pg_dump/odoodev are not affected. psql runs with `--no-psqlrc`. **Limit:** this is a
+   filter for known shortcuts, not a sandbox — SQL restored by a database superuser is code, and dynamic
+   SQL built inside a function body cannot be recognised by scanning. Restore a backup of unknown origin
+   on a throw-away machine first.
 4. Filestore is **moved** to `~/odoo-share/filestore/{db_name}/` (`shutil.move` — a rename on the
    same filesystem is instant and avoids double storage). With `--keep-temp` it is copied instead,
    so the extracted temp directory stays intact for debugging.

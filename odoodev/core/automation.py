@@ -121,10 +121,27 @@ def _get_db_params(version_cfg: VersionConfig, env_vars: dict[str, str] | None =
 
 @_timed
 def handle_docker_up(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
-    """Start Docker Compose services."""
+    """Start Docker Compose services.
+
+    Refuses the unchanged placeholder database password, as ``odoodev start``
+    and ``odoodev docker up`` do. A playbook cannot answer a prompt, so the
+    step fails unless it sets ``allow_default_credentials: true``.
+    """
+    from odoodev.core.database import DEFAULT_DB_PASSWORD
     from odoodev.core.docker_compose import compose_up
 
     native_dir = version_cfg.paths.native_dir
+    password = _load_env_vars(version_cfg).get("PGPASSWORD", "")
+    if (not password or password == DEFAULT_DB_PASSWORD) and not args.get("allow_default_credentials"):
+        return _step_error(
+            "docker.up",
+            "docker.up",
+            f"the database password in {os.path.join(native_dir, '.env')} is still the placeholder "
+            f"'{DEFAULT_DB_PASSWORD}' - set PGPASSWORD there, or set 'allow_default_credentials: true' "
+            "on this step (development/CI only)",
+            0,
+            exit_code=1,
+        )
     rc = compose_up(native_dir, detach=True)
     if rc == 0:
         return _step_ok("docker.up", "docker.up", "Docker services started", 0)
