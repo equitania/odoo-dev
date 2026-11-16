@@ -203,6 +203,12 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.77.2:**
+- **Behoben:** `server.restore` übergibt die eingespielte Dateiablage dem Benutzer, unter dem das Odoo-Image
+  wirklich läuft. Bisher war das fest 1000:1000, die ownERP-Images laufen seit 07.10.2026 aber als 8069 -
+  neue Anhänge ließen sich dann nicht schreiben. Ohne `chown_uid`/`chown_gid` gilt jetzt der Eigentümer von
+  `data_dir` (dann `data_dir/filestore`, root wird übersprungen), sonst 8069:8069.
+
 **Version 0.77.1:**
 - **Geändert (Sicherheit):** Die Dump-Prüfung vor dem Restore ist strenger. `\connect` wird nicht mehr
   akzeptiert: Es steht nur in Dumps von `pg_dump -C` und `pg_dumpall` und würde den Restore in eine andere
@@ -883,6 +889,12 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.77.2:**
+- **Fixed:** `server.restore` hands the restored filestore to the user the Odoo image really runs as. The
+  default was a fixed 1000:1000 while the ownERP images run Odoo as 8069 since 07.10.2026, so new attachments
+  could not be written. Without `chown_uid`/`chown_gid` it now takes the owner of `data_dir` (then
+  `data_dir/filestore`, root is skipped), otherwise 8069:8069.
 
 **Version 0.77.1:**
 - **Changed (security):** The dump check before a restore is stricter. `\connect` is no longer accepted:

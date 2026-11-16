@@ -594,6 +594,35 @@ def make_staging_dir(
     return "", "No directory to extract the backup in: " + "; ".join(rejected)
 
 
+def restore_owner(args: dict[str, Any], data_dir: str, filestore_root: str) -> tuple[int, int, str]:
+    """Who the restored filestore is handed to: ``(uid, gid, where that came from)``.
+
+    1. ``chown_uid`` / ``chown_gid`` in the step — an explicit choice always wins
+       (``chown_gid`` alone is ignored; a missing gid follows the uid).
+    2. The owner of the data directory, then of its ``filestore`` folder, when it is
+       not root. That directory is mounted into the Odoo container and belongs to the
+       user the image runs as — 8069 on current ownERP images, 1000 on older ones.
+    3. 8069:8069, the user of the ownERP images.
+
+    A fixed 1000 used to be the default: on an 8069 image Odoo could then read the
+    restored attachments but not write new ones.
+    """
+    from odoodev.core.docker_exec import ODOO_IMAGE_GID, ODOO_IMAGE_UID
+
+    if args.get("chown_uid") not in (None, ""):
+        uid = int(args["chown_uid"])
+        gid = int(args["chown_gid"]) if args.get("chown_gid") not in (None, "") else uid
+        return uid, gid, "set in the step"
+    for path in (data_dir, filestore_root):
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        if stat.st_uid != 0:
+            return stat.st_uid, stat.st_gid, f"owner of {path}"
+    return ODOO_IMAGE_UID, ODOO_IMAGE_GID, "ownERP image default"
+
+
 @_timed
 def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
     """Restore a backup into a target's DB container, swap the filestore, sanitize.
@@ -640,9 +669,6 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
     template = str(args.get("template", "template0") or "template0")
     drop = _as_bool(args.get("drop"), default=True)
     check_space = _as_bool(args.get("check_space"), default=True)
-    chown_uid = int(args.get("chown_uid", 1000))
-    chown_gid = int(args.get("chown_gid", 1000))
-
     backup_file = _resolve_backup_file(args, command)
 
     # Safety: never restore under a running Odoo server on the same data dir.
@@ -658,6 +684,7 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
     filestore_root = os.path.join(data_dir, "filestore")
     filestore_dest = os.path.join(filestore_root, db_name)
     sessions_dir = os.path.join(data_dir, "sessions")
+    chown_uid, chown_gid, owner_source = restore_owner(args, data_dir, filestore_root)
     # Root works on the host; an unprivileged account cannot write a data
     # directory owned by the container's user and goes through a helper container.
     ops = data_dir_ops(data_dir, db_container)
@@ -791,7 +818,7 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
 
         if filestore_src:
             how = " through a helper container (not running as root)" if ops.via_container else ""
-            report(f"moving the filestore into place and setting its owner{how}")
+            report(f"moving the filestore into place, owner {chown_uid}:{chown_gid} ({owner_source}){how}")
             if not ops.ensure_owned_dir(filestore_root, chown_uid, chown_gid):
                 notes.append(f"{filestore_root} could not be handed to {chown_uid}:{chown_gid}")
             place_error = ops.place(filestore_src, filestore_staging, chown_uid, chown_gid)
@@ -901,6 +928,7 @@ def handle_server_restore(version_cfg: VersionConfig, args: dict[str, Any]) -> S
         sanitize_steps=sanitize_done,
         notes=notes,
         replaced_existing=target_exists,
+        filestore_owner=f"{chown_uid}:{chown_gid}" if filestore_src else "",
         # Kernel the backup was taken on, if its manifest says so — server.verify
         # holds the image against it once the container is up again.
         source_build=read_backup_manifest(backup_file).get("odoo_build", ""),

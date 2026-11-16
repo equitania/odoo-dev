@@ -180,8 +180,16 @@ def resolve_container_host_path(container: str, container_path: str, cli: str = 
     return os.path.join(best_src, remainder) if remainder else best_src
 
 
-def chown_recursive(path: str, uid: int = 1000, gid: int = 1000) -> bool:
-    """Recursively chown a path (default: the Odoo container user 1000:1000).
+# The ownERP Odoo images (myodoo-docker Dockerfiles) pin their 'odoo' user to
+# UID/GID 8069 on every server since 07.10.2026. Images built before that ran
+# Odoo as 1000; a restore therefore asks the data directory first and only
+# falls back to this value (see server_automation.restore_owner).
+ODOO_IMAGE_UID = 8069
+ODOO_IMAGE_GID = 8069
+
+
+def chown_recursive(path: str, uid: int = ODOO_IMAGE_UID, gid: int = ODOO_IMAGE_GID) -> bool:
+    """Recursively chown a path (default: the ownERP image user 8069:8069).
 
     Uses the ``chown -R`` binary — server filestores can hold millions of files
     and a Python ``os.walk`` loop would be an order of magnitude slower.
@@ -202,7 +210,7 @@ def chown_recursive(path: str, uid: int = 1000, gid: int = 1000) -> bool:
     return True
 
 
-def ensure_dir_owner(path: str, uid: int = 1000, gid: int = 1000) -> bool:
+def ensure_dir_owner(path: str, uid: int = ODOO_IMAGE_UID, gid: int = ODOO_IMAGE_GID) -> bool:
     """Create a directory if missing and hand this one directory to ``uid:gid``.
 
     Not recursive — meant for a parent like ``<data_dir>/filestore`` that a
@@ -269,7 +277,7 @@ class HelperDataDir:
 
     A server operated by an unprivileged account in the ``docker`` group cannot
     write into the Odoo data directory: it belongs to the container's user
-    (uid 1000), and handing files to that uid needs root. A throwaway container
+    (uid 8069, 1000 on older images), and handing files to that uid needs root. A throwaway container
     with the data directory mounted can do both. It runs from an image that is
     already on the server, without network.
     """

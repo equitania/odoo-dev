@@ -728,6 +728,28 @@ class TestServerRestore:
         assert not (data_dir / "sessions").exists()
         assert "chown" in events
 
+    def _record_owner(self, monkeypatch):
+        owners: list[tuple[int, int]] = []
+        monkeypatch.setattr(
+            "odoodev.core.docker_exec.chown_recursive", lambda p, uid, gid: owners.append((uid, gid)) or True
+        )
+        return owners
+
+    def test_filestore_goes_to_the_owner_of_the_data_dir(self, version_cfg, tmp_path, monkeypatch):
+        args, _events, _created, data_dir = self._setup(tmp_path, monkeypatch)
+        owners = self._record_owner(monkeypatch)
+        result = sa.handle_server_restore(version_cfg, args)
+        assert result.status == "ok", result.message
+        stat = os.stat(data_dir)
+        assert owners == [(stat.st_uid, stat.st_gid)]
+        assert result.details["filestore_owner"] == f"{stat.st_uid}:{stat.st_gid}"
+
+    def test_explicit_chown_wins_over_the_data_dir(self, version_cfg, tmp_path, monkeypatch):
+        args, _events, _created, _data_dir = self._setup(tmp_path, monkeypatch, chown_uid=4242, chown_gid=4343)
+        owners = self._record_owner(monkeypatch)
+        assert sa.handle_server_restore(version_cfg, args).status == "ok"
+        assert owners == [(4242, 4343)]
+
     def test_first_restore_into_empty_server(self, version_cfg, tmp_path, monkeypatch):
         args, events, _, data_dir = self._setup(tmp_path, monkeypatch, existing=())
         import shutil
@@ -1469,3 +1491,56 @@ def test_restore_uses_the_helper_when_the_data_directory_is_not_writable(version
     assert "place" in helper_calls and "rename" in helper_calls
     assert "chown" not in events and "own_root" not in events
     assert (data_dir / "filestore" / "production").is_dir()
+
+
+# =============================================================================
+# restore_owner — who gets the restored filestore
+# =============================================================================
+
+
+class _FakeStat:
+    def __init__(self, uid: int, gid: int) -> None:
+        self.st_uid = uid
+        self.st_gid = gid
+
+
+class TestRestoreOwner:
+    def _stat(self, monkeypatch, owners: dict[str, tuple[int, int]]):
+        def fake_stat(path):
+            if path not in owners:
+                raise FileNotFoundError(path)
+            return _FakeStat(*owners[path])
+
+        monkeypatch.setattr(sa.os, "stat", fake_stat)
+
+    def test_explicit_uid_and_gid_win(self, monkeypatch):
+        self._stat(monkeypatch, {"/d": (1000, 1000)})
+        assert sa.restore_owner({"chown_uid": 4242, "chown_gid": 4343}, "/d", "/d/filestore") == (
+            4242,
+            4343,
+            "set in the step",
+        )
+
+    def test_explicit_uid_alone_sets_the_gid_too(self, monkeypatch):
+        self._stat(monkeypatch, {})
+        assert sa.restore_owner({"chown_uid": 1000}, "/d", "/d/filestore")[:2] == (1000, 1000)
+
+    def test_owner_of_the_data_dir(self, monkeypatch):
+        self._stat(monkeypatch, {"/d": (8069, 8069), "/d/filestore": (1000, 1000)})
+        assert sa.restore_owner({}, "/d", "/d/filestore") == (8069, 8069, "owner of /d")
+
+    def test_older_image_keeps_its_1000(self, monkeypatch):
+        self._stat(monkeypatch, {"/d": (1000, 1000)})
+        assert sa.restore_owner({}, "/d", "/d/filestore")[:2] == (1000, 1000)
+
+    def test_root_owned_data_dir_falls_through_to_the_filestore(self, monkeypatch):
+        self._stat(monkeypatch, {"/d": (0, 0), "/d/filestore": (1000, 1000)})
+        assert sa.restore_owner({}, "/d", "/d/filestore") == (1000, 1000, "owner of /d/filestore")
+
+    def test_fresh_server_gets_the_image_user_8069(self, monkeypatch):
+        self._stat(monkeypatch, {"/d": (0, 0)})
+        assert sa.restore_owner({}, "/d", "/d/filestore") == (8069, 8069, "ownERP image default")
+
+    def test_empty_values_count_as_unset(self, monkeypatch):
+        self._stat(monkeypatch, {"/d": (8069, 8069)})
+        assert sa.restore_owner({"chown_uid": "", "chown_gid": None}, "/d", "/d/filestore")[:2] == (8069, 8069)

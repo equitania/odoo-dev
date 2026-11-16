@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.77.2 (16.11.2026)
+
+### Fixed
+- **`server.restore` hands the restored filestore to the user the Odoo image really runs as.**
+  The default was a fixed 1000:1000, but the ownERP images have run Odoo as UID/GID 8069 since
+  07.10.2026: the restored attachments were readable, new ones could not be written next to them.
+  Without `chown_uid`/`chown_gid` the step now takes the owner of `data_dir`, then of
+  `data_dir/filestore` (a root owner is skipped), and falls back to 8069:8069. Servers with an
+  older image keep their 1000 through their data directory. `chown_uid` alone also sets the gid.
+  The step reports the owner it chose and where it came from, and returns it as
+  `filestore_owner`. `chown_uid`/`chown_gid` are now listed in the step schema.
+
 ## Version 0.77.1 (11.11.2026)
 
 ### Changed

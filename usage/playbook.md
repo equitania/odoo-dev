@@ -309,8 +309,11 @@ the existing database exactly as it was.
 - A database `<db>__odoodev_old` or a directory `filestore/<db>.odoodev_old` found at the
   start is the previous state kept by an interrupted restore and may be the only copy.
   The step stops and names it; rename it back or remove it by hand.
-- The `filestore` directory itself is handed to the Odoo user (`chown_uid`/`chown_gid`,
-  default 1000:1000), not only the database's folder in it.
+- The restored filestore, and the `filestore` directory itself, are handed to the Odoo user
+  of the image. Without `chown_uid`/`chown_gid` (≥ 0.77.2) that is the owner of `data_dir`,
+  then of `data_dir/filestore` (a root owner is skipped), and finally 8069:8069 — the UID
+  current ownERP images run Odoo as. Older images ran as 1000 and keep it through their
+  data directory. Before 0.77.2 the default was a fixed 1000:1000.
 - Database names may contain letters, digits, `_`, `-`, `.` and `$`, up to 50 characters.
 
 ### The `server.verify` step

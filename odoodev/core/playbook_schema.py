@@ -728,6 +728,9 @@ STEP_ARG_SPECS: dict[str, StepSpec] = {
                 _a("without_pgvector", "confirm", default=False),
                 _a("allow_psql_meta", "confirm", default=False),
                 _a("check_restored", "confirm", default=True),
+                # Owner of the restored filestore; unset = owner of data_dir, else 8069.
+                _a("chown_uid", "int"),
+                _a("chown_gid", "int"),
                 _a("sanitize", "confirm", default=False),
                 _a("deactivate_cron", "confirm"),
                 _a("neutralize", "confirm"),
