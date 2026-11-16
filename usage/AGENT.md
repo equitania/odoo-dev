@@ -305,6 +305,11 @@ the dump are counted and quoted in the step message. Needs room for
 both databases side by side. A leftover `<db>__odoodev_old` stops the next restore — it may be the
 only copy; rename it back or remove it by hand.
 
+**Filestore owner (0.77.2):** without `chown_uid`/`chown_gid` the restored filestore goes to the
+owner of `data_dir`, then of `data_dir/filestore` (root is skipped), else 8069:8069 — the UID of
+current ownERP images (older images run as 1000 and keep it via their data dir). Before 0.77.2 it
+was a fixed 1000:1000, which left new attachments unwritable on 8069 images.
+
 **Preflight:** before the first step of a playbook with `server.restore`/`server.rebuild`, the
 host is read: `docker2update.yaml` names another database or `odoo_version` than the playbook
 (error), the container is missing there (error) or `active: false` (warning); the image's Odoo
