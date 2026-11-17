@@ -216,11 +216,11 @@ def export_modules(
             print_info(f"No odoo-bin environment for v{version} on this machine — using XML-RPC with the Odoo login")
 
     if inv is not None:
-        records, cleaned, updated = _list_modules_via_shell(
+        records, cleaned, updated, skipped = _list_modules_via_shell(
             inv, database, installed_only, exclude_enterprise, cleanup, update_list, as_json
         )
     else:
-        records, cleaned, updated = _list_modules_via_xmlrpc(
+        records, cleaned, updated, skipped = _list_modules_via_xmlrpc(
             version,
             host or "localhost",
             odoo_port,
@@ -242,7 +242,11 @@ def export_modules(
         "count": len(records),
         "updated": updated,
         "cleaned": cleaned,
+        # Dropped with --scope no-enterprise because they depend on an Enterprise module.
+        "skipped_enterprise_dependents": skipped,
     }
+    if skipped and not as_json:
+        print_warning(f"{len(skipped)} modules left out — they depend on an Enterprise module: {', '.join(skipped)}")
 
     if not records:
         # A valid outcome, not a failure — the GUI shows "0 modules".
@@ -280,8 +284,8 @@ def _list_modules_via_xmlrpc(
     cleanup: bool,
     update_list: bool,
     as_json: bool,
-) -> tuple[list[dict[str, object]], int | None, int | None]:
-    """Fetch the module list from a running instance; returns (records, cleaned, updated)."""
+) -> tuple[list[dict[str, object]], int | None, int | None, list[str]]:
+    """Fetch the module list from a running instance; returns (records, cleaned, updated, skipped)."""
     from odoodev.core.xmlrpc_client import OdooXmlRpcClient
 
     user, password = _resolve_login(user, password)
@@ -313,7 +317,8 @@ def _list_modules_via_xmlrpc(
         print_info("No usable Odoo login? Without --via-rpc/--user/--host the export needs none (odoo-bin shell)")
         raise SystemExit(1) from e
 
-    return records, cleaned, updated
+    skipped = client.skipped_enterprise_dependents
+    return records, cleaned, updated, list(skipped) if isinstance(skipped, list) else []
 
 
 def _list_modules_via_shell(
@@ -324,8 +329,11 @@ def _list_modules_via_shell(
     cleanup: bool,
     update_list: bool,
     as_json: bool,
-) -> tuple[list[dict[str, object]], int | None, int | None]:
-    """Fetch the module list via ``odoo-bin shell`` (superuser, no login); returns (records, cleaned, updated)."""
+) -> tuple[list[dict[str, object]], int | None, int | None, list[str]]:
+    """Fetch the module list via ``odoo-bin shell`` (superuser, no login).
+
+    Returns (records, cleaned, updated, skipped).
+    """
     from odoodev.core.database import run_module_export_shell
 
     if not as_json:
@@ -350,8 +358,10 @@ def _list_modules_via_shell(
         if updated is not None:
             print_success(f"{updated} modules added to the catalog")
     records = result["records"]
+    skipped = result.get("skipped")
     return (
         records if isinstance(records, list) else [],
         cleaned if isinstance(cleaned, int) else None,
         updated if isinstance(updated, int) else None,
+        [str(name) for name in skipped] if isinstance(skipped, list) else [],
     )

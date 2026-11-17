@@ -128,6 +128,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tui.modules_update_error": "Apps list update failed: {error}",
         "tui.modules_cleaning": "Removing non-installed modules…",
         "tui.modules_cleaned": "Removed {count} non-installed module(s).",
+        "tui.modules_enterprise_dependents": "{count} module(s) left out: they depend on an Enterprise module.",
         "tui.modules_clean_error": "Module cleanup failed: {error}",
         # --- tui quick menu ---
         "tui.menu_title": "Quick menu — ↑/↓ + Enter, Esc closes",
@@ -516,6 +517,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tui.modules_update_error": "Aktualisierung der Apps-Liste fehlgeschlagen: {error}",
         "tui.modules_cleaning": "Nicht-installierte Module werden entfernt…",
         "tui.modules_cleaned": "{count} nicht-installierte Module entfernt.",
+        "tui.modules_enterprise_dependents": "{count} Module ausgelassen: Sie hängen von einem Enterprise-Modul ab.",
         "tui.modules_clean_error": "Modul-Cleanup fehlgeschlagen: {error}",
         # --- tui quick menu ---
         "tui.menu_title": "Schnellmenü — ↑/↓ + Enter, Esc schließt",

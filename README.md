@@ -203,6 +203,12 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.77.3:**
+- **Behoben:** Der Modulexport „alle ohne Enterprise“ lässt keine Enterprise-Module mehr über Abhängigkeiten
+  zurück in die Liste. Bisher zählte nur die Lizenz `OEEL-1`; Module anderer Lizenz, die ein Enterprise-Modul
+  brauchen, blieben stehen und zogen es bei der Abhängigkeitssuche im Releasemanager wieder nach. Solche
+  Module werden jetzt mit ausgelassen und als Warnung genannt.
+
 **Version 0.77.2:**
 - **Behoben:** `server.restore` übergibt die eingespielte Dateiablage dem Benutzer, unter dem das Odoo-Image
   wirklich läuft. Bisher war das fest 1000:1000, die ownERP-Images laufen seit 07.10.2026 aber als 8069 -
@@ -889,6 +895,12 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.77.3:**
+- **Fixed:** The module export "all without Enterprise" no longer lets Enterprise modules back in through
+  dependencies. Only the licence `OEEL-1` counted so far; modules under another licence that need an
+  Enterprise module stayed in the list and pulled it back in when the Releasemanager resolved dependencies.
+  Such modules are now left out as well and named in a warning.
 
 **Version 0.77.2:**
 - **Fixed:** `server.restore` hands the restored filestore to the user the Odoo image really runs as. The

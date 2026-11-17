@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.77.3 (17.11.2026)
+
+### Fixed
+- **`export modules --scope no-enterprise` (and the TUI scope "all without Enterprise") no longer
+  lets Enterprise modules back in through dependencies.** The scope only filtered on the licence
+  `OEEL-1`. A module under another licence that depends on an Enterprise module stayed in the
+  list - own, customer and partner modules, and the few modules of the Enterprise repository
+  whose manifest carries no `OEEL-1` (e.g. `account_online_payment`, `ai_fields`). Resolving the
+  dependencies of such a list in the Releasemanager then added the Enterprise modules again.
+  The export now also drops every module that depends on an Enterprise module, directly or
+  transitively, names them in a warning and returns them as `skipped_enterprise_dependents` in
+  the `--json` result (additive key). Both paths (`odoo-bin shell` and XML-RPC) behave the same.
+
 ## Version 0.77.2 (16.11.2026)
 
 ### Fixed

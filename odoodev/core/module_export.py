@@ -13,6 +13,7 @@ are easy to unit-test in isolation.
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +43,37 @@ def is_exportable_module(name: str) -> bool:
     if "hw_" in name:
         return False
     return True
+
+
+def find_enterprise_dependents(enterprise: Iterable[str], depends: Mapping[str, Iterable[str]]) -> set[str]:
+    """Return the modules that need an Enterprise module, directly or transitively.
+
+    ``license != OEEL-1`` alone is not enough for an Enterprise-free list: a
+    module under another licence (own, customer and partner modules, plus the
+    few modules of the Enterprise repository without an ``OEEL-1`` manifest)
+    may depend on an Enterprise module. It stays in the list, and whoever
+    resolves its dependencies afterwards pulls the Enterprise modules back in.
+
+    Args:
+        enterprise: Technical names of the ``OEEL-1`` modules.
+        depends: Technical module name -> names of the modules it depends on.
+
+    Returns:
+        Names of the non-Enterprise modules to drop.
+    """
+    roots = set(enterprise)
+    dependents: dict[str, list[str]] = {}
+    for module, needed in depends.items():
+        for name in needed:
+            dependents.setdefault(name, []).append(module)
+    tainted = set(roots)
+    queue = list(roots)
+    while queue:
+        for module in dependents.get(queue.pop(), ()):
+            if module not in tainted:
+                tainted.add(module)
+                queue.append(module)
+    return tainted - roots
 
 
 def _csv_cell(value: object) -> str:
@@ -113,10 +145,21 @@ def build_shell_export_script(
         "    _updated = int(_res[1]) if isinstance(_res, (list, tuple)) and len(_res) >= 2 else 0\n"
         "    env.cr.commit()\n"
         "_records = []\n"
+        "_ent = []\n"
+        "_deps = {}\n"
         f"if {with_records!r}:\n"
         f"    _records = _M.search_read({domain!r}, {list(EXPORT_FIELDS)!r}, order='name asc')\n"
-        f"print({SHELL_EXPORT_MARKER!r} + _json.dumps("
-        "{'records': _records, 'cleaned': _cleaned, 'updated': _updated}, default=str))\n"
+        + (
+            # The graph behind find_enterprise_dependents(); resolved on the host.
+            "    _ent = list(_M.search([('license', '=', 'OEEL-1')]).mapped('name'))\n"
+            "    for _d in env['ir.module.module.dependency'].search([]):\n"
+            "        _deps.setdefault(_d.module_id.name, []).append(_d.name)\n"
+            if with_records and exclude_enterprise
+            else ""
+        )
+        + f"print({SHELL_EXPORT_MARKER!r} + _json.dumps("
+        "{'records': _records, 'cleaned': _cleaned, 'updated': _updated, "
+        "'enterprise': _ent, 'depends': _deps}, default=str))\n"
     )
 
 
@@ -124,7 +167,10 @@ def parse_shell_export_output(stdout: str) -> dict[str, object]:
     """Extract the result object from the shell script's stdout.
 
     Returns a dict with ``records`` (filtered via :func:`is_exportable_module`,
-    like the XML-RPC path), ``cleaned`` and ``updated``.
+    like the XML-RPC path), ``cleaned``, ``updated`` and ``skipped`` — the
+    names of the modules dropped because they depend on an Enterprise module
+    (see :func:`find_enterprise_dependents`; empty unless the script was built
+    with ``exclude_enterprise``).
 
     Raises:
         ValueError: When the marker line is missing or not valid JSON.
@@ -135,7 +181,14 @@ def parse_shell_export_output(stdout: str) -> dict[str, object]:
         if line.startswith(SHELL_EXPORT_MARKER):
             data = json.loads(line[len(SHELL_EXPORT_MARKER) :])
             records = [r for r in data.get("records") or [] if is_exportable_module(str(r.get("name", "")))]
-            return {"records": records, "cleaned": data.get("cleaned"), "updated": data.get("updated")}
+            tainted = find_enterprise_dependents(data.get("enterprise") or [], data.get("depends") or {})
+            skipped = sorted(str(r.get("name", "")) for r in records if r.get("name") in tainted)
+            return {
+                "records": [r for r in records if r.get("name") not in tainted],
+                "cleaned": data.get("cleaned"),
+                "updated": data.get("updated"),
+                "skipped": skipped,
+            }
     raise ValueError("odoo-bin shell returned no module list")
 
 

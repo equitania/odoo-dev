@@ -51,6 +51,8 @@ class OdooXmlRpcClient:
         self._password = password
         self._timeout = timeout
         self._uid: int | None = None
+        # Filled by list_modules(exclude_enterprise=True).
+        self.skipped_enterprise_dependents: list[str] = []
 
         is_local = host in _LOCAL_HOSTS
         if not is_local and not use_https and not allow_insecure_remote:
@@ -176,7 +178,9 @@ class OdooXmlRpcClient:
 
         Args:
             installed_only: Restrict to ``state = installed`` modules.
-            exclude_enterprise: Drop Odoo Enterprise modules (``license = OEEL-1``).
+            exclude_enterprise: Drop Odoo Enterprise modules (``license = OEEL-1``)
+                and every module that depends on one, directly or transitively.
+                The names of the latter are kept in ``skipped_enterprise_dependents``.
 
         Returns:
             List of dicts with 'id', 'name', 'installed_version', 'display_name'.
@@ -197,9 +201,33 @@ class OdooXmlRpcClient:
             [domain],
             {"fields": list(EXPORT_FIELDS), "order": "name asc"},
         )
+        self.skipped_enterprise_dependents = []
         if not isinstance(result, list):
             return []
-        return [r for r in result if is_exportable_module(str(r.get("name", "")))]
+        records = [r for r in result if is_exportable_module(str(r.get("name", "")))]
+        if exclude_enterprise and records:
+            tainted = self._enterprise_dependents()
+            self.skipped_enterprise_dependents = sorted(str(r["name"]) for r in records if r.get("name") in tainted)
+            records = [r for r in records if r.get("name") not in tainted]
+        return records
+
+    def _enterprise_dependents(self) -> set[str]:
+        """Names of the non-Enterprise modules that depend on an Enterprise module."""
+        from odoodev.core.module_export import find_enterprise_dependents
+
+        modules = self._execute_kw("ir.module.module", "search_read", [[]], {"fields": ["name", "license"]})
+        links = self._execute_kw("ir.module.module.dependency", "search_read", [[]], {"fields": ["module_id", "name"]})
+        if not isinstance(modules, list) or not isinstance(links, list):
+            return set()
+        names = {m.get("id"): str(m.get("name", "")) for m in modules}
+        depends: dict[str, list[str]] = {}
+        for link in links:
+            ref = link.get("module_id")  # many2one -> [id, display_name]
+            module = names.get(ref[0]) if isinstance(ref, (list, tuple)) and ref else None
+            if module and link.get("name"):
+                depends.setdefault(module, []).append(str(link["name"]))
+        enterprise = [str(m.get("name", "")) for m in modules if m.get("license") == "OEEL-1"]
+        return find_enterprise_dependents(enterprise, depends)
 
     def find_modules(self, module_names: list[str]) -> list[int]:
         """Find module IDs by name.

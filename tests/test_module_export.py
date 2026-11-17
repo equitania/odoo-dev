@@ -164,7 +164,7 @@ class TestShellExportScript:
         model.update_list.assert_not_called()
         env.cr.commit.assert_not_called()
         result = parse_shell_export_output("INFO noise\n" + stdout)
-        assert result == {"records": [{"id": 1, "name": "base"}], "cleaned": None, "updated": None}
+        assert result == {"records": [{"id": 1, "name": "base"}], "cleaned": None, "updated": None, "skipped": []}
 
     def test_cleanup_and_update_commit(self):
         from odoodev.core.module_export import build_shell_export_script, parse_shell_export_output
@@ -199,4 +199,52 @@ class TestShellExportScript:
         stdout, model, stale, _env = self._run(script, [{"id": 1, "name": "base"}])
         model.search_read.assert_not_called()
         stale.unlink.assert_called_once()
-        assert parse_shell_export_output(stdout) == {"records": [], "cleaned": 2, "updated": None}
+        assert parse_shell_export_output(stdout) == {"records": [], "cleaned": 2, "updated": None, "skipped": []}
+
+    def test_parser_drops_modules_depending_on_enterprise(self):
+        """A non-OEEL module that needs an Enterprise module would pull it back in."""
+        import json
+
+        from odoodev.core.module_export import SHELL_EXPORT_MARKER, parse_shell_export_output
+
+        payload = {
+            "records": [{"name": "eq_datev_export"}, {"name": "eq_datev_extra"}, {"name": "sale"}],
+            "enterprise": ["account_reports"],
+            "depends": {
+                "eq_datev_export": ["account", "account_reports"],
+                "eq_datev_extra": ["eq_datev_export"],
+                "sale": ["base"],
+            },
+        }
+        result = parse_shell_export_output(SHELL_EXPORT_MARKER + json.dumps(payload))
+        assert result["records"] == [{"name": "sale"}]
+        assert result["skipped"] == ["eq_datev_export", "eq_datev_extra"]
+
+    def test_script_collects_dependency_graph_only_without_enterprise(self):
+        from odoodev.core.module_export import build_shell_export_script
+
+        assert "ir.module.module.dependency" in build_shell_export_script(False, True, False, False)
+        assert "ir.module.module.dependency" not in build_shell_export_script(False, False, False, False)
+        assert "ir.module.module.dependency" not in build_shell_export_script(
+            False, True, True, False, with_records=False
+        )
+
+
+class TestFindEnterpriseDependents:
+    """Transitive closure over the module dependency graph."""
+
+    def test_direct_and_transitive(self):
+        from odoodev.core.module_export import find_enterprise_dependents
+
+        depends = {"a": ["ent"], "b": ["a"], "c": ["base"], "ent": ["base"]}
+        assert find_enterprise_dependents(["ent"], depends) == {"a", "b"}
+
+    def test_no_enterprise_means_nothing_dropped(self):
+        from odoodev.core.module_export import find_enterprise_dependents
+
+        assert find_enterprise_dependents([], {"a": ["b"]}) == set()
+
+    def test_cycle_terminates(self):
+        from odoodev.core.module_export import find_enterprise_dependents
+
+        assert find_enterprise_dependents(["ent"], {"a": ["b", "ent"], "b": ["a"]}) == {"a", "b"}

@@ -498,6 +498,11 @@ class OdooTuiApp(App):
             self.call_from_thread(
                 self.notify, t("tui.modules_updated", count=result["updated"]), severity="information"
             )
+        skipped = result.get("skipped")
+        if isinstance(skipped, list) and skipped:
+            self.call_from_thread(
+                self.notify, t("tui.modules_enterprise_dependents", count=len(skipped)), severity="warning"
+            )
         records = result["records"]
         self._write_export_csv(choice, records if isinstance(records, list) else [])
 

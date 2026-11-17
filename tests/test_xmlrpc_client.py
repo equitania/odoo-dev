@@ -240,6 +240,36 @@ class TestListModules:
         assert names == ["base", "theme_clean"]
 
     @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
+    def test_exclude_enterprise_drops_dependents(self, mock_proxy_cls, client):
+        """Non-OEEL modules that depend on an Enterprise module are dropped too."""
+        mock_object = self._wire(mock_proxy_cls, [])
+
+        def execute_kw(_db, _uid, _pw, model, _method, args, _kwargs=None):
+            if model == "ir.module.module.dependency":
+                return [
+                    {"module_id": [10, "DATEV"], "name": "account_reports"},
+                    {"module_id": [11, "DATEV extra"], "name": "eq_datev_export"},
+                    {"module_id": [12, "Sales"], "name": "base"},
+                ]
+            if args == [[]]:
+                return [
+                    {"id": 10, "name": "eq_datev_export", "license": "LGPL-3"},
+                    {"id": 11, "name": "eq_datev_extra", "license": "LGPL-3"},
+                    {"id": 12, "name": "sale", "license": "LGPL-3"},
+                    {"id": 13, "name": "account_reports", "license": "OEEL-1"},
+                ]
+            return [
+                {"id": 10, "name": "eq_datev_export"},
+                {"id": 11, "name": "eq_datev_extra"},
+                {"id": 12, "name": "sale"},
+            ]
+
+        mock_object.execute_kw.side_effect = execute_kw
+        names = [r["name"] for r in client.list_modules(exclude_enterprise=True)]
+        assert names == ["sale"]
+        assert client.skipped_enterprise_dependents == ["eq_datev_export", "eq_datev_extra"]
+
+    @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_non_list_result_returns_empty(self, mock_proxy_cls, client):
         self._wire(mock_proxy_cls, False)
         assert client.list_modules() == []

@@ -75,6 +75,7 @@ class TestExportModulesCli:
             "count": 2,
             "updated": None,
             "cleaned": None,
+            "skipped_enterprise_dependents": [],
         }
         content = out_file.read_text(encoding="utf-8")
         assert content.splitlines()[0] == ".id,name,installed_version,display_name"
