@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.77.4 (17.11.2026)
+
+### Fixed
+- **`export modules --scope no-enterprise` also works on a Community database.** 0.77.3 found
+  the modules that depend on an Enterprise module through the licence `OEEL-1` of the module
+  they depend on. A Community database does not have the Enterprise repository on its addons
+  path, so it holds no record for those modules at all - `eq_datev_export` and four other
+  modules stayed in the list of such a database. A dependency the database has no record for
+  now counts like an Enterprise module; the module cannot be installed there either way.
+
 ## Version 0.77.3 (17.11.2026)
 
 ### Fixed

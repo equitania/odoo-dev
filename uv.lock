@@ -1000,7 +1000,7 @@ wheels = [
 
 [[package]]
 name = "odoodev-equitania"
-version = "0.77.3"
+version = "0.77.4"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

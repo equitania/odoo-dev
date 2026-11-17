@@ -179,7 +179,9 @@ class OdooXmlRpcClient:
         Args:
             installed_only: Restrict to ``state = installed`` modules.
             exclude_enterprise: Drop Odoo Enterprise modules (``license = OEEL-1``)
-                and every module that depends on one, directly or transitively.
+                and every module that depends on one, directly or transitively -
+                or on a module the database has no record for (a Community
+                database does not list the Enterprise modules at all).
                 The names of the latter are kept in ``skipped_enterprise_dependents``.
 
         Returns:
@@ -227,7 +229,7 @@ class OdooXmlRpcClient:
             if module and link.get("name"):
                 depends.setdefault(module, []).append(str(link["name"]))
         enterprise = [str(m.get("name", "")) for m in modules if m.get("license") == "OEEL-1"]
-        return find_enterprise_dependents(enterprise, depends)
+        return find_enterprise_dependents(enterprise, depends, known=names.values())
 
     def find_modules(self, module_names: list[str]) -> list[int]:
         """Find module IDs by name.

@@ -246,7 +246,10 @@ def export_modules(
         "skipped_enterprise_dependents": skipped,
     }
     if skipped and not as_json:
-        print_warning(f"{len(skipped)} modules left out — they depend on an Enterprise module: {', '.join(skipped)}")
+        print_warning(
+            f"{len(skipped)} modules left out — they need an Enterprise module or one missing here: "
+            f"{', '.join(skipped)}"
+        )
 
     if not records:
         # A valid outcome, not a failure — the GUI shows "0 modules".

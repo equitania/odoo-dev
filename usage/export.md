@@ -45,7 +45,7 @@ odoodev export modules 18 -d v18_exam --via-rpc --user admin
 | Scope | Bedeutung |
 |-------|-----------|
 | `all` | Alle verfuegbaren Module (Default) |
-| `no-enterprise` | Alle Module ohne Enterprise — auch ohne Module, die (direkt oder indirekt) von einem Enterprise-Modul abhaengen; sie werden als Warnung genannt (ab 0.77.3) |
+| `no-enterprise` | Alle Module ohne Enterprise — auch ohne Module, die (direkt oder indirekt) von einem Enterprise-Modul abhaengen oder von einem Modul, das die Datenbank nicht kennt (ab 0.77.4; eine Community-Datenbank fuehrt die Enterprise-Module gar nicht); sie werden als Warnung genannt (ab 0.77.3) |
 | `installed` | Nur installierte Module |
 
 `test_*`- und `*hw_*`-Module werden immer herausgefiltert; `theme_*` bleibt erhalten.
@@ -148,7 +148,7 @@ odoodev export modules 18 -d v18_exam --via-rpc --user admin
 | Scope | Meaning |
 |-------|---------|
 | `all` | All available modules (default) |
-| `no-enterprise` | All modules without Enterprise — also without modules that depend on an Enterprise module, directly or transitively; they are named in a warning (since 0.77.3) |
+| `no-enterprise` | All modules without Enterprise — also without modules that depend on an Enterprise module, directly or transitively, or on a module the database does not know (since 0.77.4; a Community database does not list the Enterprise modules at all); they are named in a warning (since 0.77.3) |
 | `installed` | Installed modules only |
 
 `test_*` and `*hw_*` modules are always filtered out; `theme_*` is kept.

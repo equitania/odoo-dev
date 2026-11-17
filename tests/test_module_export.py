@@ -248,3 +248,29 @@ class TestFindEnterpriseDependents:
         from odoodev.core.module_export import find_enterprise_dependents
 
         assert find_enterprise_dependents(["ent"], {"a": ["b", "ent"], "b": ["a"]}) == {"a", "b"}
+
+    def test_missing_dependency_counts_when_known_modules_are_given(self):
+        """A Community database has no record for the Enterprise modules at all."""
+        from odoodev.core.module_export import find_enterprise_dependents
+
+        depends = {"eq_datev_export": ["account", "account_reports"], "eq_extra": ["eq_datev_export"], "sale": ["base"]}
+        known = ["eq_datev_export", "eq_extra", "sale", "account", "base"]
+        assert find_enterprise_dependents([], depends, known) == {"eq_datev_export", "eq_extra"}
+        assert find_enterprise_dependents([], depends) == set()
+
+
+class TestShellExportMissingDependency:
+    def test_parser_drops_modules_with_a_dependency_unknown_to_the_database(self):
+        import json
+
+        from odoodev.core.module_export import SHELL_EXPORT_MARKER, parse_shell_export_output
+
+        payload = {
+            "records": [{"name": "eq_datev_export"}, {"name": "sale"}],
+            "enterprise": [],
+            "depends": {"eq_datev_export": ["account_reports"], "sale": ["base"]},
+            "known": ["eq_datev_export", "sale", "base"],
+        }
+        result = parse_shell_export_output(SHELL_EXPORT_MARKER + json.dumps(payload))
+        assert result["records"] == [{"name": "sale"}]
+        assert result["skipped"] == ["eq_datev_export"]

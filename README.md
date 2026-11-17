@@ -203,6 +203,11 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.77.4:**
+- **Behoben:** Der Modulexport „alle ohne Enterprise“ greift jetzt auch in einer Community-Datenbank. Dort
+  kennt Odoo die Enterprise-Module gar nicht, 0.77.3 erkannte abhängige Module deshalb nicht. Eine
+  Abhängigkeit, zu der die Datenbank kein Modul führt, zählt jetzt wie ein Enterprise-Modul.
+
 **Version 0.77.3:**
 - **Behoben:** Der Modulexport „alle ohne Enterprise“ lässt keine Enterprise-Module mehr über Abhängigkeiten
   zurück in die Liste. Bisher zählte nur die Lizenz `OEEL-1`; Module anderer Lizenz, die ein Enterprise-Modul
@@ -895,6 +900,11 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.77.4:**
+- **Fixed:** The module export "all without Enterprise" now also works on a Community database. Odoo does not
+  list the Enterprise modules there at all, so 0.77.3 did not recognise the dependent modules. A dependency
+  the database has no module for now counts like an Enterprise module.
 
 **Version 0.77.3:**
 - **Fixed:** The module export "all without Enterprise" no longer lets Enterprise modules back in through

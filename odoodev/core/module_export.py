@@ -45,7 +45,9 @@ def is_exportable_module(name: str) -> bool:
     return True
 
 
-def find_enterprise_dependents(enterprise: Iterable[str], depends: Mapping[str, Iterable[str]]) -> set[str]:
+def find_enterprise_dependents(
+    enterprise: Iterable[str], depends: Mapping[str, Iterable[str]], known: Iterable[str] | None = None
+) -> set[str]:
     """Return the modules that need an Enterprise module, directly or transitively.
 
     ``license != OEEL-1`` alone is not enough for an Enterprise-free list: a
@@ -54,18 +56,29 @@ def find_enterprise_dependents(enterprise: Iterable[str], depends: Mapping[str, 
     may depend on an Enterprise module. It stays in the list, and whoever
     resolves its dependencies afterwards pulls the Enterprise modules back in.
 
+    A Community database does not know the Enterprise modules at all: the
+    Enterprise repository is not on its addons path, so there is no ``OEEL-1``
+    record to match. There the dependency points at a module without a record.
+    With ``known`` given, such a missing dependency counts like an Enterprise
+    module - the module cannot be installed on that system either way.
+
     Args:
         enterprise: Technical names of the ``OEEL-1`` modules.
         depends: Technical module name -> names of the modules it depends on.
+        known: Technical names of all modules the database has a record for;
+            ``None`` skips the missing-dependency check.
 
     Returns:
         Names of the non-Enterprise modules to drop.
     """
     roots = set(enterprise)
+    available = set(known) if known is not None else None
     dependents: dict[str, list[str]] = {}
     for module, needed in depends.items():
         for name in needed:
             dependents.setdefault(name, []).append(module)
+            if available is not None and name not in available:
+                roots.add(name)
     tainted = set(roots)
     queue = list(roots)
     while queue:
@@ -146,12 +159,14 @@ def build_shell_export_script(
         "    env.cr.commit()\n"
         "_records = []\n"
         "_ent = []\n"
+        "_known = None\n"
         "_deps = {}\n"
         f"if {with_records!r}:\n"
         f"    _records = _M.search_read({domain!r}, {list(EXPORT_FIELDS)!r}, order='name asc')\n"
         + (
             # The graph behind find_enterprise_dependents(); resolved on the host.
             "    _ent = list(_M.search([('license', '=', 'OEEL-1')]).mapped('name'))\n"
+            "    _known = list(_M.search([]).mapped('name'))\n"
             "    for _d in env['ir.module.module.dependency'].search([]):\n"
             "        _deps.setdefault(_d.module_id.name, []).append(_d.name)\n"
             if with_records and exclude_enterprise
@@ -159,7 +174,7 @@ def build_shell_export_script(
         )
         + f"print({SHELL_EXPORT_MARKER!r} + _json.dumps("
         "{'records': _records, 'cleaned': _cleaned, 'updated': _updated, "
-        "'enterprise': _ent, 'depends': _deps}, default=str))\n"
+        "'enterprise': _ent, 'depends': _deps, 'known': _known}, default=str))\n"
     )
 
 
@@ -169,6 +184,7 @@ def parse_shell_export_output(stdout: str) -> dict[str, object]:
     Returns a dict with ``records`` (filtered via :func:`is_exportable_module`,
     like the XML-RPC path), ``cleaned``, ``updated`` and ``skipped`` — the
     names of the modules dropped because they depend on an Enterprise module
+    or on a module the database has no record for
     (see :func:`find_enterprise_dependents`; empty unless the script was built
     with ``exclude_enterprise``).
 
@@ -181,7 +197,10 @@ def parse_shell_export_output(stdout: str) -> dict[str, object]:
         if line.startswith(SHELL_EXPORT_MARKER):
             data = json.loads(line[len(SHELL_EXPORT_MARKER) :])
             records = [r for r in data.get("records") or [] if is_exportable_module(str(r.get("name", "")))]
-            tainted = find_enterprise_dependents(data.get("enterprise") or [], data.get("depends") or {})
+            known = data.get("known")
+            tainted = find_enterprise_dependents(
+                data.get("enterprise") or [], data.get("depends") or {}, known if isinstance(known, list) else None
+            )
             skipped = sorted(str(r.get("name", "")) for r in records if r.get("name") in tainted)
             return {
                 "records": [r for r in records if r.get("name") not in tainted],

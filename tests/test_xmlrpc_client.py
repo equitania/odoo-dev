@@ -250,6 +250,8 @@ class TestListModules:
                     {"module_id": [10, "DATEV"], "name": "account_reports"},
                     {"module_id": [11, "DATEV extra"], "name": "eq_datev_export"},
                     {"module_id": [12, "Sales"], "name": "base"},
+                    # No record for the dependency: a Community database without the Enterprise repo.
+                    {"module_id": [15, "Orphan"], "name": "hr_payroll"},
                 ]
             if args == [[]]:
                 return [
@@ -257,17 +259,20 @@ class TestListModules:
                     {"id": 11, "name": "eq_datev_extra", "license": "LGPL-3"},
                     {"id": 12, "name": "sale", "license": "LGPL-3"},
                     {"id": 13, "name": "account_reports", "license": "OEEL-1"},
+                    {"id": 14, "name": "base", "license": "LGPL-3"},
+                    {"id": 15, "name": "eq_orphan", "license": "LGPL-3"},
                 ]
             return [
                 {"id": 10, "name": "eq_datev_export"},
                 {"id": 11, "name": "eq_datev_extra"},
                 {"id": 12, "name": "sale"},
+                {"id": 15, "name": "eq_orphan"},
             ]
 
         mock_object.execute_kw.side_effect = execute_kw
         names = [r["name"] for r in client.list_modules(exclude_enterprise=True)]
         assert names == ["sale"]
-        assert client.skipped_enterprise_dependents == ["eq_datev_export", "eq_datev_extra"]
+        assert client.skipped_enterprise_dependents == ["eq_datev_export", "eq_datev_extra", "eq_orphan"]
 
     @patch("odoodev.core.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_non_list_result_returns_empty(self, mock_proxy_cls, client):
