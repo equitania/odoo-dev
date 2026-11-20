@@ -118,6 +118,18 @@ steps:
   #   command: server.update-all
   #   args: { target: test, restart: true }
 
+  # Modules that must exist on the test copy but are not in the restored database:
+  # server.install installs like the Apps menu (dependencies included). Names the
+  # database does not know yet trigger an update of the module list first; a name
+  # that is still unknown fails the step. Already installed modules are skipped.
+  # - name: "Install modules"
+  #   command: server.install
+  #   args:
+  #     target: test
+  #     modules: [eq_foo, sale_management]
+  #     # restart: true
+  #     # timeout: 1800
+
   # Modules that must not exist on the test copy (here: bank connection modules).
   # Uninstall them HERE, with the step, after the rebuild. Marking them
   # state = 'to remove' by SQL does not work: the rebuild's "-u all" gives every

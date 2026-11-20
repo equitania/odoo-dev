@@ -1645,6 +1645,7 @@ def run_uninstall_modules(
 # is safe to put into a generated script.
 _MODULE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 UNINSTALL_REPORT_MARKER = "odoodev-uninstall-result: "
+INSTALL_REPORT_MARKER = "odoodev-install-result: "
 
 
 def validate_module_names(raw: str | list[str] | None) -> list[str]:
@@ -1726,25 +1727,150 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
     )
 
 
-def parse_uninstall_report(output: str) -> dict[str, list[str]] | None:
-    """Extract the result dict from ``odoo-bin shell`` output, ignoring log noise.
-
-    Returns ``None`` when no valid marker line is present. The last marker wins.
-    """
+def _parse_marker_report(output: str, marker: str) -> dict[str, list[str]] | None:
+    """Extract the last ``<marker>{json}`` dict from shell output, ignoring log noise."""
     import json
 
     report: dict[str, list[str]] | None = None
     for line in output.splitlines():
-        idx = line.find(UNINSTALL_REPORT_MARKER)
+        idx = line.find(marker)
         if idx < 0:
             continue
         try:
-            data = json.loads(line[idx + len(UNINSTALL_REPORT_MARKER) :])
+            data = json.loads(line[idx + len(marker) :])
         except ValueError:
             continue
         if isinstance(data, dict):
             report = {k: [str(x) for x in v] for k, v in data.items() if isinstance(v, list)}
     return report
+
+
+def parse_uninstall_report(output: str) -> dict[str, list[str]] | None:
+    """Extract the result dict from ``odoo-bin shell`` output, ignoring log noise.
+
+    Returns ``None`` when no valid marker line is present. The last marker wins.
+    """
+    return _parse_marker_report(output, UNINSTALL_REPORT_MARKER)
+
+
+def _build_install_report_script(modules: list[str]) -> str:
+    """Build the ``odoo-bin shell`` script behind ``server.install``.
+
+    Installs like the Apps menu does (``button_immediate_install``; Odoo's
+    ``button_install`` takes the dependencies along), one requested module at a
+    time. Modules unknown to the database are looked up again after
+    ``update_list()`` (so modules newly present in the addons path become known);
+    if any is still unknown, nothing is installed and the report names them. The
+    only machine output is one ``odoodev-install-result: {json}`` line. ``modules``
+    must come from :func:`validate_module_names`. The script exits 0 even when a
+    module failed — the failure is in the report and the database check decides;
+    ``odoo-bin shell`` rolls back on exit, so every step is committed explicitly.
+    """
+    return textwrap.dedent(
+        f"""\
+        import json
+        import sys
+        import traceback
+
+        MODULES = {modules!r}
+        _cr, _uid, _ctx = env.cr, env.uid, env.context
+
+
+        def _states():
+            _env = odoo.api.Environment(_cr, _uid, _ctx)
+            _recs = _env["ir.module.module"].with_context(active_test=False).search([])
+            return {{_r.name: _r.state for _r in _recs}}
+
+
+        _before = _states()
+        _updated_list = False
+        if any(m not in _before for m in MODULES):
+            odoo.api.Environment(_cr, _uid, _ctx)["ir.module.module"].update_list()
+            _cr.commit()
+            _updated_list = True
+            _before = _states()
+        _unknown = [m for m in MODULES if m not in _before]
+        _already = [m for m in MODULES if _before.get(m) == "installed"]
+        _todo = [m for m in MODULES if m in _before and _before[m] != "installed"]
+        _failed = []
+        if not _unknown:
+            for _name in _todo:
+                env = odoo.api.Environment(_cr, _uid, _ctx)
+                _rec = env["ir.module.module"].with_context(active_test=False).search([("name", "=", _name)])
+                if _rec.state == "installed":
+                    continue  # installed as a dependency of an earlier module
+                try:
+                    _rec.button_immediate_install()
+                    env.cr.commit()
+                except Exception:
+                    traceback.print_exc(file=sys.stderr)
+                    env.cr.rollback()
+                    _failed.append(_name)
+        _after = _states()
+        _installed = sorted(n for n, s in _after.items() if s == "installed" and _before.get(n) != "installed")
+        print(
+            {INSTALL_REPORT_MARKER!r}
+            + json.dumps(
+                {{
+                    "requested": MODULES,
+                    "already_installed": _already,
+                    "installed": _installed,
+                    "unknown": _unknown,
+                    "failed": _failed,
+                    "list_updated": ["yes"] if _updated_list else [],
+                }}
+            )
+        )
+        """
+    )
+
+
+def parse_install_report(output: str) -> dict[str, list[str]] | None:
+    """Extract the ``server.install`` result dict from shell output; ``None`` if absent."""
+    return _parse_marker_report(output, INSTALL_REPORT_MARKER)
+
+
+def _run_report_script_container(
+    script: str,
+    db_name: str,
+    odoo_container: str,
+    odoo_bin_path: str,
+    config_path: str,
+    cli: str,
+    user: str,
+    timeout: float | None,
+) -> tuple[bool, str]:
+    """Pipe ``script`` into ``odoo-bin shell`` inside the running container (stdin)."""
+    from odoodev.core.docker_exec import docker_container_running, docker_exec
+
+    if not docker_container_running(odoo_container, cli):
+        return False, f"Container '{odoo_container}' is not running — docker exec needs a running container"
+    cmd = ["python3", odoo_bin_path, "shell", "-c", config_path, "-d", db_name, "--no-http"]
+    ok, stdout, stderr = docker_exec(odoo_container, cmd, stdin_data=script, cli=cli, user=user, timeout=timeout)
+    if not ok:
+        tail = "\n".join((stderr or stdout).strip().splitlines()[-15:])
+        return False, tail or f"odoo-bin shell failed in container '{odoo_container}'"
+    return True, stdout
+
+
+def run_install_modules_container(
+    db_name: str,
+    odoo_container: str,
+    modules: list[str],
+    odoo_bin_path: str = SERVER_ODOO_BIN_PATH,
+    config_path: str = SERVER_ODOO_CONF_PATH,
+    cli: str = "docker",
+    user: str = "odoo",
+    timeout: float | None = None,
+) -> tuple[bool, str]:
+    """Run :func:`_build_install_report_script` in ``odoo-bin shell`` inside the running container.
+
+    Same transport as :func:`run_uninstall_modules_container`. Returns
+    ``(success, stdout)``; stdout carries the result marker.
+    """
+    return _run_report_script_container(
+        _build_install_report_script(modules), db_name, odoo_container, odoo_bin_path, config_path, cli, user, timeout
+    )
 
 
 def run_uninstall_modules_container(

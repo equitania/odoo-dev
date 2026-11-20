@@ -998,6 +998,129 @@ def handle_server_update_all(version_cfg: VersionConfig, args: dict[str, Any]) -
 
 
 # =============================================================================
+# server.install — install modules the way the Apps menu does
+# =============================================================================
+
+INSTALL_TIMEOUT = 1800
+INSTALL_HEALTH_TIMEOUT = 600
+
+
+@_timed
+def handle_server_install(version_cfg: VersionConfig, args: dict[str, Any]) -> StepResult:
+    """Install modules in the target's running Odoo container via ``odoo-bin shell``.
+
+    The counterpart of ``server.uninstall`` and built the same way: what the Apps
+    menu does (``button_immediate_install``, dependencies included) in a shell that
+    does not serve HTTP, after the serving process has finished its own startup.
+
+    A module that is already installed is skipped and reported. A module unknown to
+    the database is looked up again after ``update_list()``; if it is still unknown
+    the step fails and names it — a requested install that cannot happen is a
+    failure. The database is checked afterwards (every requested module must be
+    ``installed``); the container restarts by default so the serving process loads
+    a clean registry. An empty ``modules`` list is a successful no-op.
+    """
+    from odoodev.core.database import (
+        SERVER_ODOO_BIN_PATH,
+        SERVER_ODOO_CONF_PATH,
+        _run_psql_tuples,
+        parse_install_report,
+        pg_exec_container,
+        run_install_modules_container,
+        validate_module_names,
+    )
+    from odoodev.core.docker_exec import docker_start, docker_stop
+
+    command = "server.install"
+    odoo_container = _require(args, "odoo_container", command)
+    db_container = _require(args, "db_container", command)
+    db_name = _require(args, "db_name", command)
+    owner = str(args.get("owner", "") or "ownerp")
+    try:
+        modules = validate_module_names(args.get("modules"))
+    except ValueError as exc:
+        return _step_error(command, command, f"{command}: {exc}", 0)
+    if not modules:
+        return _step_ok(command, command, "Nothing to install: no modules requested", 0, database=db_name, installed=[])
+    timeout = int(args.get("timeout", INSTALL_TIMEOUT))
+    report = _reporter(args)
+
+    # Wait for "healthy" first — same reason as server.uninstall: two Odoo processes
+    # writing module states while the serving one loads its registry deadlock.
+    _health, problem = _wait_container_healthy(odoo_container, INSTALL_HEALTH_TIMEOUT, report)
+    if problem:
+        return _step_error(command, command, problem, 0)
+
+    report(f"installing {', '.join(modules)} into '{db_name}' inside '{odoo_container}'")
+    ok, output = run_install_modules_container(
+        db_name,
+        odoo_container,
+        modules,
+        odoo_bin_path=str(args.get("odoo_bin_path", "") or SERVER_ODOO_BIN_PATH),
+        config_path=str(args.get("config_path", "") or SERVER_ODOO_CONF_PATH),
+        timeout=timeout,
+    )
+    if not ok:
+        return _step_error(command, command, f"Install shell failed: {output}", 0)
+    result = parse_install_report(output)
+    if result is None:
+        return _step_error(command, command, "Install shell gave no result line — check 'docker logs'", 0)
+
+    unknown = result.get("unknown", [])
+    already = result.get("already_installed", [])
+    installed = result.get("installed", [])
+    failed = result.get("failed", [])
+    if unknown:
+        return _step_error(
+            command,
+            command,
+            f"Modules not found in '{db_name}' even after updating the module list: {', '.join(unknown)}"
+            " (not in the addons path of the container?)",
+            0,
+        )
+
+    # The database has the last word, whatever the shell reported.
+    report(f"checking the module states of '{db_name}'")
+    names = ", ".join(f"'{name}'" for name in modules)  # validated: [a-z0-9_] only
+    query = f"SELECT name, state FROM ir_module_module WHERE name IN ({names}) ORDER BY name;"  # noqa: S608
+    with pg_exec_container(db_container):
+        db_ok, rows = _run_psql_tuples(query, db=db_name, host=_UNUSED_HOST, port=_UNUSED_PORT, user=owner)
+    if not db_ok:
+        return _step_error(command, command, f"Could not read the module states of '{db_name}' in '{db_container}'", 0)
+    states = {row[0]: row[-1] for row in rows}
+    bad = [f"{name} ({states.get(name, 'missing')})" for name in modules if states.get(name) != "installed"]
+    if bad:
+        extra = f"; install failed for: {', '.join(failed)}" if failed else ""
+        return _step_error(command, command, f"Modules not installed in '{db_name}': {', '.join(bad)}{extra}", 0)
+    if failed:
+        return _step_error(command, command, f"Install reported failures: {', '.join(failed)}", 0)
+
+    if not installed:
+        return _step_ok(
+            command,
+            command,
+            f"Nothing to install in '{db_name}': already installed: {', '.join(already)}",
+            0,
+            database=db_name,
+            installed=[],
+        )
+
+    message = f"Installed into '{db_name}': {', '.join(installed)}"
+    if already:
+        message += f" (already installed: {', '.join(already)})"
+    dependencies = [m for m in installed if m not in modules]
+    if dependencies:
+        message += f" (dependencies: {', '.join(dependencies)})"
+    if _as_bool(args.get("restart"), default=True):
+        stop_ok, stop_msg = docker_stop(odoo_container)
+        start_ok, start_msg = docker_start(odoo_container)
+        if not (stop_ok and start_ok):
+            return _step_error(command, command, f"{message}, but restart failed: {stop_msg} / {start_msg}", 0)
+        message += ", container restarted"
+    return _step_ok(command, command, message, 0, database=db_name, installed=installed)
+
+
+# =============================================================================
 # server.uninstall — uninstall modules the way the Apps menu does
 # =============================================================================
 
@@ -1457,6 +1580,7 @@ SERVER_COMMAND_HANDLERS: dict[str, Any] = {
     "server.restore": handle_server_restore,
     "server.neutralize": handle_server_neutralize,
     "server.update-all": handle_server_update_all,
+    "server.install": handle_server_install,
     "server.uninstall": handle_server_uninstall,
     "server.verify": handle_server_verify,
     "sql.execute": handle_sql_execute,

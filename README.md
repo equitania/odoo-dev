@@ -203,6 +203,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.78.0:**
+- **Neu:** Playbook-Schritt `server.install` installiert Module auf einem Server-Target wie das Apps-Menü (Abhängigkeiten inklusive) — das Gegenstück zu `server.uninstall`. Bereits installierte Module werden übersprungen, unbekannte nach einer Aktualisierung der Modulliste gemeldet (Fehler), danach prüft der Schritt die Datenbank; der Container wird standardmäßig neu gestartet.
+
 **Version 0.77.4:**
 - **Behoben:** Der Modulexport „alle ohne Enterprise“ greift jetzt auch in einer Community-Datenbank. Dort
   kennt Odoo die Enterprise-Module gar nicht, 0.77.3 erkannte abhängige Module deshalb nicht. Eine
@@ -900,6 +903,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.78.0:**
+- **Added:** Playbook step `server.install` installs modules on a server target the way the Apps menu does (dependencies included) — the counterpart of `server.uninstall`. Modules that are already installed are skipped, modules still unknown after a module list update are an error, the database is checked afterwards, and the container restarts by default.
 
 **Version 0.77.4:**
 - **Fixed:** The module export "all without Enterprise" now also works on a Community database. Odoo does not

@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.78.0 (20.11.2026)
+
+### Added
+- **Playbook step `server.install`: install modules on a customer-server target.** The counterpart
+  of `server.uninstall`, built the same way: it waits until the target's Odoo container is healthy,
+  then installs the modules like the Apps menu does (`button_immediate_install`, dependencies
+  included) in an `odoo-bin shell --no-http` next to the serving process. A module that is already
+  installed is skipped and reported. A module the database does not know yet triggers an update of
+  the module list (`update_list()`) first, so modules newly present in the addons path are found;
+  if it is still unknown the step fails and names it - nothing is installed in that case. Afterwards
+  the database is checked: every requested module must be `installed`, otherwise the step fails
+  listing module and state. The container is restarted by default (`restart: false` to skip). An
+  empty `modules` list is a successful no-op.
+
 ## Version 0.77.4 (17.11.2026)
 
 ### Fixed

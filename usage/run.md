@@ -125,6 +125,7 @@ Sucht nach `*.yaml`/`*.yml` in `./playbooks/` und
 | `server.rebuild` | Update-Routine des Servers (`update_docker_odoo.py`): Image bauen, Module aktualisieren, Odoo starten — gehört **hinter** den Restore |
 | `server.neutralize` | `odoo-bin neutralize` im laufenden Odoo-Container |
 | `server.update-all` | `odoo-bin -u all --stop-after-init` im laufenden Odoo-Container (+ Neustart) — Ausnahme für Hosts ohne `update_docker_odoo.py` |
+| `server.install` | Installiert Module wie das Apps-Menü (`button_immediate_install` per `odoo-bin shell` im laufenden Container, Abhängigkeiten inklusive); `modules:` (Liste), `restart` (Standard `true`), `timeout`. Wartet vorher auf „healthy“, aktualisiert bei unbekannten Modulen die Modulliste (bleibt ein Modul unbekannt: Fehler), prüft danach die Datenbank; schon installierte Module werden übersprungen, eine leere Liste ist ein No-op |
 | `server.uninstall` | Deinstalliert Module wie das Apps-Menü (`button_immediate_uninstall` per `odoo-bin shell` im laufenden Container, Abhängige inklusive); `modules:` (Liste), `restart` (Standard `true`), `timeout`. Wartet vorher auf „healthy“, prüft danach die Datenbank; schon deinstallierte oder unbekannte Module sind kein Fehler |
 | `server.verify` | Prüft, ob Odoo die Datenbank wirklich ausliefert: Container healthy, keine hängenden Modulzustände, Login-Seite lädt |
 | `sql.execute` | SQL-Statements/-Datei gegen Target- oder Dev-Datenbank |
@@ -169,7 +170,7 @@ Connector-Resets) → `server.rebuild` → `server.neutralize` → `server.verif
 - `server.rebuild` gehört **hinter** den Restore: Der Schritt aktualisiert die Module
   der eingespielten Datenbank und startet den Container selbst. Ein `container.start`
   davor ist überflüssig.
-- `server.neutralize`, `server.update-all`, `server.uninstall` und `server.verify` brauchen den
+- `server.neutralize`, `server.update-all`, `server.install`, `server.uninstall` und `server.verify` brauchen den
   **laufenden** Container.
 - Module auf der Testkopie entfernen: `server.uninstall` **nach** `server.rebuild`. Weder ein
   `state = 'to remove'` per SQL vor dem Rebuild (das `-u all` des Rebuilds schreibt
@@ -344,6 +345,7 @@ Discovers `*.yaml`/`*.yml` files in `./playbooks/` and
 | `server.rebuild` | The server's own update routine (`update_docker_odoo.py`): build the image, update the modules, start Odoo — belongs **after** the restore |
 | `server.neutralize` | `odoo-bin neutralize` inside the running Odoo container |
 | `server.update-all` | `odoo-bin -u all --stop-after-init` inside the running Odoo container (+ restart) — the exception for hosts without `update_docker_odoo.py` |
+| `server.install` | Installs modules the way the Apps menu does (`button_immediate_install` via `odoo-bin shell` in the running container, dependencies included); `modules:` (list), `restart` (default `true`), `timeout`. Waits for "healthy" first, updates the module list for unknown modules (a module that stays unknown is an error) and checks the database afterwards; modules that are already installed are skipped, an empty list is a no-op |
 | `server.uninstall` | Uninstalls modules the way the Apps menu does (`button_immediate_uninstall` via `odoo-bin shell` in the running container, dependents included); `modules:` (list), `restart` (default `true`), `timeout`. Waits for "healthy" first and checks the database afterwards; modules that are already uninstalled or unknown are not an error |
 | `server.verify` | Checks that Odoo really serves the database: container healthy, no module stuck between states, login page loads |
 | `sql.execute` | SQL statements/file against a target or dev database |
@@ -386,7 +388,7 @@ domain, connector resets) → `server.rebuild` → `server.neutralize` → `serv
   throw-away machine first.
 - `server.rebuild` belongs **after** the restore: it updates the modules of the restored
   database and starts the container itself. A `container.start` before it is redundant.
-- `server.neutralize`, `server.update-all`, `server.uninstall` and `server.verify` need the
+- `server.neutralize`, `server.update-all`, `server.install`, `server.uninstall` and `server.verify` need the
   **running** container.
 - To remove modules from the test copy use `server.uninstall` **after** `server.rebuild`.
   Neither `state = 'to remove'` set by SQL before the rebuild (the rebuild's `-u all` writes

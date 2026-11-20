@@ -38,6 +38,7 @@ VALID_COMMANDS = frozenset(
         "server.restore",
         "server.neutralize",
         "server.update-all",
+        "server.install",
         "server.uninstall",
         "server.verify",
         "sql.execute",
@@ -56,6 +57,7 @@ SERVER_COMMANDS = frozenset(
         "server.restore",
         "server.neutralize",
         "server.update-all",
+        "server.install",
         "server.uninstall",
         "server.verify",
         "sql.execute",
@@ -460,7 +462,15 @@ _RUNTIME_KEYS = ("backup_file", "source_build")
 _RUNTIME_CONSUMERS = frozenset({"server.restore", "server.verify"})
 # Steps that run long enough to say what they are doing (they receive ``_progress``).
 _PROGRESS_COMMANDS = frozenset(
-    {"server.backup", "server.rebuild", "server.restore", "server.update-all", "server.uninstall", "server.verify"}
+    {
+        "server.backup",
+        "server.rebuild",
+        "server.restore",
+        "server.update-all",
+        "server.install",
+        "server.uninstall",
+        "server.verify",
+    }
 )
 # Steps that change a server and are therefore worth a preflight.
 _PREFLIGHT_COMMANDS = frozenset({"server.restore", "server.rebuild"})
