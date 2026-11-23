@@ -196,6 +196,26 @@ class TestHandler:
         assert result.status == "error"
         assert "failures" in result.message
 
+    def test_failure_reason_is_in_the_message(self, version_cfg, monkeypatch):
+        err = "account_ebics: UserError: cannot\nTraceback (most recent call last):\nUserError: cannot"
+        out = _report(installed=["account_ebics"], failed=["account_ebics"], errors=[err])
+        self._patch(monkeypatch, shell_out=out, rows=[("account_ebics", "installed")])
+        result = sa.handle_server_uninstall(version_cfg, dict(ARGS))
+        assert result.status == "error"
+        assert "uninstall failed for: account_ebics" in result.message
+        assert "UserError: cannot" in result.message and "Traceback" in result.message
+
+    def test_failure_reason_on_reported_failure_only(self, version_cfg, monkeypatch):
+        out = _report(installed=["account_ebics"], failed=["account_ebics"], errors=["account_ebics: KeyError: 'k'"])
+        self._patch(monkeypatch, shell_out=out)
+        result = sa.handle_server_uninstall(version_cfg, dict(ARGS))
+        assert "KeyError: 'k'" in result.message
+
+    def test_script_records_reason(self):
+        script = db_mod._build_uninstall_report_script(["account_ebics"])
+        compile(script, "<script>", "exec")
+        assert "_failure_detail(_name, _exc)" in script and '"errors": _errors' in script
+
     def test_unhealthy_container_stops_before_shell(self, version_cfg, monkeypatch):
         events = self._patch(monkeypatch, health=("starting", "Odoo container 'test-odoo' did not become healthy"))
         result = sa.handle_server_uninstall(version_cfg, dict(ARGS))

@@ -1675,7 +1675,7 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
     and the database check decides; ``odoo-bin shell`` rolls back on exit, so
     every successful uninstall is committed explicitly.
     """
-    return textwrap.dedent(
+    return _FAILURE_HELPER + textwrap.dedent(
         f"""\
         import json
         import sys
@@ -1696,6 +1696,7 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
         _installed = [m for m in MODULES if _before.get(m) == "installed"]
         _not_installed = [m for m in MODULES if m in _before and _before[m] != "installed"]
         _failed = []
+        _errors = []
         for _name in _installed:
             env = odoo.api.Environment(_cr, _uid, _ctx)
             _rec = env["ir.module.module"].with_context(active_test=False).search([("name", "=", _name)])
@@ -1704,10 +1705,11 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
             try:
                 _rec.button_immediate_uninstall()
                 env.cr.commit()
-            except Exception:
+            except Exception as _exc:
                 traceback.print_exc(file=sys.stderr)
                 env.cr.rollback()
                 _failed.append(_name)
+                _errors.append(_failure_detail(_name, _exc))
         _after = _states()
         _uninstalled = sorted(n for n, s in _before.items() if s == "installed" and _after.get(n) != "installed")
         print(
@@ -1720,11 +1722,40 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
                     "not_installed": _not_installed,
                     "unknown": _unknown,
                     "failed": _failed,
+                    "errors": _errors,
                 }}
             )
         )
         """
     )
+
+
+_FAILURE_HELPER = textwrap.dedent(
+    """\
+    def _failure_detail(name, exc):
+        import traceback
+
+        tail = traceback.format_exc().strip().splitlines()[-15:]
+        head = name + ": " + type(exc).__name__ + ": " + str(exc)[:300]
+        return head + "\\n" + "\\n".join(line[:300] for line in tail)
+
+
+    """
+)
+
+MAX_FAILURE_DETAIL_CHARS = 4000
+
+
+def format_failure_details(result: dict[str, list[str]], limit: int = MAX_FAILURE_DETAIL_CHARS) -> str:
+    """Join the per-module ``errors`` of an install/uninstall report into one bounded text block.
+
+    Returns ``""`` when the report carries none (older script, or nothing failed).
+    The block is cut at ``limit`` characters so a playbook step message stays readable.
+    """
+    text = "\n\n".join(result.get("errors", []))
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "\n... (truncated)"
+    return text
 
 
 def _parse_marker_report(output: str, marker: str) -> dict[str, list[str]] | None:
@@ -1766,7 +1797,7 @@ def _build_install_report_script(modules: list[str]) -> str:
     module failed — the failure is in the report and the database check decides;
     ``odoo-bin shell`` rolls back on exit, so every step is committed explicitly.
     """
-    return textwrap.dedent(
+    return _FAILURE_HELPER + textwrap.dedent(
         f"""\
         import json
         import sys
@@ -1793,6 +1824,7 @@ def _build_install_report_script(modules: list[str]) -> str:
         _already = [m for m in MODULES if _before.get(m) == "installed"]
         _todo = [m for m in MODULES if m in _before and _before[m] != "installed"]
         _failed = []
+        _errors = []
         if not _unknown:
             for _name in _todo:
                 env = odoo.api.Environment(_cr, _uid, _ctx)
@@ -1802,10 +1834,11 @@ def _build_install_report_script(modules: list[str]) -> str:
                 try:
                     _rec.button_immediate_install()
                     env.cr.commit()
-                except Exception:
+                except Exception as _exc:
                     traceback.print_exc(file=sys.stderr)
                     env.cr.rollback()
                     _failed.append(_name)
+                    _errors.append(_failure_detail(_name, _exc))
         _after = _states()
         _installed = sorted(n for n, s in _after.items() if s == "installed" and _before.get(n) != "installed")
         print(
@@ -1817,6 +1850,7 @@ def _build_install_report_script(modules: list[str]) -> str:
                     "installed": _installed,
                     "unknown": _unknown,
                     "failed": _failed,
+                    "errors": _errors,
                     "list_updated": ["yes"] if _updated_list else [],
                 }}
             )

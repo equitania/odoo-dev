@@ -50,6 +50,14 @@ def _require(args: dict[str, Any], key: str, command: str) -> str:
     return value
 
 
+def _reasons(result: dict[str, list[str]]) -> str:
+    """Per-module failure reasons (exception + traceback tail) as a message suffix, or ``""``."""
+    from odoodev.core.database import format_failure_details
+
+    details = format_failure_details(result)
+    return f"\n{details}" if details else ""
+
+
 def _as_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -1091,9 +1099,11 @@ def handle_server_install(version_cfg: VersionConfig, args: dict[str, Any]) -> S
     bad = [f"{name} ({states.get(name, 'missing')})" for name in modules if states.get(name) != "installed"]
     if bad:
         extra = f"; install failed for: {', '.join(failed)}" if failed else ""
-        return _step_error(command, command, f"Modules not installed in '{db_name}': {', '.join(bad)}{extra}", 0)
+        return _step_error(
+            command, command, f"Modules not installed in '{db_name}': {', '.join(bad)}{extra}{_reasons(result)}", 0
+        )
     if failed:
-        return _step_error(command, command, f"Install reported failures: {', '.join(failed)}", 0)
+        return _step_error(command, command, f"Install reported failures: {', '.join(failed)}{_reasons(result)}", 0)
 
     if not installed:
         return _step_ok(
@@ -1210,9 +1220,11 @@ def handle_server_uninstall(version_cfg: VersionConfig, args: dict[str, Any]) ->
     if rows:
         left = ", ".join(f"{row[0]} ({row[-1]})" for row in rows)
         extra = f"; uninstall failed for: {', '.join(failed)}" if failed else ""
-        return _step_error(command, command, f"Modules still not uninstalled in '{db_name}': {left}{extra}", 0)
+        return _step_error(
+            command, command, f"Modules still not uninstalled in '{db_name}': {left}{extra}{_reasons(result)}", 0
+        )
     if failed:
-        return _step_error(command, command, f"Uninstall reported failures: {', '.join(failed)}", 0)
+        return _step_error(command, command, f"Uninstall reported failures: {', '.join(failed)}{_reasons(result)}", 0)
 
     if not installed:
         return _step_ok(

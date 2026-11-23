@@ -1,8 +1,11 @@
 # CLAUDE.md
 
-This file provides guidance to coding agents working with code in this repository — Claude Code
-(claude.ai/code) and, via the `AGENTS.md` symlink pointing here, Codex and any other agent that
-reads `AGENTS.md`.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this
+repository.
+
+**`AGENTS.md` is no longer used.** The project is worked on with Claude Code only, so this file is
+the single source of project instructions. The former `AGENTS.md` symlink (pointing here, for
+Codex and other agents) was removed on purpose — do not recreate it.
 
 ## Development Setup
 

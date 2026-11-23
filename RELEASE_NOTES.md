@@ -1,5 +1,20 @@
 # Release Notes
 
+## Version 0.78.1 (23.11.2026)
+
+### Fixed
+- **`server.install` / `server.uninstall` name the reason when a module fails.** Until now the
+  step only said "install failed for: <module>"; the exception went to the stderr of
+  `odoo-bin shell` and was lost, so a one-off failure could not be diagnosed afterwards. The
+  shell report now carries a new key `errors` (one entry per failed module: exception type,
+  message and the last 15 lines of the traceback), and the step error message appends it
+  (capped at 4000 characters). The existing report keys are unchanged; a report without
+  `errors` behaves as before.
+
+### Changed
+- **`AGENTS.md` removed.** The project is worked on with Claude Code only; `CLAUDE.md` is the
+  single source of project instructions and says so.
+
 ## Version 0.78.0 (20.11.2026)
 
 ### Added
