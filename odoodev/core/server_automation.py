@@ -1005,6 +1005,15 @@ def handle_server_update_all(version_cfg: VersionConfig, args: dict[str, Any]) -
     return _step_ok(command, command, message, 0, database=db_name)
 
 
+def _report_cron_waits(output: str, report: Callable[[str], None]) -> None:
+    """Surface the shell's cron-lock wait lines (a scheduled action delayed the module operation)."""
+    from odoodev.core.database import CRON_WAIT_MARKER
+
+    waits = [line.split(CRON_WAIT_MARKER, 1)[1] for line in output.splitlines() if CRON_WAIT_MARKER in line]
+    if waits:
+        report(f"{len(waits)} wait/retry notice(s) for running scheduled actions; last: {waits[-1]}")
+
+
 # =============================================================================
 # server.install — install modules the way the Apps menu does
 # =============================================================================
@@ -1070,6 +1079,7 @@ def handle_server_install(version_cfg: VersionConfig, args: dict[str, Any]) -> S
     )
     if not ok:
         return _step_error(command, command, f"Install shell failed: {output}", 0)
+    _report_cron_waits(output, report)
     result = parse_install_report(output)
     if result is None:
         return _step_error(command, command, "Install shell gave no result line — check 'docker logs'", 0)
@@ -1198,6 +1208,7 @@ def handle_server_uninstall(version_cfg: VersionConfig, args: dict[str, Any]) ->
     )
     if not ok:
         return _step_error(command, command, f"Uninstall shell failed: {output}", 0)
+    _report_cron_waits(output, report)
     result = parse_uninstall_report(output)
     if result is None:
         return _step_error(command, command, "Uninstall shell gave no result line — check 'docker logs'", 0)

@@ -277,7 +277,7 @@ a pgvector backup into a server without it; sanitize flags `deactivate_cron`/`ne
 `server.neutralize`, `server.update-all` (`odoo-bin -u all` inside the running container — the
 exception for hosts without `update_docker_odoo.py`; `restart: true` default), `server.install` (`modules:` required list of `[a-z0-9_]` names; runs
 `ir.module.module.button_immediate_install` (dependencies go along) in `odoo-bin shell --no-http` via `docker exec -i -u odoo`;
-waits for the container to be healthy first; names unknown to the DB trigger `update_list()` once, a name still unknown fails the
+waits for the container to be healthy first, and (like `server.uninstall`) for a running scheduled action — polls the `ir_cron` lock every 10 s for up to 600 s, retries a lost race up to 3 times, else fails naming the cron lock; names unknown to the DB trigger `update_list()` once, a name still unknown fails the
 step (nothing is installed); already-installed modules are skipped and reported; the DB is checked afterwards — every requested
 module must be `installed`, else the step fails listing module and state; empty `modules` = no-op; `restart: true` default,
 `timeout` 1800, `odoo_bin_path`, `config_path`; YAML: `command: server.install`, `args: {target: test, modules: [eq_foo, sale_management]}`),

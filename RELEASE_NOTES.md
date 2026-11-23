@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.78.2 (23.11.2026)
+
+### Fixed
+- **`server.install` / `server.uninstall` no longer fail while a scheduled action is running.**
+  Odoo 16-19 refuses module operations with "Odoo is currently processing a scheduled action"
+  when `ir_cron` is locked. After `server.rebuild` the module cron jobs are due at once, so the
+  container's cron thread often held that lock exactly when the install started; a minute later
+  the same install worked. The generated shell script now probes `SELECT 1 FROM ir_cron FOR UPDATE
+  NOWAIT` (language-independent, every probe ends with a rollback so it never holds the lock into
+  the install), waits and polls every 10 s for up to 600 s, and retries the whole call up to 3
+  times if the lock is lost between probe and call. If the wait times out, the step fails with a
+  reason naming the `ir_cron` lock (in the existing `errors` detail). The wait is reported as
+  progress.
+
 ## Version 0.78.1 (23.11.2026)
 
 ### Fixed

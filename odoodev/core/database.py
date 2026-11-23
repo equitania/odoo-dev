@@ -1675,8 +1675,11 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
     and the database check decides; ``odoo-bin shell`` rolls back on exit, so
     every successful uninstall is committed explicitly.
     """
-    return _FAILURE_HELPER + textwrap.dedent(
-        f"""\
+    return (
+        _FAILURE_HELPER
+        + _cron_wait_helper()
+        + textwrap.dedent(
+            f"""\
         import json
         import sys
         import traceback
@@ -1698,16 +1701,11 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
         _failed = []
         _errors = []
         for _name in _installed:
-            env = odoo.api.Environment(_cr, _uid, _ctx)
-            _rec = env["ir.module.module"].with_context(active_test=False).search([("name", "=", _name)])
-            if _rec.state != "installed":
-                continue  # removed as a dependent of an earlier module
             try:
-                _rec.button_immediate_uninstall()
-                env.cr.commit()
+                _run_module_op(_name, "button_immediate_uninstall", False)  # skips modules removed as dependents
             except Exception as _exc:
                 traceback.print_exc(file=sys.stderr)
-                env.cr.rollback()
+                _cr.rollback()
                 _failed.append(_name)
                 _errors.append(_failure_detail(_name, _exc))
         _after = _states()
@@ -1727,6 +1725,7 @@ def _build_uninstall_report_script(modules: list[str]) -> str:
             )
         )
         """
+        )
     )
 
 
@@ -1742,6 +1741,98 @@ _FAILURE_HELPER = textwrap.dedent(
 
     """
 )
+
+# Odoo 16-19 ``button_immediate_install/uninstall`` runs ``SELECT ... FROM ir_cron FOR UPDATE
+# NOWAIT`` and raises a (translated) UserError when a scheduled action is running. After a
+# module update the module cron jobs are due at once, so the serving container's cron thread
+# often holds that lock exactly when the playbook step starts. The generated script waits for
+# the lock instead of failing.
+CRON_LOCK_WAIT_TIMEOUT = 600  # seconds to wait for a running scheduled action, per module operation
+CRON_LOCK_POLL_INTERVAL = 10  # seconds between probes
+CRON_LOCK_CALL_RETRIES = 3  # whole-call attempts when the lock is lost between probe and call
+CRON_WAIT_MARKER = "odoodev-cron-wait: "
+
+
+def _cron_wait_helper() -> str:
+    """Script prelude: ``_run_module_op(name, method, skip_if_installed)`` with the cron-lock wait.
+
+    Transaction reasoning: the probe (``FOR UPDATE NOWAIT`` on ``ir_cron``) takes row locks that
+    live until the end of the transaction, and ``button_immediate_*`` takes the same locks itself
+    on the same cursor. A probe that kept its transaction open would not conflict with Odoo (same
+    transaction) but would hold the lock on the cron rows for the whole install; so every probe
+    ends with a rollback, before the environment and the module record are created. The window
+    between that rollback and Odoo's own lock is the race the call retry covers. The failure is
+    recognised without the translated message: ``UserError`` whose ``__context__`` is the
+    psycopg2 ``OperationalError`` Odoo converts.
+    """
+    return textwrap.dedent(
+        f"""\
+        import time
+
+        import psycopg2
+
+        CRON_LOCK_WAIT_TIMEOUT = {CRON_LOCK_WAIT_TIMEOUT}
+        CRON_LOCK_POLL_INTERVAL = {CRON_LOCK_POLL_INTERVAL}
+        CRON_LOCK_CALL_RETRIES = {CRON_LOCK_CALL_RETRIES}
+
+
+        class CronLockTimeout(Exception):
+            pass
+
+
+        def _cron_lock_free():
+            try:
+                _cr.execute("SELECT 1 FROM ir_cron FOR UPDATE NOWAIT")
+                return True
+            except psycopg2.OperationalError:
+                return False
+            finally:
+                _cr.rollback()  # never hold the probe's locks while Odoo takes its own
+
+
+        def _wait_for_cron_lock(name):
+            _deadline = time.monotonic() + CRON_LOCK_WAIT_TIMEOUT
+            _attempt = 0
+            while not _cron_lock_free():
+                _attempt += 1
+                if time.monotonic() >= _deadline:
+                    raise CronLockTimeout(
+                        "ir_cron lock still held after " + str(CRON_LOCK_WAIT_TIMEOUT) + " s: a scheduled action is "
+                        "running, so Odoo refuses module operations (" + name + ")"
+                    )
+                _msg = "waiting for a running scheduled action to finish (attempt " + str(_attempt) + ", " + name + ")"
+                print({CRON_WAIT_MARKER!r} + _msg, flush=True)
+                time.sleep(CRON_LOCK_POLL_INTERVAL)
+
+
+        def _is_cron_lock_error(exc):
+            return isinstance(exc, odoo.exceptions.UserError) and isinstance(exc.__context__, psycopg2.OperationalError)
+
+
+        def _run_module_op(name, method, skip_if_installed):
+            for _try in range(1, CRON_LOCK_CALL_RETRIES + 1):
+                _wait_for_cron_lock(name)
+                _env = odoo.api.Environment(_cr, _uid, _ctx)
+                _rec = _env["ir.module.module"].with_context(active_test=False).search([("name", "=", name)])
+                if (_rec.state == "installed") == skip_if_installed:
+                    return  # nothing to do (dependency/dependent of an earlier module)
+                try:
+                    getattr(_rec, method)()
+                    _env.cr.commit()
+                    return
+                except Exception as _exc:
+                    _env.cr.rollback()
+                    if _is_cron_lock_error(_exc) and _try < CRON_LOCK_CALL_RETRIES:
+                        _msg = "scheduled action took the lock first, retrying (" + name + ")"
+                        print({CRON_WAIT_MARKER!r} + _msg, flush=True)
+                        time.sleep(CRON_LOCK_POLL_INTERVAL)
+                        continue
+                    raise
+
+
+        """
+    )
+
 
 MAX_FAILURE_DETAIL_CHARS = 4000
 
@@ -1797,8 +1888,11 @@ def _build_install_report_script(modules: list[str]) -> str:
     module failed — the failure is in the report and the database check decides;
     ``odoo-bin shell`` rolls back on exit, so every step is committed explicitly.
     """
-    return _FAILURE_HELPER + textwrap.dedent(
-        f"""\
+    return (
+        _FAILURE_HELPER
+        + _cron_wait_helper()
+        + textwrap.dedent(
+            f"""\
         import json
         import sys
         import traceback
@@ -1827,16 +1921,11 @@ def _build_install_report_script(modules: list[str]) -> str:
         _errors = []
         if not _unknown:
             for _name in _todo:
-                env = odoo.api.Environment(_cr, _uid, _ctx)
-                _rec = env["ir.module.module"].with_context(active_test=False).search([("name", "=", _name)])
-                if _rec.state == "installed":
-                    continue  # installed as a dependency of an earlier module
                 try:
-                    _rec.button_immediate_install()
-                    env.cr.commit()
+                    _run_module_op(_name, "button_immediate_install", True)  # skips modules installed as dependencies
                 except Exception as _exc:
                     traceback.print_exc(file=sys.stderr)
-                    env.cr.rollback()
+                    _cr.rollback()
                     _failed.append(_name)
                     _errors.append(_failure_detail(_name, _exc))
         _after = _states()
@@ -1856,6 +1945,7 @@ def _build_install_report_script(modules: list[str]) -> str:
             )
         )
         """
+        )
     )
 
 
