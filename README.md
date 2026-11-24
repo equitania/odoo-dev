@@ -203,6 +203,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.78.4:**
+- **Geändert:** Die Baselines für v16, v18 und v19 entsprechen den Paketständen der Online-Images (u. a. v16: Werkzeug 2.3.8 statt 3.0.6; v18: pandas 2.2.3 statt pandas 3; neu typst und markdownify).
+
 **Version 0.78.3:**
 - **Geändert:** Die Baselines für v16, v18, v19 und v20 verlangen eq-chatbot-core 4.3.2 oder neuer. Die Version schließt eine DNS-Rebinding-Lücke in den SSRF-Transports.
 
@@ -906,6 +909,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.78.4:**
+- **Changed:** The baselines for v16, v18 and v19 match the package versions of the online images (among others v16: Werkzeug 2.3.8 instead of 3.0.6; v18: pandas 2.2.3 instead of pandas 3; new typst and markdownify).
 
 **Version 0.78.3:**
 - **Changed:** The baselines for v16, v18, v19 and v20 require eq-chatbot-core 4.3.2 or newer. That release closes a DNS-rebinding gap in the SSRF transports.

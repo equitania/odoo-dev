@@ -1,6 +1,7 @@
 # Odoo 16.0 Requirements (Python >= 3.12, macOS/Linux only)
 # psycopg2-binary used instead of psycopg2 for native development
-Babel==2.16.0
+setuptools<82  # Odoo 16 imports pkg_resources, removed in setuptools 82 (as in the prepare-odoo16 image)
+Babel==2.9.1  # same as the prepare-odoo16 image (online)
 chardet==4.0.0
 cryptography==50.0.2  # floor required by eq-chatbot-core 4.x; 13 advisories against 44.0.0,
                       # incl. CVE-2026-69247 (Bleichenbacher oracle in PKCS#7) and CVE-2024-12797
@@ -38,16 +39,16 @@ pyusb==1.2.1
 qrcode==6.1
 reportlab==4.1.0
 requests==2.33.0  # CVE-2024-47081 (netrc credential leak), CVE-2026-25645
-urllib3==2.7.0  # 12 advisories against 2.3.0, incl. CVE-2025-50181/50182 (redirect handling)
+urllib3==2.8.0  # 12 advisories against 2.3.0, incl. CVE-2025-50181/50182 (redirect handling)
                 # and CVE-2026-44431/44432 (cross-origin header leak, decompression bomb)
 vobject==0.9.6.1
 websocket-client==1.8.0  # not in Odoo's requirements: without it HttpCase skips every
                          # browser/JS test (tours) and still reports 0 failed
-Werkzeug==3.0.6  # MUST stay < 3.1: odoo/http.py:260 reads werkzeug.__version__, which
-                 # 3.1 removed - Odoo 16 does not even import with 3.1.x. The file asked
-                 # for 3.1.3 while the venv still had 3.0.1, so this only surfaced on a
-                 # rebuild. Odoo 16 upstream pins 2.0.2; the open advisories against
-                 # 3.0.6 are Windows device names in safe_join and do not apply here.
+Werkzeug==2.3.8  # same as the prepare-odoo16 image (online). Hard ceiling is 3.0, not 3.1:
+                 # 3.0 removed the old URL API (url_parse, url_encode, ...) that odoo/http.py
+                 # imports; the local v16 tree only runs on 3.0.x through its monkeypatch.
+                 # Accepted on 2.3.8: CVE-2024-34069 needs the debugger (never enabled),
+                 # CVE-2024-49767 is bounded by nginx client_max_body_size.
 xlrd==1.2.0
 XlsxWriter==1.1.2
 xlwt==1.3.0
@@ -61,7 +62,7 @@ msal==1.37.0  # v16-microsoft365; 1.31.1 caps cryptography<46 and blocked the bu
               # above - 1.37.0 allows <51
 nextcloud-api-wrapper
 numpy==1.26.4
-oauthlib==3.2.2
+oauthlib==4.0.0  # GHSA-hj66-6f7g-4r5v, GHSA-xpv3-w29h-x7cv; 4.0 only breaks the provider side, our users are client-only
 odoorpc-toolbox
 openai                    # v16-ai, v16-equitania, v16-supedio import it directly
 

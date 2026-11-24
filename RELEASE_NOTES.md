@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.78.4 (24.11.2026)
+
+### Changed
+- **Baselines v16, v18 and v19 match the online images.** The pinned packages now equal the
+  `prepare-odoo16`, `prepare-18` and `prepare-19` base images that production servers run on
+  (state 24.11.2026), so a local environment behaves like the server:
+  - v16: **Werkzeug 2.3.8** (was 3.0.6 — Odoo 16 imports the URL API that Werkzeug 3.0 removed;
+    the local tree only ran on 3.0.x through its monkeypatch), Babel 2.9.1, oauthlib 4.0.0,
+    urllib3 2.8.0, and `setuptools<82` (Odoo 16 imports `pkg_resources`).
+  - v18: pandas 2.2.3 (was unpinned and resolved to pandas 3), pypdf 6.19.0, oauthlib 4.0.0,
+    urllib3 2.8.0; new: beautifulsoup4 4.15.0, boto3, typst, markdownify.
+  - v19: Babel 2.16.0, beautifulsoup4 4.15.0, pypdf 6.19.0, oauthlib 4.0.0, urllib3 2.8.0;
+    new: typst, markdownify.
+
+  Kept on purpose: `psycopg2-binary` instead of `psycopg2` on macOS, and the development-only
+  `websocket-client` and `watchdog`. The online images run Python 3.12.16 (v16) and 3.13.18
+  (v18/v19); pin that in the environment's `.python-version` and run `odoodev venv setup --force`.
+
 ## Version 0.78.3 (24.11.2026)
 
 ### Changed

@@ -49,8 +49,8 @@ pyopenssl==26.4.0  # <26 dies on Odoo startup with cryptography>=49 (GEN_EMAIL);
                    # 26.0.0 caps cryptography<47, 26.4.0 wants >=49,<51
 
 # pypdf replaces PyPDF2 for Python 3.13+
-pypdf==6.16.1  # 70+ advisories (DoS / RAM exhaustion via malformed streams, xref
-               # tables, inline images)
+pypdf==6.19.0  # as online. 70+ advisories (DoS / RAM exhaustion via malformed streams, xref
+               # tables, inline images); 6.16.1 -> 6.19.0 for 8 more (GHSA-5jq2-8x83-x246 et al.)
 
 pyserial==3.5
 python-dateutil==2.8.2
@@ -65,7 +65,7 @@ qrcode==7.4.2
 reportlab==4.1.0
 requests==2.33.0  # CVE-2026-25645 (insecure temp file reuse)
 rjsmin==1.2.0
-urllib3==2.7.0  # CVE-2026-44431 / CVE-2026-44432 (cross-origin header leak, bomb)
+urllib3==2.8.0  # CVE-2026-44431 / CVE-2026-44432 (cross-origin header leak, bomb)
 vobject==0.9.6.1
 websocket-client==1.8.0  # not in Odoo's requirements: without it HttpCase skips every
                          # browser/JS test (tours) and still reports 0 failed
@@ -94,11 +94,11 @@ markdown==3.10.2
 PyYAML>=6.0.1,<7.0.0
 paramiko>=3.5.0
 python-barcode
-pandas>=2.1.0
+pandas==2.2.3  # same as the prepare-18 image (online); pandas 3 is a major the code was not written for
 numpy>=1.26.3
 deepl
 unidecode
-oauthlib==3.3.1
+oauthlib==4.0.0  # GHSA-hj66-6f7g-4r5v, GHSA-xpv3-w29h-x7cv; client-only use, as online
 xmltodict==0.13.0
 
 # AI/Chatbot dependencies (eq-chatbot-core)
@@ -177,3 +177,9 @@ schwifty==2024.4.0        # OCA base_bank_from_iban pins this exact version; a n
 # typing-extensions - and rl-renderPM ; sys_platform == 'win32'. None are
 # declared in any external_dependencies either; the real v18 environment no
 # longer ships them.
+
+# In the prepare-18 image (online) but missing here until 0.78.4:
+beautifulsoup4==4.15.0  # eq_module_docs (external_dependency: bs4)
+boto3>=1.40.0,<2.0.0  # parity with prepare-19 (website_scorm_elearning)
+typst>=0.15.0,<1.0.0  # eq_knowledge_datasheet renders the data sheet PDFs
+markdownify>=1.2.0,<2.0.0  # HTML -> Markdown; [docs] only provides it transitively

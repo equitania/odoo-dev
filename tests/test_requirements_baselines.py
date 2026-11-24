@@ -35,14 +35,17 @@ def test_v17_keeps_both_marker_variants():
         assert names.count(package) == 2, f"v17: expected two marker variants of {package}"
 
 
-def test_v16_pins_werkzeug_below_3_1():
-    """Odoo 16 does not import with Werkzeug 3.1.x (odoo/http.py:260)."""
+def test_v16_pins_werkzeug_like_the_online_image():
+    """v16 pins Werkzeug 2.3.8, as the prepare-odoo16 image does.
+
+    The hard ceiling is 3.0, not 3.1: Werkzeug 3.0 removed the URL API that odoo/http.py imports.
+    """
     text = get_base_requirements_path("16").read_text(encoding="utf-8")
     werkzeug = [
         line.requirement for line in parse_requirements(text) if line.requirement and line.requirement.key == "werkzeug"
     ]
     assert len(werkzeug) == 1
-    assert werkzeug[0].specifier == "==3.0.6"
+    assert werkzeug[0].specifier == "==2.3.8"
 
 
 @pytest.mark.parametrize("version", VERSIONS)
