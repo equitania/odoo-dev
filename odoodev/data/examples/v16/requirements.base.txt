@@ -70,11 +70,14 @@ openai                    # v16-ai, v16-equitania, v16-supedio import it directl
 # install. Same version as v18/v19; v16 runs on Python 3.12, which meets the >=3.12
 # floor. Azure, Vertex and NovaSonic (removed in 3.0.0) are not used in the v16
 # tree, and the pricing_catalog import is try/except-guarded.
-# Floor 4.0.1: 4.0 drops all built-in model IDs (callers must pass model=, else
+# Floor 4.3.2: the SSRF transports connect to the address they checked (DNS
+# rebinding fix for providers, embedders and MCP HTTP clients) and
+# wrap_external_content() can no longer be closed from inside a tool result.
+# 4.0.1 was the previous floor: 4.0 drops all built-in model IDs (callers must pass model=, else
 # ModelNotSpecifiedError); 4.0.0 was yanked on PyPI for a bloated sdist. 3.3.0
 # was the previous floor: eq_chatbot_mcp passes allow_private_ranges= to
 # get_mcp_client(), which older releases reject with a TypeError on connect.
-eq-chatbot-core[rag,security,docs]>=4.0.1
+eq-chatbot-core[rag,security,docs]>=4.3.2
 
 # Declared by eq_chatbot_rag. Until now it only arrived transitively through
 # langchain-qdrant, which is gone with the langchain block below.

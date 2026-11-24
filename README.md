@@ -203,6 +203,9 @@ uv build                                # Paket bauen
 
 Die vollständige Versionshistorie steht in den [Release Notes](RELEASE_NOTES.md).
 
+**Version 0.78.3:**
+- **Geändert:** Die Baselines für v16, v18, v19 und v20 verlangen eq-chatbot-core 4.3.2 oder neuer. Die Version schließt eine DNS-Rebinding-Lücke in den SSRF-Transports.
+
 **Version 0.78.0:**
 - **Neu:** Playbook-Schritt `server.install` installiert Module auf einem Server-Target wie das Apps-Menü (Abhängigkeiten inklusive) — das Gegenstück zu `server.uninstall`. Bereits installierte Module werden übersprungen, unbekannte nach einer Aktualisierung der Modulliste gemeldet (Fehler), danach prüft der Schritt die Datenbank; der Container wird standardmäßig neu gestartet.
 
@@ -903,6 +906,9 @@ uv build                                # Build package
 ### Changelog
 
 The full version history is available in the [Release Notes](RELEASE_NOTES.md).
+
+**Version 0.78.3:**
+- **Changed:** The baselines for v16, v18, v19 and v20 require eq-chatbot-core 4.3.2 or newer. That release closes a DNS-rebinding gap in the SSRF transports.
 
 **Version 0.78.0:**
 - **Added:** Playbook step `server.install` installs modules on a server target the way the Apps menu does (dependencies included) — the counterpart of `server.uninstall`. Modules that are already installed are skipped, modules still unknown after a module list update are an error, the database is checked afterwards, and the container restarts by default.

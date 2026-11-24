@@ -118,11 +118,14 @@ oauthlib==3.3.1           # OCA auth modules
 # NOTE: the docs extra pulls in pymupdf (AGPL-3.0-or-later). Distributing an
 # installation that includes it requires a commercial PyMuPDF license.
 #
-# Floor 4.0.1: 4.0 drops all built-in model IDs (callers must pass model=, else
+# Floor 4.3.2: the SSRF transports connect to the address they checked (DNS
+# rebinding fix for providers, embedders and MCP HTTP clients) and
+# wrap_external_content() can no longer be closed from inside a tool result.
+# 4.0.1 was the previous floor: 4.0 drops all built-in model IDs (callers must pass model=, else
 # ModelNotSpecifiedError); 4.0.0 was yanked on PyPI for a bloated sdist. 3.3.0
 # was the previous floor: eq_chatbot_mcp passes allow_private_ranges= to
 # get_mcp_client(), which older releases reject with a TypeError on connect.
-eq-chatbot-core[rag,security,docs]>=4.0.1
+eq-chatbot-core[rag,security,docs]>=4.3.2
 
 # Declared as an external_dependency by eq_chatbot_rag and imported directly,
 # so it stays explicit even though [rag] already provides it.

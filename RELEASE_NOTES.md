@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.78.3 (24.11.2026)
+
+### Changed
+- **Baselines v16, v18, v19 and v20 require eq-chatbot-core 4.3.2 or newer** (was 4.0.1). 4.3.2
+  closes a DNS-rebinding gap in the SSRF transports (the connect now goes to the address that
+  passed the check) and hardens the fence of `wrap_external_content()`. It raises its own
+  dependency floors (openai 3.58, anthropic 1.17, httpx2 2.16.2, pydantic 2.14.4, click 8.5.1,
+  qdrant-client 1.20 via `[rag]`); none of them conflicts with a pin in the baselines. Run
+  `odoodev requirements sync` and reinstall to pick it up in an existing environment.
+
 ## Version 0.78.2 (23.11.2026)
 
 ### Fixed
