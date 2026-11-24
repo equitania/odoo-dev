@@ -179,7 +179,7 @@ automatisch ein `sync`.
 # Edit requirements.local.txt instead, then: odoodev requirements sync 18
 
 Babel==2.17.0                  # [local] neuer als die Vorgabe 2.16.0
-Werkzeug==3.0.6                # muss < 3.1 bleiben (aus der Baseline übernommen)
+Werkzeug==3.0.6                # aus der Baseline übernommen
 
 # ── local additions ──────────────────────────────────────────
 debugpy==1.8.5                 # [local]
@@ -195,8 +195,9 @@ den Baseline-Hash wertet `start` aus.
 `sync` meldet jede Überschreibung (`overlay pins <paket><spezifikation>`) und warnt zusätzlich:
 
 - **Overlay hält ein Baseline-Update zurück** — der lokale Pin ist älter als der der Baseline.
-  Typischer Fall ist ein Pin auf Werkzeug 3.0.6 unter v16, weil Odoos `http.py` das in Werkzeug 3.1
-  entfernte `werkzeug.__version__` liest — genau dieser Grund steht als Kommentar in der Baseline.
+  Typischer Fall ist ein alter Pin wie `pypdf==6.16.1` unter v18, nachdem die Baseline auf den
+  Stand des Online-Images (6.19.0) gezogen ist — der Grund des Updates steht als Kommentar in der
+  Baseline.
 - **Overlay verliert Extras der Baseline** — der lokale Eintrag nennt weniger Extras als der
   Baseline-Eintrag, den er ersetzt.
 
@@ -379,7 +380,7 @@ The previous overlay is kept as `requirements.local.txt.pre-prune`, and a `sync`
 # Edit requirements.local.txt instead, then: odoodev requirements sync 18
 
 Babel==2.17.0                  # [local] newer than the baseline's 2.16.0
-Werkzeug==3.0.6                # must stay < 3.1 (kept from the baseline)
+Werkzeug==3.0.6                # kept from the baseline
 
 # ── local additions ──────────────────────────────────────────
 debugpy==1.8.5                 # [local]
@@ -395,8 +396,8 @@ baseline hash is the one `start` evaluates.
 `sync` reports every override (`overlay pins <package><specifier>`) and additionally warns about:
 
 - **Overlay holds a baseline bump back** — the local pin is older than the baseline's. Typical
-  case is a pin on Werkzeug 3.0.6 for v16, because Odoo's `http.py` reads `werkzeug.__version__`,
-  which Werkzeug 3.1 removed — that exact reason is a comment in the baseline.
+  case is a stale pin such as `pypdf==6.16.1` for v18 after the baseline moved to the online image's
+  6.19.0 — the reason for the bump is a comment in the baseline.
 - **Overlay drops baseline extras** — the local entry names fewer extras than the baseline entry
   it replaces.
 
